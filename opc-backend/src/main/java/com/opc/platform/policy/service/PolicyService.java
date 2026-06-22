@@ -3,7 +3,9 @@ package com.opc.platform.policy.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
+import com.opc.platform.policy.dto.PolicyCreateDTO;
 import com.opc.platform.policy.dto.PolicyQueryDTO;
+import com.opc.platform.policy.dto.PolicyUpdateDTO;
 import com.opc.platform.policy.entity.Policy;
 import com.opc.platform.policy.mapper.PolicyMapper;
 import com.opc.platform.policy.vo.PolicyDetailVO;
@@ -32,6 +34,35 @@ public class PolicyService {
 
     private final SourceMapper sourceMapper;
 
+    public PolicyDetailVO createPolicy(PolicyCreateDTO dto) {
+        validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
+
+        Policy policy = new Policy();
+        copyCreateFields(dto, policy);
+        policyMapper.insert(policy);
+        return getPolicyDetail(policy.getId());
+    }
+
+    public PolicyDetailVO updatePolicy(Long id, PolicyUpdateDTO dto) {
+        Policy policy = policyMapper.selectById(id);
+        if (policy == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
+        }
+        validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
+
+        copyUpdateFields(dto, policy);
+        policyMapper.updateById(policy);
+        return getPolicyDetail(id);
+    }
+
+    public void deletePolicy(Long id) {
+        Policy policy = policyMapper.selectById(id);
+        if (policy == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
+        }
+        policyMapper.deleteById(id);
+    }
+
     public List<PolicyListVO> listPolicies(PolicyQueryDTO query) {
         List<Policy> policies = policyMapper.selectList(buildQueryWrapper(query)
                 .orderByDesc(Policy::getPublishDate)
@@ -54,6 +85,53 @@ public class PolicyService {
         Region region = regionMapper.selectById(policy.getRegionId());
         Source source = sourceMapper.selectById(policy.getSourceId());
         return toDetailVO(policy, region, source);
+    }
+
+    private void validateRegionAndSource(Long regionId, Long sourceId) {
+        if (regionMapper.selectById(regionId) == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Region not found");
+        }
+        if (sourceMapper.selectById(sourceId) == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Source not found");
+        }
+    }
+
+    private void copyCreateFields(PolicyCreateDTO dto, Policy policy) {
+        policy.setTitle(dto.getTitle());
+        policy.setRegionId(dto.getRegionId());
+        policy.setIssuingBody(dto.getIssuingBody());
+        policy.setPublishDate(dto.getPublishDate());
+        policy.setSourceId(dto.getSourceId());
+        policy.setPolicyLevel(dto.getPolicyLevel());
+        policy.setPolicyType(dto.getPolicyType());
+        policy.setSummary(dto.getSummary());
+        policy.setKeyPoints(dto.getKeyPoints());
+        policy.setSupportMeasures(dto.getSupportMeasures());
+        policy.setTags(dto.getTags());
+        policy.setOriginalUrl(dto.getOriginalUrl());
+        policy.setLocalFile(dto.getLocalFile());
+        policy.setAccessedAt(dto.getAccessedAt());
+        policy.setStatus(dto.getStatus());
+        policy.setReviewer(dto.getReviewer());
+    }
+
+    private void copyUpdateFields(PolicyUpdateDTO dto, Policy policy) {
+        policy.setTitle(dto.getTitle());
+        policy.setRegionId(dto.getRegionId());
+        policy.setIssuingBody(dto.getIssuingBody());
+        policy.setPublishDate(dto.getPublishDate());
+        policy.setSourceId(dto.getSourceId());
+        policy.setPolicyLevel(dto.getPolicyLevel());
+        policy.setPolicyType(dto.getPolicyType());
+        policy.setSummary(dto.getSummary());
+        policy.setKeyPoints(dto.getKeyPoints());
+        policy.setSupportMeasures(dto.getSupportMeasures());
+        policy.setTags(dto.getTags());
+        policy.setOriginalUrl(dto.getOriginalUrl());
+        policy.setLocalFile(dto.getLocalFile());
+        policy.setAccessedAt(dto.getAccessedAt());
+        policy.setStatus(dto.getStatus());
+        policy.setReviewer(dto.getReviewer());
     }
 
     private LambdaQueryWrapper<Policy> buildQueryWrapper(PolicyQueryDTO query) {

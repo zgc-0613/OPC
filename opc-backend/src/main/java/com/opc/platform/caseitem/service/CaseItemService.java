@@ -1,7 +1,9 @@
 package com.opc.platform.caseitem.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.opc.platform.caseitem.dto.CaseItemCreateDTO;
 import com.opc.platform.caseitem.dto.CaseItemQueryDTO;
+import com.opc.platform.caseitem.dto.CaseItemUpdateDTO;
 import com.opc.platform.caseitem.entity.CaseItem;
 import com.opc.platform.caseitem.mapper.CaseItemMapper;
 import com.opc.platform.caseitem.vo.CaseItemDetailVO;
@@ -32,6 +34,35 @@ public class CaseItemService {
 
     private final SourceMapper sourceMapper;
 
+    public CaseItemDetailVO createCaseItem(CaseItemCreateDTO dto) {
+        validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
+
+        CaseItem caseItem = new CaseItem();
+        copyCreateFields(dto, caseItem);
+        caseItemMapper.insert(caseItem);
+        return getCaseItemDetail(caseItem.getId());
+    }
+
+    public CaseItemDetailVO updateCaseItem(Long id, CaseItemUpdateDTO dto) {
+        CaseItem caseItem = caseItemMapper.selectById(id);
+        if (caseItem == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
+        }
+        validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
+
+        copyUpdateFields(dto, caseItem);
+        caseItemMapper.updateById(caseItem);
+        return getCaseItemDetail(id);
+    }
+
+    public void deleteCaseItem(Long id) {
+        CaseItem caseItem = caseItemMapper.selectById(id);
+        if (caseItem == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
+        }
+        caseItemMapper.deleteById(id);
+    }
+
     public List<CaseItemListVO> listCaseItems(CaseItemQueryDTO query) {
         List<CaseItem> caseItems = caseItemMapper.selectList(buildQueryWrapper(query)
                 .orderByDesc(CaseItem::getAccessedAt)
@@ -54,6 +85,51 @@ public class CaseItemService {
         Region region = regionMapper.selectById(caseItem.getRegionId());
         Source source = sourceMapper.selectById(caseItem.getSourceId());
         return toDetailVO(caseItem, region, source);
+    }
+
+    private void validateRegionAndSource(Long regionId, Long sourceId) {
+        if (regionMapper.selectById(regionId) == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Region not found");
+        }
+        if (sourceMapper.selectById(sourceId) == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Source not found");
+        }
+    }
+
+    private void copyCreateFields(CaseItemCreateDTO dto, CaseItem caseItem) {
+        caseItem.setTitle(dto.getTitle());
+        caseItem.setRegionId(dto.getRegionId());
+        caseItem.setCategory(dto.getCategory());
+        caseItem.setActorName(dto.getActorName());
+        caseItem.setSourceId(dto.getSourceId());
+        caseItem.setSummary(dto.getSummary());
+        caseItem.setBusinessModel(dto.getBusinessModel());
+        caseItem.setAiTools(dto.getAiTools());
+        caseItem.setOutcome(dto.getOutcome());
+        caseItem.setTags(dto.getTags());
+        caseItem.setOriginalUrl(dto.getOriginalUrl());
+        caseItem.setLocalFile(dto.getLocalFile());
+        caseItem.setAccessedAt(dto.getAccessedAt());
+        caseItem.setStatus(dto.getStatus());
+        caseItem.setReviewer(dto.getReviewer());
+    }
+
+    private void copyUpdateFields(CaseItemUpdateDTO dto, CaseItem caseItem) {
+        caseItem.setTitle(dto.getTitle());
+        caseItem.setRegionId(dto.getRegionId());
+        caseItem.setCategory(dto.getCategory());
+        caseItem.setActorName(dto.getActorName());
+        caseItem.setSourceId(dto.getSourceId());
+        caseItem.setSummary(dto.getSummary());
+        caseItem.setBusinessModel(dto.getBusinessModel());
+        caseItem.setAiTools(dto.getAiTools());
+        caseItem.setOutcome(dto.getOutcome());
+        caseItem.setTags(dto.getTags());
+        caseItem.setOriginalUrl(dto.getOriginalUrl());
+        caseItem.setLocalFile(dto.getLocalFile());
+        caseItem.setAccessedAt(dto.getAccessedAt());
+        caseItem.setStatus(dto.getStatus());
+        caseItem.setReviewer(dto.getReviewer());
     }
 
     private LambdaQueryWrapper<CaseItem> buildQueryWrapper(CaseItemQueryDTO query) {
