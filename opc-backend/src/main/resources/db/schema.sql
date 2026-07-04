@@ -79,3 +79,19 @@ CREATE TABLE IF NOT EXISTS case_items (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
   COMMENT='Case item table';
+
+CREATE TABLE IF NOT EXISTS tags (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
+    name VARCHAR(100) NOT NULL COMMENT 'Tag name',
+    tag_type VARCHAR(20) NOT NULL COMMENT 'policy/case/common',
+    sort_order INT NOT NULL DEFAULT 0 COMMENT 'Sort order',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created time',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated time',
+
+    UNIQUE KEY uk_tags_name_type (name, tag_type),
+    INDEX idx_tags_tag_type (tag_type),
+    INDEX idx_tags_sort_order (sort_order)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='Tag dictionary table';
