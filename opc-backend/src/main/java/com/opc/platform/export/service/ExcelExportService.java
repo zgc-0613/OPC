@@ -92,10 +92,11 @@ public class ExcelExportService {
             CellStyle headerStyle = createHeaderStyle(workbook);
             CellStyle wrapStyle = createWrapStyle(workbook);
             writeHeader(sheet, headerStyle, List.of(
-                    "ID", "Title", "Region ID", "Region Name", "Issuing Body", "Publish Date",
-                    "Source ID", "Source Title", "Policy Level", "Policy Type", "Summary",
-                    "Key Points", "Support Measures", "Tags", "Original URL", "Local File",
-                    "Accessed At", "Status", "Reviewer"
+                    "ID", "Title", "Region ID", "Region Name", "Issuing Body", "Document No",
+                    "Publish Date", "Effective Date", "Valid Period", "Source ID", "Source Title",
+                    "Policy Level", "Policy Type", "Summary", "Key Points", "Support Measures",
+                    "Tags", "Original URL", "Evidence URL", "Local File", "Accessed At",
+                    "Status", "Reviewer"
             ));
 
             int rowIndex = 1;
@@ -109,7 +110,10 @@ public class ExcelExportService {
                         policy.getRegionId(),
                         region == null ? null : region.getName(),
                         policy.getIssuingBody(),
+                        policy.getDocumentNo(),
                         policy.getPublishDate(),
+                        policy.getEffectiveDate(),
+                        policy.getValidPeriod(),
                         policy.getSourceId(),
                         source == null ? null : source.getTitle(),
                         policy.getPolicyLevel(),
@@ -119,6 +123,7 @@ public class ExcelExportService {
                         policy.getSupportMeasures(),
                         policy.getTags(),
                         policy.getOriginalUrl(),
+                        policy.getEvidenceUrl(),
                         policy.getLocalFile(),
                         policy.getAccessedAt(),
                         policy.getStatus(),
@@ -126,7 +131,7 @@ public class ExcelExportService {
                 ));
             }
 
-            finishSheet(sheet, 19);
+            finishSheet(sheet, 23);
             writeWorkbook(response, workbook, "policies.xlsx");
         }
     }

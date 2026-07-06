@@ -18,7 +18,13 @@ public class PolicyCreateDTO {
     @NotBlank
     private String issuingBody;
 
+    private String documentNo;
+
     private LocalDate publishDate;
+
+    private LocalDate effectiveDate;
+
+    private String validPeriod;
 
     @NotNull
     private Long sourceId;
@@ -39,6 +45,8 @@ public class PolicyCreateDTO {
     private String tags;
 
     private String originalUrl;
+
+    private String evidenceUrl;
 
     private String localFile;
 

@@ -17,7 +17,13 @@ public class PolicyListVO {
 
     private String issuingBody;
 
+    private String documentNo;
+
     private LocalDate publishDate;
+
+    private LocalDate effectiveDate;
+
+    private String validPeriod;
 
     private Long sourceId;
 
@@ -30,6 +36,8 @@ public class PolicyListVO {
     private String summary;
 
     private String tags;
+
+    private String evidenceUrl;
 
     private LocalDate accessedAt;
 

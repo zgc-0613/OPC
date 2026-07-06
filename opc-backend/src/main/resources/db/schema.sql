@@ -24,7 +24,10 @@ CREATE TABLE IF NOT EXISTS policies (
     title VARCHAR(255) NOT NULL COMMENT 'Policy title',
     region_id BIGINT NOT NULL COMMENT 'Related region ID',
     issuing_body VARCHAR(255) NOT NULL COMMENT 'Issuing body',
+    document_no VARCHAR(100) NULL COMMENT 'Document number',
     publish_date DATE NULL COMMENT 'Publish date',
+    effective_date DATE NULL COMMENT 'Effective date',
+    valid_period VARCHAR(100) NULL COMMENT 'Valid period',
     source_id BIGINT NOT NULL COMMENT 'Main source ID',
     policy_level VARCHAR(30) NOT NULL COMMENT 'national/provincial/city/district',
     policy_type VARCHAR(50) NOT NULL COMMENT 'comprehensive/computing_support/space_station/funding_subsidy/scenario_demand/talent_service/investment/other',
@@ -33,6 +36,7 @@ CREATE TABLE IF NOT EXISTS policies (
     support_measures TEXT NULL COMMENT 'Support measures',
     tags VARCHAR(500) NULL COMMENT 'Comma separated tags',
     original_url VARCHAR(1000) NULL COMMENT 'Original URL',
+    evidence_url VARCHAR(1000) NULL COMMENT 'Evidence URL',
     local_file VARCHAR(255) NULL COMMENT 'Local file name',
     accessed_at DATE NOT NULL COMMENT 'Access or download date',
     status VARCHAR(20) NOT NULL DEFAULT 'draft' COMMENT 'draft/reviewed/published',
@@ -42,9 +46,11 @@ CREATE TABLE IF NOT EXISTS policies (
 
     INDEX idx_policies_region_id (region_id),
     INDEX idx_policies_source_id (source_id),
+    INDEX idx_policies_document_no (document_no),
     INDEX idx_policies_policy_type (policy_type),
     INDEX idx_policies_status (status),
-    INDEX idx_policies_publish_date (publish_date)
+    INDEX idx_policies_publish_date (publish_date),
+    INDEX idx_policies_effective_date (effective_date)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
@@ -95,3 +101,17 @@ CREATE TABLE IF NOT EXISTS tags (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
   COMMENT='Tag dictionary table';
+
+CREATE TABLE IF NOT EXISTS policy_tags (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
+    policy_id BIGINT NOT NULL COMMENT 'Policy ID',
+    tag_id BIGINT NOT NULL COMMENT 'Tag ID',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created time',
+
+    UNIQUE KEY uk_policy_tags_policy_tag (policy_id, tag_id),
+    INDEX idx_policy_tags_policy_id (policy_id),
+    INDEX idx_policy_tags_tag_id (tag_id)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='Policy tag relation table';
