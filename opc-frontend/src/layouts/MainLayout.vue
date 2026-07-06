@@ -29,6 +29,10 @@
           <span>案例库</span>
           <small>应用场景与典型案例</small>
         </RouterLink>
+        <RouterLink to="/admin">
+          <span>管理后台</span>
+          <small>录入、编辑、校对数据</small>
+        </RouterLink>
       </nav>
 
       <div class="side-note">
