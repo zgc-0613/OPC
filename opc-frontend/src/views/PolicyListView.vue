@@ -3,47 +3,55 @@
     <section class="panel filter-panel">
       <div class="section-header">
         <div>
+          <span class="caption">policy index</span>
           <h2>政策检索</h2>
-          <p>按关键词、地区和政策类型查看已收录政策。</p>
+          <p>点击地区或类型即可自动筛选政策，关键词输入后自动搜索。</p>
         </div>
         <button class="button button-export" type="button" @click="exportPolicies">导出政策 Excel</button>
       </div>
 
-      <form class="filters" @submit.prevent="loadPolicies">
+      <div class="auto-filter-grid">
         <label>
-          <span>关键词</span>
-          <input v-model="query.keyword" placeholder="搜索标题、摘要、标签" />
+          <span>关键词检索</span>
+          <input v-model.trim="query.keyword" placeholder="搜索标题、摘要、标签" />
         </label>
         <label>
           <span>地区</span>
           <select v-model="query.regionId">
             <option value="">全部地区</option>
-            <option v-for="region in regions" :key="region.id" :value="region.id">
+            <option v-for="region in visibleRegions" :key="region.id" :value="region.id">
               {{ region.name }}
             </option>
           </select>
         </label>
         <label>
-          <span>类型</span>
+          <span>政策类型</span>
           <select v-model="query.policyType">
-            <option value="">全部类型</option>
-            <option value="comprehensive">综合政策</option>
-            <option value="computing_support">算力支持</option>
-            <option value="funding_subsidy">资金补贴</option>
-            <option value="scenario_demand">场景需求</option>
-            <option value="talent_service">人才服务</option>
-            <option value="investment">投资融资</option>
-            <option value="other">其他</option>
+            <option v-for="item in policyTypeOptions" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
           </select>
         </label>
-        <button class="button" type="submit">筛选</button>
-      </form>
+      </div>
     </section>
 
     <section class="panel">
+      <div class="section-header compact-header">
+        <div>
+          <h2>政策索引</h2>
+          <p>{{ resultText }}</p>
+        </div>
+        <button v-if="hasActiveFilter" class="button button-ghost" type="button" @click="resetFilters">
+          清除筛选
+        </button>
+      </div>
+
       <div v-if="loading" class="muted">正在加载政策...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
-      <div v-else-if="!policies.length" class="muted">暂无政策数据。</div>
+      <div v-else-if="!policies.length" class="empty-state">
+        <strong>暂无匹配政策</strong>
+        <span>可以换一个地区、类型或关键词试试。</span>
+      </div>
       <div v-else class="table-wrap">
         <table>
           <thead>
@@ -80,19 +88,65 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { getPolicies } from '@/api/policy'
 import { getRegions } from '@/api/region'
 import { exportPolicies } from '@/api/export'
 
+const route = useRoute()
 const loading = ref(false)
 const error = ref('')
 const policies = ref([])
+const allPolicies = ref([])
 const regions = ref([])
 const query = reactive({
   keyword: '',
   regionId: '',
   policyType: '',
+})
+
+const policyTypeOptions = [
+  { label: '全部类型', value: '' },
+  { label: '综合政策', value: 'comprehensive' },
+  { label: '算力支持', value: 'computing_support' },
+  { label: '资金补贴', value: 'funding_subsidy' },
+  { label: '场景需求', value: 'scenario_demand' },
+  { label: '人才服务', value: 'talent_service' },
+  { label: '投资融资', value: 'investment' },
+  { label: '其他', value: 'other' },
+]
+
+const policyTypeLabels = policyTypeOptions.reduce((map, item) => {
+  if (item.value) {
+    map[item.value] = item.label
+  }
+  return map
+}, {})
+
+const visibleRegions = computed(() => {
+  const usedRegionIds = new Set(allPolicies.value.map((item) => item.regionId).filter(Boolean))
+  if (!usedRegionIds.size) {
+    return regions.value.slice(0, 24)
+  }
+  return regions.value.filter((region) => usedRegionIds.has(region.id)).slice(0, 24)
+})
+
+const hasActiveFilter = computed(() => Boolean(query.keyword || query.regionId || query.policyType))
+
+const resultText = computed(() => {
+  const parts = []
+  if (query.policyType) {
+    parts.push(`类型：${policyTypeLabels[query.policyType] || query.policyType}`)
+  }
+  const region = regions.value.find((item) => item.id === Number(query.regionId))
+  if (region) {
+    parts.push(`地区：${region.name}`)
+  }
+  if (query.keyword) {
+    parts.push(`关键词：${query.keyword}`)
+  }
+  return parts.length ? `当前筛选 ${parts.join(' / ')}，共 ${policies.value.length} 条。` : `当前展示全部政策，共 ${policies.value.length} 条。`
 })
 
 async function loadPolicies() {
@@ -112,6 +166,12 @@ async function loadPolicies() {
   }
 }
 
+function resetFilters() {
+  query.keyword = ''
+  query.regionId = ''
+  query.policyType = ''
+}
+
 function formatTags(tags) {
   if (!tags) {
     return []
@@ -123,8 +183,29 @@ function formatTags(tags) {
     .slice(0, 4)
 }
 
+let keywordTimer = null
+watch(
+  () => query.keyword,
+  () => {
+    window.clearTimeout(keywordTimer)
+    keywordTimer = window.setTimeout(loadPolicies, 260)
+  },
+)
+
+watch(
+  () => [query.regionId, query.policyType],
+  loadPolicies,
+)
+
 onMounted(async () => {
-  regions.value = await getRegions()
-  await loadPolicies()
+  const [regionList, policyList] = await Promise.all([getRegions(), getPolicies()])
+  regions.value = regionList
+  allPolicies.value = policyList
+  query.regionId = route.query.regionId ? String(route.query.regionId) : ''
+  if (query.regionId) {
+    await loadPolicies()
+  } else {
+    policies.value = policyList
+  }
 })
 </script>
