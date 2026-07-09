@@ -1,6 +1,6 @@
 <template>
-  <div class="page-stack">
-    <section class="panel filter-panel">
+  <div class="page-stack source-ledger-page">
+    <section class="panel filter-panel source-filter-panel scroll-reveal" @pointermove="handleSourceSpotlight">
       <div class="section-header">
         <div>
           <span class="caption">source ledger</span>
@@ -10,29 +10,84 @@
         <span class="analysis-badge">{{ filteredSources.length }} sources</span>
       </div>
 
+      <div class="source-summary-strip">
+        <div>
+          <span>来源总量</span>
+          <strong>{{ sources.length }}</strong>
+          <small>当前台账记录</small>
+        </div>
+        <div>
+          <span>当前结果</span>
+          <strong>{{ filteredSources.length }}</strong>
+          <small>随筛选实时变化</small>
+        </div>
+        <div>
+          <span>含链接记录</span>
+          <strong>{{ linkedSourceCount }}</strong>
+          <small>可回到原始网页</small>
+        </div>
+        <div>
+          <span>访问日期</span>
+          <strong>{{ accessedSourceCount }}</strong>
+          <small>已记录访问时间</small>
+        </div>
+      </div>
+
       <div class="auto-filter-grid">
         <label>
           <span>关键词检索</span>
-          <input v-model.trim="query.keyword" placeholder="搜索标题、发布机构、备注" />
+          <input v-model.trim="query.keyword" placeholder="搜索标题、发布机构、来源链接" />
         </label>
         <label>
           <span>来源类型</span>
-          <select v-model="query.sourceType">
-            <option value="">全部类型</option>
-            <option v-for="type in sourceTypeOptions" :key="type" :value="type">{{ type }}</option>
-          </select>
+          <div class="custom-select" :class="{ open: sourceTypeMenuOpen }">
+            <button class="custom-select-trigger" type="button" @click="toggleSourceTypeMenu">
+              <span>{{ selectedSourceTypeLabel }}</span>
+              <b></b>
+            </button>
+            <div v-if="sourceTypeMenuOpen" class="custom-select-menu">
+              <button type="button" :class="{ active: !query.sourceType }" @click="selectSourceType('')">
+                全部类型
+              </button>
+              <button
+                v-for="type in sourceTypeOptions"
+                :key="type"
+                type="button"
+                :class="{ active: query.sourceType === type }"
+                @click="selectSourceType(type)"
+              >
+                {{ type }}
+              </button>
+            </div>
+          </div>
         </label>
         <label>
           <span>状态</span>
-          <select v-model="query.status">
-            <option value="">全部状态</option>
-            <option v-for="status in statusOptions" :key="status" :value="status">{{ status }}</option>
-          </select>
+          <div class="custom-select" :class="{ open: statusMenuOpen }">
+            <button class="custom-select-trigger" type="button" @click="toggleStatusMenu">
+              <span>{{ selectedStatusLabel }}</span>
+              <b></b>
+            </button>
+            <div v-if="statusMenuOpen" class="custom-select-menu">
+              <button type="button" :class="{ active: !query.status }" @click="selectStatus('')">
+                全部状态
+              </button>
+              <button
+                v-for="status in statusOptions"
+                :key="status"
+                type="button"
+                :class="{ active: query.status === status }"
+                @click="selectStatus(status)"
+              >
+                {{ status }}
+              </button>
+            </div>
+          </div>
         </label>
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel source-ledger-panel scroll-reveal" @pointermove="handleSourceSpotlight">
       <div class="section-header compact-header">
         <div>
           <h2>来源记录</h2>
@@ -50,16 +105,19 @@
         <span>可以换一个类型、状态或关键词试试。</span>
       </div>
       <div v-else class="source-ledger-list">
-        <article v-for="source in filteredSources" :key="source.id" class="source-ledger-row">
-          <span class="source-ledger-no">{{ source.id }}</span>
+        <article
+          v-for="(source, index) in paginatedSources"
+          :key="source.id"
+          class="source-ledger-row scroll-reveal"
+          :style="{ '--i': index }"
+        >
           <div class="source-ledger-main">
             <div class="case-index-meta">
-              <span>{{ source.sourceType || '未标注类型' }}</span>
-              <span>{{ source.publisher || '未标注机构' }}</span>
-              <span>{{ source.accessedAt || '未标注访问日期' }}</span>
+              <span>类型：{{ source.sourceType || '未标注' }}</span>
+              <span>主要单位：{{ source.publisher || '未标注' }}</span>
+              <span>访问日期：{{ source.accessedAt || '未标注' }}</span>
             </div>
             <strong>{{ source.title }}</strong>
-            <p v-if="source.notes">{{ source.notes }}</p>
             <div class="source-actions">
               <a v-if="source.url" class="button button-ghost" :href="source.url" target="_blank" rel="noreferrer">
                 打开来源链接
@@ -70,17 +128,38 @@
           <span class="status-pill">{{ source.status || '-' }}</span>
         </article>
       </div>
+
+      <div v-if="filteredSources.length" class="source-pagination" aria-label="来源分页">
+        <button type="button" :disabled="currentPage === 1" @click="goToPage(currentPage - 1)">上一页</button>
+        <button
+          v-for="page in paginationPages"
+          :key="page"
+          type="button"
+          :class="{ active: page === currentPage }"
+          @click="goToPage(page)"
+        >
+          {{ page }}
+        </button>
+        <button type="button" :disabled="currentPage === totalPages" @click="goToPage(currentPage + 1)">下一页</button>
+        <span>第 {{ currentPage }} / {{ totalPages }} 页，每页 10 条</span>
+      </div>
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { getSources } from '@/api/source'
 
 const loading = ref(false)
 const error = ref('')
 const sources = ref([])
+const currentPage = ref(1)
+const sourceTypeMenuOpen = ref(false)
+const statusMenuOpen = ref(false)
+const pageSize = 10
+let revealObserver
+
 const query = reactive({
   keyword: '',
   sourceType: '',
@@ -90,19 +169,39 @@ const query = reactive({
 const sourceTypeOptions = computed(() => uniqueValues(sources.value.map((item) => item.sourceType)))
 const statusOptions = computed(() => uniqueValues(sources.value.map((item) => item.status)))
 const hasActiveFilter = computed(() => Boolean(query.keyword || query.sourceType || query.status))
+const selectedSourceTypeLabel = computed(() => query.sourceType || '全部类型')
+const selectedStatusLabel = computed(() => query.status || '全部状态')
+const linkedSourceCount = computed(() => sources.value.filter((item) => item.url).length)
+const accessedSourceCount = computed(() => sources.value.filter((item) => item.accessedAt).length)
 
 const filteredSources = computed(() => {
   const keyword = query.keyword.toLowerCase()
   return sources.value.filter((item) => {
-    const matchKeyword = !keyword || [item.title, item.publisher, item.notes, item.url, item.localFile]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase()
-      .includes(keyword)
+    const matchKeyword =
+      !keyword ||
+      [item.title, item.publisher, item.url, item.localFile]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(keyword)
     const matchType = !query.sourceType || item.sourceType === query.sourceType
     const matchStatus = !query.status || item.status === query.status
     return matchKeyword && matchType && matchStatus
   })
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredSources.value.length / pageSize)))
+
+const paginatedSources = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return filteredSources.value.slice(start, start + pageSize)
+})
+
+const paginationPages = computed(() => {
+  const total = totalPages.value
+  const start = Math.max(1, Math.min(currentPage.value - 2, total - 4))
+  const end = Math.min(total, start + 4)
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index)
 })
 
 const resultText = computed(() => {
@@ -115,13 +214,91 @@ function resetFilters() {
   query.keyword = ''
   query.sourceType = ''
   query.status = ''
+  sourceTypeMenuOpen.value = false
+  statusMenuOpen.value = false
+  currentPage.value = 1
+}
+
+function toggleSourceTypeMenu() {
+  sourceTypeMenuOpen.value = !sourceTypeMenuOpen.value
+  if (sourceTypeMenuOpen.value) {
+    statusMenuOpen.value = false
+  }
+}
+
+function toggleStatusMenu() {
+  statusMenuOpen.value = !statusMenuOpen.value
+  if (statusMenuOpen.value) {
+    sourceTypeMenuOpen.value = false
+  }
+}
+
+function selectSourceType(sourceType) {
+  query.sourceType = sourceType
+  sourceTypeMenuOpen.value = false
+}
+
+function selectStatus(status) {
+  query.status = status
+  statusMenuOpen.value = false
+}
+
+function goToPage(page) {
+  currentPage.value = Math.min(Math.max(page, 1), totalPages.value)
+  nextTick(setupScrollReveal)
+}
+
+function handleSourceSpotlight(event) {
+  const target = event.target.closest('.source-filter-panel, .source-summary-strip div, .source-ledger-panel, .source-ledger-row')
+  if (!target) {
+    return
+  }
+  const rect = target.getBoundingClientRect()
+  target.style.setProperty('--spotlight-x', `${event.clientX - rect.left}px`)
+  target.style.setProperty('--spotlight-y', `${event.clientY - rect.top}px`)
+}
+
+function setupScrollReveal() {
+  revealObserver?.disconnect()
+  const items = document.querySelectorAll('.route-source-ledger .scroll-reveal')
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    items.forEach((item) => item.classList.add('is-visible'))
+    return
+  }
+
+  revealObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible')
+          revealObserver.unobserve(entry.target)
+        }
+      })
+    },
+    {
+      threshold: 0.12,
+      rootMargin: '0px 0px -70px',
+    },
+  )
+
+  items.forEach((item) => revealObserver.observe(item))
 }
 
 function uniqueValues(values) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'zh-CN'))
 }
 
+watch(
+  () => [query.keyword, query.sourceType, query.status],
+  () => {
+    currentPage.value = 1
+    nextTick(setupScrollReveal)
+  },
+)
+
 onMounted(async () => {
+  await nextTick()
+  setupScrollReveal()
   loading.value = true
   error.value = ''
   try {
@@ -130,6 +307,12 @@ onMounted(async () => {
     error.value = err.message || '来源加载失败'
   } finally {
     loading.value = false
+    await nextTick()
+    setupScrollReveal()
   }
+})
+
+onUnmounted(() => {
+  revealObserver?.disconnect()
 })
 </script>

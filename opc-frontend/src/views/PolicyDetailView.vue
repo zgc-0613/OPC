@@ -1,12 +1,19 @@
 <template>
-  <div class="page-stack">
-    <RouterLink class="back-link" to="/policies">返回政策库</RouterLink>
+  <div class="page-stack detail-page policy-detail-page">
+    <RouterLink class="back-link detail-back-link" to="/policies">返回政策库</RouterLink>
 
-    <section class="panel">
+    <section class="panel detail-panel">
       <div v-if="loading" class="muted">正在加载政策详情...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
-      <article v-else class="detail">
-        <h2>{{ policy.title }}</h2>
+      <article v-else class="detail detail-article" @pointermove="handleDetailSpotlight">
+        <div class="detail-hero-card">
+          <span class="caption">policy detail</span>
+          <h2>{{ policy.title }}</h2>
+          <div v-if="formatTags(policy.tags).length" class="chip-row detail-chip-row">
+            <span v-for="tag in formatTags(policy.tags)" :key="tag" class="chip">{{ tag }}</span>
+          </div>
+        </div>
+
         <div class="meta-grid">
           <span><b>地区</b>{{ policy.regionName || '-' }}</span>
           <span><b>发文单位</b>{{ policy.issuingBody || '-' }}</span>
@@ -16,24 +23,33 @@
           <span><b>有效时长</b>{{ policy.validPeriod || '-' }}</span>
         </div>
 
-        <h3>摘要</h3>
-        <p>{{ policy.summary }}</p>
+        <section class="detail-section">
+          <h3>摘要</h3>
+          <p>{{ policy.summary || '-' }}</p>
+        </section>
 
-        <h3>政策要点</h3>
-        <pre>{{ policy.keyPoints || '-' }}</pre>
+        <section class="detail-section">
+          <h3>政策要点</h3>
+          <pre>{{ policy.keyPoints || '-' }}</pre>
+        </section>
 
-        <h3>支持措施</h3>
-        <pre>{{ policy.supportMeasures || '-' }}</pre>
+        <section class="detail-section">
+          <h3>支持措施</h3>
+          <pre>{{ policy.supportMeasures || '-' }}</pre>
+        </section>
 
-        <h3>来源</h3>
-        <p class="source-actions">
-          <a v-if="policy.originalUrl" class="button button-ghost" :href="policy.originalUrl" target="_blank" rel="noreferrer">
-            政策原文
-          </a>
-          <a v-if="policy.evidenceUrl" class="button button-ghost" :href="policy.evidenceUrl" target="_blank" rel="noreferrer">
-            辅证链接
-          </a>
-        </p>
+        <section class="detail-section">
+          <h3>来源</h3>
+          <p class="source-actions">
+            <a v-if="policy.originalUrl" class="button button-ghost" :href="policy.originalUrl" target="_blank" rel="noreferrer">
+              政策原文
+            </a>
+            <a v-if="policy.evidenceUrl" class="button button-ghost" :href="policy.evidenceUrl" target="_blank" rel="noreferrer">
+              辅证链接
+            </a>
+            <span v-if="!policy.originalUrl && !policy.evidenceUrl" class="muted">暂无来源链接</span>
+          </p>
+        </section>
       </article>
     </section>
   </div>
@@ -64,4 +80,24 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+function formatTags(tags) {
+  if (!tags) {
+    return []
+  }
+  return String(tags)
+    .split(/[,，、;；]/)
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+}
+
+function handleDetailSpotlight(event) {
+  const target = event.target.closest('.detail-hero-card, .meta-grid span, .detail-section')
+  if (!target) {
+    return
+  }
+  const rect = target.getBoundingClientRect()
+  target.style.setProperty('--spotlight-x', `${event.clientX - rect.left}px`)
+  target.style.setProperty('--spotlight-y', `${event.clientY - rect.top}px`)
+}
 </script>

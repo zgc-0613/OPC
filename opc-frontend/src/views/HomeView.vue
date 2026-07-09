@@ -1,71 +1,105 @@
-<template>
-  <div class="page-stack">
-    <section class="hero-panel analytics-hero">
-      <div class="hero-copy">
-        <span class="caption">AI + OPC policy and case index</span>
-        <h2>一人公司的政策经纬</h2>
+﻿<template>
+  <div class="page-stack home-archive-page">
+    <section class="archive-hero" @pointermove="handleHeroPointerMove" @pointerleave="clearCursorTrail">
+      <div class="hero-network" aria-hidden="true">
+        <span class="hero-node"></span>
+        <span class="hero-node"></span>
+        <span class="hero-node"></span>
+        <span class="hero-node"></span>
+        <span class="hero-beam hero-beam-one"></span>
+        <span class="hero-beam hero-beam-two"></span>
+        <span class="hero-beam hero-beam-three"></span>
+        <span class="hero-flow hero-flow-one"></span>
+        <span class="hero-flow hero-flow-two"></span>
+        <span class="hero-flow hero-flow-three"></span>
+      </div>
+      <div class="cursor-trail" aria-hidden="true">
+        <span
+          v-for="dot in cursorTrail"
+          :key="dot.id"
+          :style="{ left: `${dot.x}px`, top: `${dot.y}px`, '--trail-size': `${dot.size}px` }"
+        ></span>
+      </div>
+
+      <div class="archive-hero-copy">
+        <span class="caption">AI + OPC POLICY AND CASE INDEX</span>
+        <h1>一人公司的政策经纬</h1>
         <p>
-          把分散在各地的 AI + OPC 政策、案例和来源整理成可筛选、可引用、可复核的资料索引。
+          汇总全国 AI 与一人公司相关政策、案例和来源记录，按地区、类型与主题形成可筛选、可引用、可复核的资料索引。
         </p>
-        <div class="hero-actions">
-          <RouterLink class="button" to="/policies">进入政策索引</RouterLink>
-          <RouterLink class="button button-ghost" to="/regions">查看地区目录</RouterLink>
+        <div class="archive-hero-actions">
+          <RouterLink class="button" to="/policies">进入政策库</RouterLink>
+          <RouterLink class="button button-ghost" to="/cases">查看案例库</RouterLink>
+        </div>
+        <div class="archive-hero-proof" aria-label="平台核心能力">
+          <span>地区分类检索</span>
+          <span>来源出处追溯</span>
+          <span>摘要标签分析</span>
         </div>
       </div>
 
-      <div class="signal-board analytics-board" aria-label="平台数据状态">
-        <div class="signal-board-head">
-          <span>INDEX RECORDS</span>
-          <strong>{{ totalRecordCount }}</strong>
+      <div class="archive-hero-board" aria-label="平台资料统计">
+        <div class="archive-board-head">
+          <span>资料总量</span>
+          <strong>{{ animatedTotalRecordCount }}</strong>
+          <p>汇总政策、案例与来源记录。</p>
         </div>
-        <div class="radar-rings">
-          <span></span>
-          <span></span>
-          <span></span>
+        <div v-if="loading" class="archive-loading">正在读取数据...</div>
+        <div v-else-if="error" class="error">{{ error }}</div>
+        <div v-else class="archive-metrics">
+          <div>
+            <span>政策记录</span>
+            <strong>{{ animatedPolicyCount }}</strong>
+            <p>按地区、政策类型、发布日期和标签检索。</p>
+          </div>
+          <div>
+            <span>案例记录</span>
+            <strong>{{ animatedCaseCount }}</strong>
+            <p>沉淀 AI 与一人公司相关案例线索。</p>
+          </div>
+          <div>
+            <span>来源记录</span>
+            <strong>{{ animatedSourceCount }}</strong>
+            <p>保留链接、文件、访问日期和出处信息。</p>
+          </div>
+          <div>
+            <span>覆盖地区</span>
+            <strong>{{ animatedCoveredRegionCount }}</strong>
+            <p>按省级地区观察资料覆盖与重点分布。</p>
+          </div>
+        </div>
+        <div class="archive-sparkline" aria-label="近月政策发布统计">
+          <div class="sparkline-head">
+            <span>{{ overviewChartTitle }}</span>
+            <strong>{{ overviewChartCaption }}</strong>
+          </div>
+          <div class="sparkline-bars">
+            <span
+              v-for="(item, index) in overviewBars"
+              :key="`${item.name}-${index}`"
+              class="sparkline-bar"
+            >
+              <b>{{ item.count }}</b>
+              <i :style="{ height: `${item.height}%`, animationDelay: `${index * 80}ms` }"></i>
+              <small>{{ item.label }}</small>
+            </span>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class="panel panel-raised">
-      <div class="section-header compact-header">
-        <div>
-          <h2>资料概览</h2>
-          <p>统计来自后端实时接口，后台新增或修改数据后，刷新页面即可更新。</p>
-        </div>
-      </div>
+    <div class="home-section-heading scroll-reveal">
+      <span>DATA VIEW</span>
+      <h2>资料分析概览</h2>
+      <p>以下图表根据当前数据库记录动态生成，新增政策或案例后会随接口数据同步变化。</p>
+    </div>
 
-      <div v-if="loading" class="muted">正在加载统计数据...</div>
-      <div v-else-if="error" class="error">{{ error }}</div>
-      <div v-else class="stats-grid">
-        <div class="stat-card stat-card-hot">
-          <span>政策记录</span>
-          <strong>{{ policyCount }}</strong>
-          <small>Policy</small>
-        </div>
-        <div class="stat-card">
-          <span>案例记录</span>
-          <strong>{{ caseCount }}</strong>
-          <small>Case</small>
-        </div>
-        <div class="stat-card">
-          <span>来源记录</span>
-          <strong>{{ sourceCount }}</strong>
-          <small>Source</small>
-        </div>
-        <div class="stat-card">
-          <span>覆盖地区</span>
-          <strong>{{ coveredRegionCount }}</strong>
-          <small>Region</small>
-        </div>
-      </div>
-    </section>
-
-    <section class="analysis-grid">
-      <article class="panel analysis-panel wide-panel">
+    <section class="analysis-grid archive-analysis-grid" @pointermove="handlePanelSpotlight">
+      <article class="panel analysis-panel wide-panel scroll-reveal">
         <div class="section-header">
           <div>
             <h2>地区资料排行</h2>
-            <p>合并政策和案例的地区字段统计，展示当前资料库重点覆盖地区。</p>
+            <p>合并政策和案例的地区字段统计。</p>
           </div>
           <span class="analysis-badge">TOP {{ topRegions.length }}</span>
         </div>
@@ -82,40 +116,33 @@
         </div>
       </article>
 
-      <article class="panel analysis-panel">
+      <article class="panel analysis-panel scroll-reveal">
         <div class="section-header">
           <div>
-            <h2>政策类型占比</h2>
-            <p>判断政策重点更偏资金、算力、场景还是综合支持。</p>
+            <h2>来源追溯概览</h2>
+            <p>统计来源链接、访问日期与出处信息的记录情况。</p>
           </div>
         </div>
 
-        <div v-if="!policyTypeStats.length" class="muted">暂无类型统计数据。</div>
-        <div v-else class="type-share-chart">
-          <div class="type-share-total">
-            <span>政策总量</span>
-            <strong>{{ policies.length }}</strong>
-            <small>按 policyType 字段统计</small>
-          </div>
-          <div class="type-share-list">
-            <div v-for="item in policyTypeStats" :key="item.name" class="type-share-row">
-              <div>
-                <strong>{{ item.label }}</strong>
-                <small>{{ item.count }} 条 / {{ item.percent }}%</small>
-              </div>
-              <span class="type-share-track">
-                <i :style="{ width: `${item.percent}%`, background: item.color }"></i>
-              </span>
+        <div class="trace-list source-trace-list">
+          <div v-for="item in sourceTraceStats" :key="item.name" class="trace-item">
+            <div>
+              <strong>{{ item.rate }}%</strong>
+              <span>{{ item.name }}</span>
+              <small>{{ item.count }}/{{ item.total }}</small>
+            </div>
+            <div class="trace-ring" :style="{ '--value': `${item.rate}%`, '--color': item.color }">
+              <span>{{ item.rate }}%</span>
             </div>
           </div>
         </div>
       </article>
 
-      <article class="panel analysis-panel">
+      <article class="panel analysis-panel scroll-reveal">
         <div class="section-header">
           <div>
             <h2>高频标签</h2>
-            <p>从政策和案例标签字段提取高频支持方向与应用场景。</p>
+            <p>从政策和案例标签字段提取高频主题。</p>
           </div>
         </div>
 
@@ -131,11 +158,11 @@
         </div>
       </article>
 
-      <article class="panel analysis-panel wide-panel">
+      <article class="panel analysis-panel wide-panel scroll-reveal">
         <div class="section-header">
           <div>
             <h2>政策发布趋势</h2>
-            <p>按月份统计政策发布日期，观察资料库中政策发布的时间分布。</p>
+            <p>按月份统计政策发布日期。</p>
           </div>
           <span class="analysis-badge">最近 {{ publishTrend.length }} 期</span>
         </div>
@@ -145,12 +172,12 @@
           <svg viewBox="0 0 640 210" role="img" aria-label="政策发布时间趋势">
             <defs>
               <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stop-color="#252724" stop-opacity="0.20" />
-                <stop offset="100%" stop-color="#252724" stop-opacity="0" />
+                <stop offset="0%" stop-color="#2563eb" stop-opacity="0.18" />
+                <stop offset="100%" stop-color="#2563eb" stop-opacity="0" />
               </linearGradient>
             </defs>
             <polygon class="trend-area" :points="trendAreaPoints" fill="url(#trendFill)" />
-            <polyline class="trend-line" :points="trendLinePoints" fill="none" stroke="#252724" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+            <polyline class="trend-line" :points="trendLinePoints" fill="none" stroke="#334155" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
             <circle
               v-for="(point, index) in trendDots"
               :key="point.label"
@@ -159,7 +186,7 @@
               :cx="point.x"
               :cy="point.y"
               r="5"
-              fill="#8a640f"
+              fill="#2563eb"
             />
           </svg>
           <div class="trend-labels">
@@ -168,32 +195,11 @@
         </div>
       </article>
 
-      <article class="panel analysis-panel">
+      <article class="panel analysis-panel insight-panel scroll-reveal">
         <div class="section-header">
           <div>
-            <h2>来源追溯完整度</h2>
-            <p>检查来源链接、文件、访问日期和政策辅证链接是否完整。</p>
-          </div>
-        </div>
-
-        <div class="trace-list">
-          <div v-for="item in sourceTraceStats" :key="item.name" class="trace-item">
-            <div>
-              <strong>{{ item.rate }}%</strong>
-              <span>{{ item.name }}</span>
-            </div>
-            <div class="trace-ring" :style="{ '--value': `${item.rate}%`, '--color': item.color }">
-              <span>{{ item.count }}/{{ item.total }}</span>
-            </div>
-          </div>
-        </div>
-      </article>
-
-      <article class="panel analysis-panel insight-panel">
-        <div class="section-header">
-          <div>
-            <h2>快速解读</h2>
-            <p>基于当前真实数据生成的汇报线索。</p>
+            <h2>资料观察</h2>
+            <p>基于当前记录生成的概览性线索。</p>
           </div>
         </div>
 
@@ -202,11 +208,11 @@
         </div>
       </article>
 
-      <article class="panel analysis-panel">
+      <article class="panel analysis-panel scroll-reveal">
         <div class="section-header">
           <div>
             <h2>案例领域分布</h2>
-            <p>按案例类型字段统计当前资料库中的一人公司应用方向。</p>
+            <p>按案例类型字段统计应用方向。</p>
           </div>
         </div>
 
@@ -222,32 +228,32 @@
           </div>
         </div>
       </article>
-    </section>
 
-    <section class="panel">
-      <div class="section-header">
-        <div>
-          <h2>最近更新</h2>
-          <p>来自政策、案例和来源记录的最新数据。</p>
-        </div>
-      </div>
-
-      <div v-if="!recentUpdates.length" class="muted">暂无最近更新。</div>
-      <div v-else class="timeline-list">
-        <div v-for="item in recentUpdates" :key="`${item.itemType}-${item.itemId}`" class="list-row">
+      <article class="panel analysis-panel archive-recent-panel compact-recent-panel scroll-reveal">
+        <div class="section-header">
           <div>
-            <span class="caption">{{ item.itemType }}</span>
-            <strong>{{ item.title }}</strong>
+            <h2>最近更新</h2>
+            <p>最新 5 条资料记录。</p>
           </div>
-          <span class="muted">{{ item.updatedDate || '-' }}</span>
         </div>
-      </div>
+
+        <div v-if="!compactRecentUpdates.length" class="muted">暂无最近更新。</div>
+        <div v-else class="timeline-list archive-timeline compact-recent-list">
+          <div v-for="item in compactRecentUpdates" :key="`${item.itemType}-${item.itemId}`" class="list-row">
+            <div>
+              <span class="caption">{{ item.itemType }}</span>
+              <strong>{{ item.title }}</strong>
+            </div>
+            <span class="muted">{{ item.updatedDate || '-' }}</span>
+          </div>
+        </div>
+      </article>
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getDashboardSummary } from '@/api/dashboard'
 import { getCases } from '@/api/case'
 import { getPolicies } from '@/api/policy'
@@ -259,6 +265,11 @@ const summary = ref({})
 const policies = ref([])
 const cases = ref([])
 const sources = ref([])
+const cursorTrail = ref([])
+const trailTimers = []
+let trailId = 0
+let lastTrailAt = 0
+let revealObserver
 
 const typeLabels = {
   comprehensive: '综合政策',
@@ -270,9 +281,21 @@ const typeLabels = {
   other: '其他',
 }
 
-const chartColors = ['#252724', '#8a640f', '#777b74', '#a5a9a1', '#d1d3cd', '#4d514b', '#ededeb']
+const chartColors = ['#334155', '#2563eb', '#64748b', '#94a3b8', '#1e293b', '#475569', '#cbd5e1']
 
 const recentUpdates = computed(() => summary.value.recentUpdates || [])
+const dedupedRecentUpdates = computed(() => {
+  const seen = new Set()
+  return recentUpdates.value.filter((item) => {
+    const key = `${item.itemType || ''}::${item.title || ''}`
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  })
+})
+const compactRecentUpdates = computed(() => dedupedRecentUpdates.value.slice(0, 5))
 const policyCount = computed(() => Number(summary.value.policyCount ?? policies.value.length))
 const caseCount = computed(() => Number(summary.value.caseCount ?? cases.value.length))
 const sourceCount = computed(() => Number(summary.value.sourceCount ?? sources.value.length))
@@ -285,9 +308,133 @@ const coveredRegionCount = computed(() => {
   return new Set(
     [...policies.value, ...cases.value]
       .map((item) => item.regionId || item.regionName)
-      .filter(Boolean),
+    .filter(Boolean),
   ).size
 })
+const animatedPolicyCount = useAnimatedNumber(policyCount)
+const animatedCaseCount = useAnimatedNumber(caseCount)
+const animatedSourceCount = useAnimatedNumber(sourceCount)
+const animatedCoveredRegionCount = useAnimatedNumber(coveredRegionCount)
+const animatedTotalRecordCount = useAnimatedNumber(totalRecordCount)
+
+const overviewBars = computed(() => {
+  const trendRows = publishTrend.value.slice(-6).map((item) => ({
+    name: item.name,
+    label: formatTrendLabel(item.name),
+    count: item.count,
+  }))
+  const rows = trendRows.length
+    ? trendRows
+    : [
+        { name: 'policy', label: '政策', count: policyCount.value },
+        { name: 'case', label: '案例', count: caseCount.value },
+        { name: 'source', label: '来源', count: sourceCount.value },
+        { name: 'region', label: '地区', count: coveredRegionCount.value },
+      ]
+  const max = Math.max(...rows.map((item) => item.count), 1)
+  return rows.map((item) => ({
+    ...item,
+    height: Math.max(16, Math.round((item.count / max) * 100)),
+  }))
+})
+const overviewChartTitle = computed(() => {
+  if (!publishTrend.value.length) {
+    return '资料结构速览'
+  }
+  const year = getTrendYear(publishTrend.value)
+  return year ? `近月政策发布（${year}）` : '近月政策发布'
+})
+const overviewChartCaption = computed(() => (publishTrend.value.length ? '按发布日期统计' : '按记录类型统计'))
+
+function formatTrendLabel(value) {
+  const text = String(value || '')
+  const match = text.match(/^(\d{4})[-/.年](\d{1,2})/)
+  if (!match) {
+    return text
+  }
+  return `${Number(match[2])}月`
+}
+
+function getTrendYear(rows) {
+  const years = rows
+    .map((item) => String(item.name || '').match(/^(\d{4})/)?.[1])
+    .filter(Boolean)
+  return [...new Set(years)].length === 1 ? years[0] : ''
+}
+
+function useAnimatedNumber(target) {
+  const value = ref(0)
+  let frameId = 0
+
+  watch(
+    target,
+    (next, previous = 0) => {
+      window.cancelAnimationFrame(frameId)
+      const to = Number(next) || 0
+      const from = Number(value.value || previous) || 0
+
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || from === to) {
+        value.value = to
+        return
+      }
+
+      const start = window.performance.now()
+      const duration = 900
+      const tick = (now) => {
+        const progress = Math.min((now - start) / duration, 1)
+        const eased = 1 - Math.pow(1 - progress, 4)
+        value.value = Math.round(from + (to - from) * eased)
+        if (progress < 1) {
+          frameId = window.requestAnimationFrame(tick)
+        }
+      }
+      frameId = window.requestAnimationFrame(tick)
+    },
+    { immediate: true },
+  )
+
+  return value
+}
+
+function handleHeroPointerMove(event) {
+  if (event.pointerType !== 'mouse') {
+    return
+  }
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    return
+  }
+  const now = window.performance.now()
+  if (now - lastTrailAt < 30) {
+    return
+  }
+  lastTrailAt = now
+  const rect = event.currentTarget.getBoundingClientRect()
+  const dot = {
+    id: trailId++,
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+    size: 8 + Math.round(Math.random() * 8),
+  }
+  cursorTrail.value = [...cursorTrail.value.slice(-10), dot]
+  const timer = window.setTimeout(() => {
+    cursorTrail.value = cursorTrail.value.filter((item) => item.id !== dot.id)
+  }, 560)
+  trailTimers.push(timer)
+}
+
+function clearCursorTrail() {
+  cursorTrail.value = []
+}
+
+function handlePanelSpotlight(event) {
+  const panel = event.target.closest('.analysis-panel')
+  if (!panel) {
+    return
+  }
+  const rect = panel.getBoundingClientRect()
+  panel.style.setProperty('--spotlight-x', `${event.clientX - rect.left}px`)
+  panel.style.setProperty('--spotlight-y', `${event.clientY - rect.top}px`)
+}
 
 const topRegions = computed(() => {
   const rows = countBy([...policies.value, ...cases.value], (item) => item.regionName || '未标注地区').slice(0, 8)
@@ -365,11 +512,9 @@ const sourceTraceStats = computed(() => {
   const totalPolicies = policies.value.length
   const totalItems = policies.value.length + cases.value.length
   return [
-    makeTraceItem('来源关联', [...policies.value, ...cases.value].filter((item) => item.sourceId).length, totalItems, '#252724'),
-    makeTraceItem('来源链接', sources.value.filter((item) => item.url).length, totalSources, '#8a640f'),
-    makeTraceItem('本地文件', sources.value.filter((item) => item.localFile).length, totalSources, '#777b74'),
-    makeTraceItem('访问日期', sources.value.filter((item) => item.accessedAt).length, totalSources, '#4d514b'),
-    makeTraceItem('辅证链接', policies.value.filter((item) => item.evidenceUrl).length, totalPolicies, '#a5a9a1'),
+    makeTraceItem('来源关联', [...policies.value, ...cases.value].filter((item) => item.sourceId).length, totalItems, '#315cdb'),
+    makeTraceItem('来源链接', sources.value.filter((item) => item.url).length, totalSources, '#334155'),
+    makeTraceItem('访问日期', sources.value.filter((item) => item.accessedAt).length, totalSources, '#0f766e'),
   ]
 })
 
@@ -439,7 +584,33 @@ function makeTraceItem(name, count, total, color) {
   }
 }
 
+function setupScrollReveal() {
+  const items = document.querySelectorAll('.scroll-reveal')
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    items.forEach((item) => item.classList.add('is-visible'))
+    return
+  }
+
+  revealObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible')
+          revealObserver.unobserve(entry.target)
+        }
+      })
+    },
+    {
+      rootMargin: '0px 0px -12% 0px',
+      threshold: 0.16,
+    },
+  )
+
+  items.forEach((item) => revealObserver.observe(item))
+}
+
 onMounted(async () => {
+  setupScrollReveal()
   loading.value = true
   error.value = ''
   try {
@@ -459,4 +630,10 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+onUnmounted(() => {
+  trailTimers.forEach((timer) => window.clearTimeout(timer))
+  revealObserver?.disconnect()
+})
 </script>
+

@@ -1,46 +1,62 @@
 <template>
-  <div class="app-shell">
-    <div class="scene-bg motion-field" aria-hidden="true">
-      <span class="scene-grid"></span>
-      <span class="scene-line scene-line-a scan-line horizontal"></span>
-      <span class="scene-line scene-line-b scan-line vertical"></span>
-    </div>
+  <div
+    class="app-shell archive-shell"
+    :class="[{ 'home-shell': isHome, 'sidebar-collapsed': sidebarCollapsed }, routeClass]"
+  >
+    <aside class="sidebar site-sidebar archive-sidebar" aria-label="主导航">
+      <div class="sidebar-head">
+        <RouterLink class="brand archive-brand" to="/" aria-label="SoloFirm Index 首页">
+          <span class="brand-mark archive-brand-mark">SI</span>
+          <span class="brand-text">
+            <strong>SoloFirm Index</strong>
+            <small>壹企经纬</small>
+          </span>
+        </RouterLink>
+        <button
+          class="sidebar-toggle"
+          type="button"
+          :aria-label="sidebarCollapsed ? '展开导航栏' : '收起导航栏'"
+          :title="sidebarCollapsed ? '展开导航栏' : '收起导航栏'"
+          @click="sidebarCollapsed = !sidebarCollapsed"
+        >
+          <span></span>
+        </button>
+      </div>
 
-    <aside class="sidebar site-sidebar" aria-label="主导航">
-      <RouterLink class="brand" to="/" aria-label="SoloFirm Index 首页">
-        <span class="brand-mark">S</span>
-        <span class="brand-text">
-          <strong>SoloFirm Index</strong>
-          <small>壹企经纬</small>
-        </span>
-      </RouterLink>
-
-      <nav class="nav side-nav" aria-label="页面导航">
-        <RouterLink to="/">
+      <nav class="nav side-nav archive-nav" aria-label="页面导航">
+        <RouterLink to="/" aria-label="首页概览">
           <span>首页概览</span>
-          <small>统计与最近更新</small>
+          <small>Index overview</small>
         </RouterLink>
-        <RouterLink to="/regions">
+        <RouterLink to="/regions" aria-label="地区目录">
           <span>地区目录</span>
-          <small>省份资料覆盖</small>
+          <small>Region directory</small>
         </RouterLink>
-        <RouterLink to="/policies">
+        <RouterLink to="/policies" aria-label="政策索引">
           <span>政策索引</span>
-          <small>地区、类型、标签检索</small>
+          <small>Policy archive</small>
         </RouterLink>
-        <RouterLink to="/cases">
+        <RouterLink to="/cases" aria-label="案例索引">
           <span>案例索引</span>
-          <small>应用场景与典型案例</small>
+          <small>Case archive</small>
         </RouterLink>
-        <RouterLink to="/sources">
+        <RouterLink to="/sources" aria-label="来源台账">
           <span>来源台账</span>
-          <small>出处、文件、访问日期</small>
+          <small>Source ledger</small>
         </RouterLink>
       </nav>
+
     </aside>
 
-    <main class="main">
-      <header class="topbar">
+    <main class="main archive-main">
+      <header v-if="!isHome" class="topbar archive-topbar">
+        <div class="topbar-motion-field" aria-hidden="true">
+          <span class="motion-line line-a"></span>
+          <span class="motion-line line-b"></span>
+          <span class="motion-node node-a"></span>
+          <span class="motion-node node-b"></span>
+          <span class="motion-node node-c"></span>
+        </div>
         <div>
           <span class="caption">AI + OPC policy and case index</span>
           <h1>{{ routeTitle }}</h1>
@@ -60,10 +76,14 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
+
+const isHome = computed(() => route.name === 'home')
+const sidebarCollapsed = ref(false)
+const routeClass = computed(() => (route.name ? `route-${route.name}` : ''))
 
 const routeTitle = computed(() => {
   const titles = {

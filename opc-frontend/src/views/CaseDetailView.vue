@@ -1,13 +1,19 @@
 <template>
-  <div class="page-stack">
-    <RouterLink class="back-link" to="/cases">返回案例库</RouterLink>
+  <div class="page-stack detail-page case-detail-page">
+    <RouterLink class="back-link detail-back-link" to="/cases">返回案例库</RouterLink>
 
-    <section class="panel">
+    <section class="panel detail-panel">
       <div v-if="loading" class="muted">正在加载案例详情...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
-      <article v-else class="detail">
-        <span class="caption">case detail</span>
-        <h2>{{ item.title }}</h2>
+      <article v-else class="detail detail-article" @pointermove="handleDetailSpotlight">
+        <div class="detail-hero-card">
+          <span class="caption">case detail</span>
+          <h2>{{ item.title }}</h2>
+          <div v-if="formatTags(item.tags).length" class="chip-row detail-chip-row">
+            <span v-for="tag in formatTags(item.tags)" :key="tag" class="chip">{{ tag }}</span>
+          </div>
+        </div>
+
         <div class="meta-grid">
           <span><b>地区</b>{{ item.regionName || '-' }}</span>
           <span><b>领域</b>{{ item.category || '-' }}</span>
@@ -17,29 +23,35 @@
           <span><b>访问日期</b>{{ item.accessedAt || '-' }}</span>
         </div>
 
-        <div v-if="formatTags(item.tags).length" class="chip-row detail-chip-row">
-          <span v-for="tag in formatTags(item.tags)" :key="tag" class="chip">{{ tag }}</span>
-        </div>
+        <section class="detail-section">
+          <h3>摘要</h3>
+          <p>{{ item.summary || '-' }}</p>
+        </section>
 
-        <h3>摘要</h3>
-        <p>{{ item.summary }}</p>
+        <section class="detail-section">
+          <h3>商业模式</h3>
+          <pre>{{ item.businessModel || '-' }}</pre>
+        </section>
 
-        <h3>商业模式</h3>
-        <pre>{{ item.businessModel || '-' }}</pre>
+        <section class="detail-section">
+          <h3>AI 工具</h3>
+          <pre>{{ item.aiTools || '-' }}</pre>
+        </section>
 
-        <h3>AI 工具</h3>
-        <pre>{{ item.aiTools || '-' }}</pre>
+        <section class="detail-section">
+          <h3>成果</h3>
+          <pre>{{ item.outcome || '-' }}</pre>
+        </section>
 
-        <h3>成果</h3>
-        <pre>{{ item.outcome || '-' }}</pre>
-
-        <h3>来源追溯</h3>
-        <p class="source-actions">
-          <a v-if="item.originalUrl" class="button button-ghost" :href="item.originalUrl" target="_blank" rel="noreferrer">
-            查看原始来源
-          </a>
-          <span v-else class="muted">暂无原始链接</span>
-        </p>
+        <section class="detail-section">
+          <h3>来源追溯</h3>
+          <p class="source-actions">
+            <a v-if="item.originalUrl" class="button button-ghost" :href="item.originalUrl" target="_blank" rel="noreferrer">
+              查看原始来源
+            </a>
+            <span v-else class="muted">暂无原始链接</span>
+          </p>
+        </section>
       </article>
     </section>
   </div>
@@ -79,5 +91,15 @@ function formatTags(tags) {
     .split(/[,，、;；]/)
     .map((tag) => tag.trim())
     .filter(Boolean)
+}
+
+function handleDetailSpotlight(event) {
+  const target = event.target.closest('.detail-hero-card, .meta-grid span, .detail-section')
+  if (!target) {
+    return
+  }
+  const rect = target.getBoundingClientRect()
+  target.style.setProperty('--spotlight-x', `${event.clientX - rect.left}px`)
+  target.style.setProperty('--spotlight-y', `${event.clientY - rect.top}px`)
 }
 </script>
