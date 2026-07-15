@@ -1,15 +1,41 @@
 <template>
   <div
     class="app-shell archive-shell"
-    :class="[{ 'home-shell': isHome, 'sidebar-collapsed': sidebarCollapsed }, routeClass]"
+    :class="[
+      { 'home-shell': isHome, 'sidebar-collapsed': sidebarCollapsed, 'mobile-sidebar-open': mobileSidebarOpen },
+      routeClass,
+    ]"
   >
+    <button
+      class="mobile-menu-button"
+      type="button"
+      :aria-expanded="mobileSidebarOpen"
+      aria-label="Open navigation"
+      @click="mobileSidebarOpen = true"
+    >
+      <span></span>
+    </button>
+    <button
+      v-if="mobileSidebarOpen"
+      class="mobile-menu-backdrop"
+      type="button"
+      aria-label="Close navigation"
+      @click="mobileSidebarOpen = false"
+    ></button>
     <aside class="sidebar site-sidebar archive-sidebar" aria-label="主导航">
       <div class="sidebar-head">
-        <RouterLink class="brand archive-brand" to="/" aria-label="SoloFirm Index 首页">
-          <span class="brand-mark archive-brand-mark">SI</span>
+        <RouterLink class="brand archive-brand" to="/" aria-label="SoloFirm OPC Platform 首页">
+          <span class="brand-mark archive-brand-mark brand-logo-mark" aria-hidden="true">
+            <svg viewBox="0 0 72 72" focusable="false">
+              <rect x="4" y="4" width="64" height="64" rx="20" />
+              <path class="logo-path-main" d="M24 45V25h12c7 0 12 4 12 10s-5 10-12 10H24Z" />
+              <path class="logo-path-accent" d="M18 23C28 14 44 14 54 23" />
+              <path class="logo-path-accent" d="M18 49C28 58 44 58 54 49" />
+            </svg>
+          </span>
           <span class="brand-text">
-            <strong>SoloFirm Index</strong>
-            <small>壹企经纬</small>
+            <strong>SoloFirm</strong>
+            <small>OPC Platform</small>
           </span>
         </RouterLink>
         <button
@@ -76,14 +102,22 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
 
 const isHome = computed(() => route.name === 'home')
 const sidebarCollapsed = ref(false)
+const mobileSidebarOpen = ref(false)
 const routeClass = computed(() => (route.name ? `route-${route.name}` : ''))
+
+watch(
+  () => route.fullPath,
+  () => {
+    mobileSidebarOpen.value = false
+  },
+)
 
 const routeTitle = computed(() => {
   const titles = {

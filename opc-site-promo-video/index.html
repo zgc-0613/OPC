@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <title>OPC Website Promo</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #f7f7f4;
+        font-family: "SF Pro Display", sans-serif;
+        color: #111827;
+      }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 78% 18%, rgba(49, 92, 219, 0.12), rgba(49, 92, 219, 0) 330px),
+          radial-gradient(circle at 16% 82%, rgba(14, 165, 233, 0.11), rgba(14, 165, 233, 0) 360px),
+          #f7f7f4;
+      }
+
+      .scene {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #f7f7f4;
+      }
+
+      .scene:not(#scene-home) {
+        opacity: 0;
+      }
+
+      #scene-data,
+      #scene-regions,
+      #scene-policies,
+      #scene-cases,
+      #scene-close {
+        opacity: 0;
+      }
+
+      .ambient {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      .grid {
+        position: absolute;
+        inset: -160px 220px 180px 360px;
+        border-radius: 42px;
+        opacity: 0.36;
+        background-image:
+          linear-gradient(rgba(49, 92, 219, 0.13) 1px, rgba(49, 92, 219, 0) 1px),
+          linear-gradient(90deg, rgba(49, 92, 219, 0.13) 1px, rgba(49, 92, 219, 0) 1px);
+        background-size: 54px 54px;
+        mask-image: radial-gradient(circle at 55% 40%, #000 0, rgba(0, 0, 0, 0.72) 42%, rgba(0, 0, 0, 0) 78%);
+      }
+
+      .beam {
+        position: absolute;
+        height: 2px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(49, 92, 219, 0), rgba(49, 92, 219, 0.42), rgba(49, 92, 219, 0));
+        transform-origin: left center;
+        opacity: 0.28;
+      }
+
+      .beam-a {
+        left: 520px;
+        top: 202px;
+        width: 590px;
+        rotate: 16deg;
+      }
+
+      .beam-b {
+        right: 360px;
+        top: 510px;
+        width: 470px;
+        rotate: -23deg;
+      }
+
+      .beam-c {
+        left: 430px;
+        bottom: 230px;
+        width: 540px;
+        rotate: -11deg;
+      }
+
+      .node {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        background: #315cdb;
+        box-shadow: 0 0 0 9px rgba(49, 92, 219, 0.09), 0 20px 50px rgba(49, 92, 219, 0.18);
+      }
+
+      .node-one {
+        left: 628px;
+        top: 188px;
+      }
+
+      .node-two {
+        left: 1128px;
+        top: 292px;
+      }
+
+      .node-three {
+        right: 404px;
+        bottom: 294px;
+      }
+
+      .stage {
+        position: absolute;
+        inset: 72px 96px 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .browser {
+        position: relative;
+        width: 1500px;
+        height: 844px;
+        overflow: hidden;
+        border: 1px solid rgba(23, 25, 22, 0.13);
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.72);
+        box-shadow:
+          0 34px 90px rgba(15, 23, 42, 0.12),
+          0 10px 30px rgba(49, 92, 219, 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.86);
+        backdrop-filter: blur(22px);
+      }
+
+      .browser.hero-browser {
+        width: 1548px;
+        height: 870px;
+      }
+
+      .browser.wide {
+        width: 1580px;
+        height: 884px;
+      }
+
+      .browser.compact {
+        width: 1370px;
+        height: 772px;
+      }
+
+      .browser::before {
+        content: "";
+        position: absolute;
+        z-index: 3;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 48px;
+        border-bottom: 1px solid rgba(23, 25, 22, 0.08);
+        background: rgba(255, 255, 255, 0.78);
+        backdrop-filter: blur(16px);
+      }
+
+      .browser::after {
+        content: "";
+        position: absolute;
+        z-index: 4;
+        left: 28px;
+        top: 19px;
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #cbd5e1;
+        box-shadow: 18px 0 0 #d5dbe5, 36px 0 0 #94a3b8;
+      }
+
+      .screen {
+        position: absolute;
+        left: 0;
+        top: 48px;
+        width: 100%;
+        height: calc(100% - 48px);
+        overflow: hidden;
+        background: #ffffff;
+      }
+
+      .screen img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .screen-bg {
+        width: 100%;
+        height: 100%;
+        background-image: url("capture/screenshots/scroll-000.png");
+        background-size: cover;
+        background-position: top center;
+      }
+
+      .screen-fit img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: top center;
+      }
+
+      .glass-panel {
+        position: absolute;
+        z-index: 7;
+        right: 76px;
+        bottom: 80px;
+        width: 330px;
+        height: 150px;
+        border: 1px solid rgba(255, 255, 255, 0.7);
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.52);
+        box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+        backdrop-filter: blur(24px) saturate(1.2);
+      }
+
+      .glass-panel::before,
+      .glass-panel::after {
+        content: "";
+        position: absolute;
+        left: 32px;
+        right: 32px;
+        height: 13px;
+        border-radius: 999px;
+        background: rgba(49, 92, 219, 0.13);
+      }
+
+      .glass-panel::before {
+        top: 42px;
+        width: 220px;
+      }
+
+      .glass-panel::after {
+        top: 78px;
+        width: 150px;
+        background: rgba(71, 75, 69, 0.14);
+      }
+
+      .split-showcase {
+        position: absolute;
+        inset: 92px 110px 96px;
+      }
+
+      .case-panel,
+      .source-panel {
+        position: absolute;
+        overflow: hidden;
+        border: 1px solid rgba(23, 25, 22, 0.13);
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.74);
+        box-shadow: 0 32px 90px rgba(15, 23, 42, 0.13);
+        backdrop-filter: blur(22px);
+      }
+
+      .case-panel {
+        left: 0;
+        top: 58px;
+        width: 1110px;
+        height: 740px;
+        z-index: 3;
+      }
+
+      .source-panel {
+        right: 0;
+        top: 0;
+        width: 760px;
+        height: 596px;
+        z-index: 2;
+      }
+
+      .case-panel img,
+      .source-panel img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: top center;
+      }
+
+      .logo-finale {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+
+      .logo-chip {
+        width: 132px;
+        height: 132px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(23, 25, 22, 0.1);
+        border-radius: 34px;
+        background: rgba(255, 255, 255, 0.72);
+        box-shadow: 0 34px 100px rgba(15, 23, 42, 0.16);
+        backdrop-filter: blur(28px);
+      }
+
+      .logo-chip img {
+        width: 84px;
+        height: 84px;
+      }
+
+      .wipe {
+        position: absolute;
+        z-index: 20;
+        left: -22%;
+        top: -20%;
+        width: 46%;
+        height: 140%;
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0));
+        rotate: 9deg;
+        opacity: 0;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-p4n7" id="root" data-composition-id="opc-site-promo" data-width="1920" data-height="1080" data-start="0" data-duration="24">
+      <div data-hf-id="hf-bk4a" id="scene-home" class="scene">
+        <div data-hf-id="hf-ij6x" class="ambient" data-layout-ignore="">
+          <div data-hf-id="hf-kxq8" class="grid"></div>
+          <div data-hf-id="hf-35dw" class="beam beam-a"></div>
+          <div data-hf-id="hf-bt9r" class="beam beam-b"></div>
+          <span data-hf-id="hf-jczo" class="node node-one"></span>
+          <span data-hf-id="hf-0slq" class="node node-two"></span>
+        </div>
+        <div data-hf-id="hf-tan6" class="stage">
+          <div data-hf-id="hf-zwhr" class="browser hero-browser">
+            <div data-hf-id="hf-4096" class="screen screen-fit">
+              <div data-hf-id="hf-pg2c" class="screen-bg"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-8upj" id="scene-data" class="scene">
+        <div data-hf-id="hf-lkt9" class="ambient" data-layout-ignore="">
+          <div data-hf-id="hf-6qwo" class="grid"></div>
+          <div data-hf-id="hf-7v5q" class="beam beam-c"></div>
+          <span data-hf-id="hf-1ej6" class="node node-two"></span>
+          <span data-hf-id="hf-ee14" class="node node-three"></span>
+        </div>
+        <div data-hf-id="hf-xa86" class="stage">
+          <div data-hf-id="hf-igpp" class="browser wide">
+            <div data-hf-id="hf-cdmk" class="screen">
+              <img data-hf-id="hf-tfe0" src="capture/screenshots/scroll-042.png" alt="">
+            </div>
+          </div>
+          <div data-hf-id="hf-42a4" class="glass-panel" data-layout-ignore=""></div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-zysm" id="scene-regions" class="scene">
+        <div data-hf-id="hf-mrqc" class="ambient" data-layout-ignore="">
+          <div data-hf-id="hf-5jzl" class="grid"></div>
+          <div data-hf-id="hf-cfng" class="beam beam-a"></div>
+          <div data-hf-id="hf-u7vm" class="beam beam-c"></div>
+          <span data-hf-id="hf-g1j0" class="node node-one"></span>
+          <span data-hf-id="hf-1af4" class="node node-three"></span>
+        </div>
+        <div data-hf-id="hf-xoj7" class="stage">
+          <div data-hf-id="hf-kv1t" class="browser wide">
+            <div data-hf-id="hf-yx3i" class="screen screen-fit">
+              <img data-hf-id="hf-gxe2" src="capture-regions/screenshots/scroll-000.png" alt="">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-haud" id="scene-policies" class="scene">
+        <div data-hf-id="hf-mdfb" class="ambient" data-layout-ignore="">
+          <div data-hf-id="hf-5yam" class="grid"></div>
+          <div data-hf-id="hf-c8wf" class="beam beam-b"></div>
+          <span data-hf-id="hf-eulx" class="node node-one"></span>
+          <span data-hf-id="hf-1su7" class="node node-two"></span>
+          <span data-hf-id="hf-03i1" class="node node-three"></span>
+        </div>
+        <div data-hf-id="hf-y2u8" class="stage">
+          <div data-hf-id="hf-nzif" class="browser compact">
+            <div data-hf-id="hf-zbej" class="screen screen-fit">
+              <img data-hf-id="hf-z8i3" src="capture-policies/screenshots/scroll-000.png" alt="">
+            </div>
+          </div>
+          <div data-hf-id="hf-g2as" class="glass-panel" data-layout-ignore=""></div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-01zu" id="scene-cases" class="scene">
+        <div data-hf-id="hf-nkce" class="ambient" data-layout-ignore="">
+          <div data-hf-id="hf-4rdj" class="grid"></div>
+          <div data-hf-id="hf-b8qd" class="beam beam-a"></div>
+          <div data-hf-id="hf-bule" class="beam beam-b"></div>
+          <span data-hf-id="hf-f8wy" class="node node-one"></span>
+          <span data-hf-id="hf-2758" class="node node-two"></span>
+        </div>
+        <div data-hf-id="hf-lsa2" class="split-showcase">
+          <div data-hf-id="hf-71aq" class="source-panel">
+            <img data-hf-id="hf-llzl" src="capture-sources/screenshots/scroll-000.png" alt="">
+          </div>
+          <div data-hf-id="hf-lnl5" class="case-panel">
+            <img data-hf-id="hf-mrza" src="capture-cases/screenshots/scroll-000.png" alt="">
+          </div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-8dft" id="scene-close" class="scene">
+        <div data-hf-id="hf-n61d" class="ambient" data-layout-ignore="">
+          <div data-hf-id="hf-55ok" class="grid"></div>
+          <div data-hf-id="hf-um6n" class="beam beam-c"></div>
+          <span data-hf-id="hf-h8g3" class="node node-one"></span>
+          <span data-hf-id="hf-0ht2" class="node node-three"></span>
+        </div>
+        <div data-hf-id="hf-vap1" class="stage">
+          <div data-hf-id="hf-ursv" class="browser hero-browser">
+            <div data-hf-id="hf-zppk" class="screen screen-fit">
+              <div data-hf-id="hf-fang" class="screen-bg"></div>
+            </div>
+          </div>
+        </div>
+        <div data-hf-id="hf-c8en" class="logo-finale">
+          <div data-hf-id="hf-gg6c" class="logo-chip">
+            <img data-hf-id="hf-0pu9" src="capture/assets/favicon.svg" alt="">
+          </div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-5yhw" class="wipe" data-layout-ignore=""></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const scenes = ["#scene-home", "#scene-data", "#scene-regions", "#scene-policies", "#scene-cases", "#scene-close"];
+
+      function enterScene(scene, t, x, y, scale) {
+        tl.fromTo(scene + " .browser, " + scene + " .case-panel, " + scene + " .source-panel",
+          { opacity: 0, x: x, y: y, scale: scale },
+          { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.72, ease: "expo.out" },
+          t + 0.18
+        );
+        tl.fromTo(scene + " .node",
+          { opacity: 0, scale: 0.4 },
+          { opacity: 1, scale: 1, duration: 0.52, stagger: 0.08, ease: "back.out(1.8)" },
+          t + 0.34
+        );
+        tl.fromTo(scene + " .beam",
+          { opacity: 0, scaleX: 0.16 },
+          { opacity: 0.38, scaleX: 1, duration: 0.86, stagger: 0.1, ease: "power3.out" },
+          t + 0.42
+        );
+      }
+
+      function transition(fromScene, toScene, t) {
+        tl.set(toScene, { zIndex: 8 }, t);
+        tl.set(fromScene, { zIndex: 7 }, t);
+        tl.fromTo(".wipe",
+          { opacity: 0, x: 0 },
+          { opacity: 0.78, x: 2600, duration: 0.64, ease: "power2.inOut" },
+          t
+        );
+        tl.fromTo(toScene,
+          { opacity: 0, filter: "blur(14px)", scale: 1.018 },
+          { opacity: 1, filter: "blur(0px)", scale: 1, duration: 0.7, ease: "sine.inOut" },
+          t + 0.08
+        );
+        tl.to(fromScene,
+          { opacity: 0, filter: "blur(10px)", duration: 0.58, ease: "sine.inOut" },
+          t + 0.12
+        );
+        tl.set(".wipe", { opacity: 0, x: 0 }, t + 0.72);
+      }
+
+      scenes.forEach((scene, index) => {
+        tl.set(scene, { opacity: index === 0 ? 1 : 0, filter: "blur(0px)", zIndex: index === 0 ? 5 : 1 }, 0);
+      });
+
+      enterScene("#scene-home", 0, 0, 34, 0.985);
+      tl.to("#scene-home .screen-bg", { scale: 1.035, duration: 3.6, ease: "none" }, 0.12);
+      tl.to("#scene-home .grid", { x: 34, y: 20, duration: 3.6, ease: "sine.inOut" }, 0.1);
+
+      transition("#scene-home", "#scene-data", 3.5);
+      enterScene("#scene-data", 3.6, 40, 22, 0.99);
+      tl.to("#scene-data .screen img", { y: -128, duration: 3.5, ease: "sine.inOut" }, 4.0);
+      tl.fromTo("#scene-data .glass-panel", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.56, ease: "power3.out" }, 4.45);
+
+      transition("#scene-data", "#scene-regions", 7.5);
+      enterScene("#scene-regions", 7.7, -44, 18, 0.988);
+      tl.to("#scene-regions .screen img", { scale: 1.026, duration: 3.5, ease: "none" }, 7.9);
+      tl.to("#scene-regions .grid", { x: -28, y: 28, duration: 3.5, ease: "sine.inOut" }, 7.9);
+
+      transition("#scene-regions", "#scene-policies", 11.3);
+      enterScene("#scene-policies", 11.5, 0, 46, 0.975);
+      tl.to("#scene-policies .browser", { scale: 1.045, duration: 4.1, ease: "sine.inOut" }, 12.0);
+      tl.fromTo("#scene-policies .glass-panel", { opacity: 0, x: 28 }, { opacity: 1, x: 0, duration: 0.54, ease: "power4.out" }, 12.2);
+
+      transition("#scene-policies", "#scene-cases", 15.9);
+      enterScene("#scene-cases", 16.1, 44, 18, 0.99);
+      tl.to("#scene-cases .case-panel img", { scale: 1.035, duration: 4.3, ease: "none" }, 16.3);
+      tl.to("#scene-cases .source-panel", { y: 64, x: -28, duration: 4.0, ease: "sine.inOut" }, 16.6);
+
+      transition("#scene-cases", "#scene-close", 20.7);
+      enterScene("#scene-close", 20.9, 0, 30, 0.985);
+      tl.fromTo("#scene-close .logo-chip", { opacity: 0, y: 22, scale: 0.82 }, { opacity: 1, y: 0, scale: 1, duration: 0.72, ease: "back.out(1.6)" }, 21.65);
+      tl.to("#scene-close .screen-bg", { scale: 1.025, duration: 2.5, ease: "none" }, 21.0);
+      tl.to("#scene-close .logo-chip", { opacity: 0, scale: 0.94, duration: 0.56, ease: "power2.in" }, 23.25);
+      tl.to("#scene-close", { opacity: 0, duration: 0.62, ease: "sine.inOut" }, 23.38);
+
+      tl.to(".node", { y: -10, yoyo: true, repeat: 11, duration: 1.05, ease: "sine.inOut" }, 0.2);
+      tl.to(".beam", { opacity: 0.18, yoyo: true, repeat: 10, duration: 1.15, ease: "sine.inOut" }, 0.2);
+
+      window.__timelines["opc-site-promo"] = tl;
+    </script>
+  </body>
+</html>

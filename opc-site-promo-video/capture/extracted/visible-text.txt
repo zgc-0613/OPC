@@ -1,0 +1,123 @@
+[strong] SoloFirm
+[small] OPC Platform
+[small] Index overview
+[small] Region directory
+[small] Policy archive
+[small] Case archive
+[small] Source ledger
+[span] AI + OPC POLICY AND CASE INDEX
+[h1] 一人公司的政策经纬
+[p] 汇总全国 AI 与一人公司相关政策、案例和来源记录，按地区、类型与主题形成可筛选、可引用、可复核的资料索引。
+[a] 进入政策库
+[a] 查看案例库
+[span] 地区分类检索
+[span] 来源出处追溯
+[span] 摘要标签分析
+[span] 资料总量
+[strong] 239
+[p] 汇总政策、案例与来源记录。
+[span] 政策记录
+[p] 按地区、政策类型、发布日期和标签检索。
+[span] 案例记录
+[p] 沉淀 AI 与一人公司相关案例线索。
+[span] 来源记录
+[p] 保留链接、文件、访问日期和出处信息。
+[span] 覆盖地区
+[p] 按省级地区观察资料覆盖与重点分布。
+[span] 近月政策发布
+[strong] 按发布日期统计
+[span] DATA VIEW
+[h2] 资料分析概览
+[p] 以下图表根据当前数据库记录动态生成，新增政策或案例后会随接口数据同步变化。
+[h2] 地区资料排行
+[p] 合并政策和案例的地区字段统计。
+[span] TOP 8
+[span] 江苏省
+[span] 浙江省
+[span] 北京市
+[span] 湖北省
+[span] 四川省
+[span] 辽宁省
+[span] 福建省
+[span] 重庆市
+[h2] 来源追溯概览
+[p] 统计来源链接、访问日期与出处信息的记录情况。
+[strong] 100%
+[span] 来源关联
+[small] 141/141
+[span] 100%
+[strong] 100%
+[span] 来源链接
+[small] 98/98
+[span] 100%
+[strong] 100%
+[span] 访问日期
+[small] 98/98
+[span] 100%
+[h2] 高频标签
+[p] 从政策和案例标签字段提取高频主题。
+[span] 算力支持
+[span] 资金补贴
+[span] 场地工位
+[span] 人才服务
+[span] 投资融资
+[span] 场景需求
+[span] 软件开发
+[span] 动漫短剧
+[span] 电商营销
+[span] 办公效率
+[span] 文化创意
+[h2] 政策发布趋势
+[p] 按月份统计政策发布日期。
+[span] 最近 8 期
+[span] 2025-11
+[span] 2025-12
+[span] 2026-01
+[span] 2026-02
+[span] 2026-03
+[span] 2026-04
+[span] 2026-05
+[span] 2026-06
+[h2] 资料观察
+[p] 基于当前记录生成的概览性线索。
+[p] 当前资料收录最多的地区是「江苏省」，政策与案例合计 15 条。
+[p] 政策类型中「综合政策」占比最高，可作为汇报中的重点方向。
+[p] 高频标签是「算力支持」，说明该方向在资料库中出现较多。
+[p] 最近一期有 7 条政策记录，可结合发布时间判断政策热度。
+[h2] 案例领域分布
+[p] 按案例类型字段统计应用方向。
+[span] 软件开发
+[strong] 21 条
+[p] 26%
+[span] 动漫短剧
+[strong] 19 条
+[p] 24%
+[span] 电商营销
+[strong] 11 条
+[p] 14%
+[span] 办公效率
+[strong] 11 条
+[p] 14%
+[span] 文化创意
+[strong] 10 条
+[p] 13%
+[span] 教育培训
+[strong] 8 条
+[p] 10%
+[h2] 最近更新
+[p] 最新 5 条资料记录。
+[span] case
+[strong] 哈密聚力打造西北AI+创业新高地 OPC社区创新生态大会成功举办
+[span] 2026-07-08
+[span] case
+[strong] 新疆首个“一人公司”创业孵化平台启动
+[span] 2026-07-08
+[span] case
+[strong] 西宁融合创新蓝海就在这里
+[span] 2026-07-08
+[span] case
+[strong] 市州动态 | 一人公司，何以出海？贵阳高新区领圈跨境OPC社区的“造船术”
+[span] 2026-07-08
+[span] case
+[strong] 全省首个OPC社区落地西山区 青年创业迎“AI+”风口
+[span] 2026-07-08

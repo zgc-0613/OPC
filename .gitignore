@@ -4,4 +4,9 @@
 .idea/
 target/
 *.log
+*.err
+__pycache__/
+*.pyc
 outputs/
+node_modules/
+opc-site-promo-video/node_modules/
