@@ -35,6 +35,44 @@
             <option v-for="source in sources" :key="source.id" :value="source.id">{{ source.title }}</option>
           </select>
         </label>
+        <div class="quick-source-toggle">
+          <button class="button button-ghost" type="button" @click="showQuickSource = !showQuickSource">
+            {{ showQuickSource ? '收起新增来源' : '快速新增来源' }}
+          </button>
+        </div>
+        <div v-if="showQuickSource" class="quick-source-box span-3">
+          <label class="span-2">
+            <span>新来源标题 *</span>
+            <input v-model.trim="quickSource.title" placeholder="例如：案例报道或原始来源标题" />
+          </label>
+          <label>
+            <span>来源类型</span>
+            <select v-model="quickSource.sourceType">
+              <option value="web">网页</option>
+              <option value="file">文件</option>
+              <option value="paper">文献</option>
+              <option value="news">新闻</option>
+              <option value="other">其他</option>
+            </select>
+          </label>
+          <label>
+            <span>发布机构</span>
+            <input v-model.trim="quickSource.publisher" placeholder="例如：媒体、平台或机构" />
+          </label>
+          <label class="span-2">
+            <span>来源链接</span>
+            <input v-model.trim="quickSource.url" placeholder="https://..." />
+          </label>
+          <label>
+            <span>访问日期</span>
+            <input v-model="quickSource.accessedAt" type="date" />
+          </label>
+          <div class="admin-actions span-3">
+            <button class="button" type="button" :disabled="sourceCreating" @click="createSourceInline">
+              {{ sourceCreating ? '正在新增...' : '新增并选中来源' }}
+            </button>
+          </div>
+        </div>
         <label>
           <span>访问日期 *</span>
           <input v-model="form.accessedAt" required type="date" />
@@ -137,7 +175,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { createCase, deleteCase, getCaseDetail, getCases, updateCase } from '@/api/case'
 import { getRegions } from '@/api/region'
-import { getSources } from '@/api/source'
+import { createSource, getSources } from '@/api/source'
 
 const today = new Date().toISOString().slice(0, 10)
 const loading = ref(false)
@@ -146,6 +184,8 @@ const cases = ref([])
 const regions = ref([])
 const sources = ref([])
 const editingId = ref(null)
+const showQuickSource = ref(false)
+const sourceCreating = ref(false)
 
 const defaultForm = () => ({
   title: '',
@@ -166,6 +206,7 @@ const defaultForm = () => ({
 })
 
 const form = reactive(defaultForm())
+const quickSource = reactive(defaultQuickSource())
 
 async function loadCases() {
   loading.value = true
@@ -182,6 +223,37 @@ async function loadCases() {
 function resetForm() {
   editingId.value = null
   Object.assign(form, defaultForm())
+}
+
+function defaultQuickSource() {
+  return {
+    title: '',
+    sourceType: 'web',
+    publisher: '',
+    url: '',
+    localFile: '',
+    accessedAt: today,
+    notes: '',
+    status: 'active',
+  }
+}
+
+async function createSourceInline() {
+  if (!quickSource.title) {
+    window.alert('请先填写新来源标题')
+    return
+  }
+
+  sourceCreating.value = true
+  try {
+    const created = await createSource({ ...quickSource })
+    sources.value = await getSources()
+    form.sourceId = Number(created.id)
+    Object.assign(quickSource, defaultQuickSource())
+    showQuickSource.value = false
+  } finally {
+    sourceCreating.value = false
+  }
 }
 
 async function startEdit(item) {

@@ -15,6 +15,7 @@ import CaseAdminView from '@/views/admin/CaseAdminView.vue'
 import SourceAdminView from '@/views/admin/SourceAdminView.vue'
 import TagAdminView from '@/views/admin/TagAdminView.vue'
 import { isAdminAuthenticated } from '@/api/auth'
+import { recordVisit } from '@/api/visit'
 
 const routes = [
   {
@@ -120,5 +121,81 @@ router.beforeEach((to) => {
   }
   return true
 })
+
+router.afterEach((to) => {
+  if (to.path.startsWith('/admin') || to.path === '/login') {
+    return
+  }
+  if (to.name === 'policy-detail' || to.name === 'case-detail') {
+    return
+  }
+
+  recordVisit(buildVisitPayload(to)).catch(() => {
+    // 访问统计失败不能影响用户正常浏览。
+  })
+})
+
+function buildVisitPayload(route) {
+  const basePayload = {
+    pagePath: route.fullPath,
+    pageTitle: getPageTitle(route),
+    targetType: 'other',
+    targetId: null,
+    referer: document.referrer || '',
+  }
+
+  if (route.name === 'home') {
+    return {
+      ...basePayload,
+      targetType: 'site',
+    }
+  }
+
+  if (route.name === 'policy-detail') {
+    return {
+      ...basePayload,
+      targetType: 'policy',
+      targetId: Number(route.params.id),
+    }
+  }
+
+  if (route.name === 'case-detail') {
+    return {
+      ...basePayload,
+      targetType: 'case',
+      targetId: Number(route.params.id),
+    }
+  }
+
+  if (route.name === 'region-directory') {
+    return {
+      ...basePayload,
+      targetType: 'region',
+    }
+  }
+
+  if (route.name === 'source-ledger') {
+    return {
+      ...basePayload,
+      targetType: 'source',
+    }
+  }
+
+  return basePayload
+}
+
+function getPageTitle(route) {
+  const titleMap = {
+    home: 'OPC 信息平台首页',
+    'region-directory': '地区目录',
+    'policy-list': '政策索引',
+    'policy-detail': `政策详情 #${route.params.id}`,
+    'case-list': '案例索引',
+    'case-detail': `案例详情 #${route.params.id}`,
+    'source-ledger': '来源台账',
+  }
+
+  return titleMap[route.name] || document.title || route.fullPath
+}
 
 export default router

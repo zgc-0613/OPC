@@ -60,6 +60,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { getCaseDetail } from '@/api/case'
+import { recordVisit } from '@/api/visit'
 
 const props = defineProps({
   id: {
@@ -76,6 +77,13 @@ onMounted(async () => {
   loading.value = true
   try {
     item.value = await getCaseDetail(props.id)
+    recordVisit({
+      pagePath: `/cases/${props.id}`,
+      pageTitle: item.value.title || `案例详情 #${props.id}`,
+      targetType: 'case',
+      targetId: Number(props.id),
+      referer: document.referrer || '/cases',
+    }).catch(() => {})
   } catch (err) {
     error.value = err.message || '案例详情加载失败'
   } finally {

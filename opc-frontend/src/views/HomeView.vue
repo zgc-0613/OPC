@@ -103,6 +103,60 @@
     </div>
 
     <section class="analysis-grid archive-analysis-grid" @pointermove="handlePanelSpotlight">
+      <article class="panel analysis-panel wide-panel public-visit-panel scroll-reveal">
+        <div class="section-header">
+          <div>
+            <h2>平台访问热度</h2>
+            <p>基于公开页面访问记录动态统计，反映近期内容关注情况。</p>
+          </div>
+          <span class="analysis-badge">LIVE</span>
+        </div>
+
+        <div class="public-visit-layout">
+          <div class="public-visit-summary">
+            <div>
+              <span>总访问量</span>
+              <strong>{{ formatNumber(visitSummary.totalPv) }}</strong>
+              <small>PV</small>
+            </div>
+            <div>
+              <span>独立访客</span>
+              <strong>{{ formatNumber(visitSummary.totalUv) }}</strong>
+              <small>UV</small>
+            </div>
+            <div>
+              <span>今日访问</span>
+              <strong>{{ formatNumber(visitSummary.todayPv) }}</strong>
+              <small>今日 PV</small>
+            </div>
+          </div>
+
+          <div class="public-visit-trend">
+            <span>最近七天趋势</span>
+            <div v-if="visitTrend.length" class="public-visit-bars">
+              <i
+                v-for="item in visitTrendBars"
+                :key="item.date"
+                :style="{ height: `${item.height}%` }"
+                :title="`${item.date}: ${item.pv}`"
+              ></i>
+            </div>
+            <p v-else class="muted">暂无访问趋势。</p>
+          </div>
+
+          <div class="public-visit-hot">
+            <div>
+              <span>热门政策</span>
+              <strong>{{ topPolicy?.title || '暂无数据' }}</strong>
+            </div>
+            <div>
+              <span>热门案例</span>
+              <strong>{{ topCase?.title || '暂无数据' }}</strong>
+            </div>
+          </div>
+        </div>
+      </article>
+
       <article class="panel analysis-panel wide-panel scroll-reveal">
         <div class="section-header">
           <div>
@@ -266,6 +320,7 @@ import { getDashboardSummary } from '@/api/dashboard'
 import { getCases } from '@/api/case'
 import { getPolicies } from '@/api/policy'
 import { getSources } from '@/api/source'
+import { getVisitRankings, getVisitSummary, getVisitTrend } from '@/api/visit'
 
 const loading = ref(false)
 const error = ref('')
@@ -273,6 +328,10 @@ const summary = ref({})
 const policies = ref([])
 const cases = ref([])
 const sources = ref([])
+const visitSummary = ref({})
+const visitTrend = ref([])
+const policyVisitRankings = ref([])
+const caseVisitRankings = ref([])
 const cursorTrail = ref([])
 const trailTimers = []
 let trailId = 0
@@ -304,6 +363,15 @@ const dedupedRecentUpdates = computed(() => {
   })
 })
 const compactRecentUpdates = computed(() => dedupedRecentUpdates.value.slice(0, 5))
+const topPolicy = computed(() => policyVisitRankings.value[0] || null)
+const topCase = computed(() => caseVisitRankings.value[0] || null)
+const visitTrendBars = computed(() => {
+  const max = Math.max(...visitTrend.value.map((item) => Number(item.pv || 0)), 1)
+  return visitTrend.value.map((item) => ({
+    ...item,
+    height: Math.max(12, Math.round((Number(item.pv || 0) / max) * 100)),
+  }))
+})
 const policyCount = computed(() => Number(summary.value.policyCount ?? policies.value.length))
 const caseCount = computed(() => Number(summary.value.caseCount ?? cases.value.length))
 const sourceCount = computed(() => Number(summary.value.sourceCount ?? sources.value.length))
@@ -368,6 +436,10 @@ function getTrendYear(rows) {
     .map((item) => String(item.name || '').match(/^(\d{4})/)?.[1])
     .filter(Boolean)
   return [...new Set(years)].length === 1 ? years[0] : ''
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString('zh-CN')
 }
 
 function useAnimatedNumber(target) {
@@ -622,16 +694,24 @@ onMounted(async () => {
   loading.value = true
   error.value = ''
   try {
-    const [summaryData, policyData, caseData, sourceData] = await Promise.all([
+    const [summaryData, policyData, caseData, sourceData, visitSummaryData, policyRankData, caseRankData, visitTrendData] = await Promise.all([
       getDashboardSummary(),
       getPolicies(),
       getCases(),
       getSources(),
+      getVisitSummary(),
+      getVisitRankings({ targetType: 'policy', limit: 5 }),
+      getVisitRankings({ targetType: 'case', limit: 5 }),
+      getVisitTrend({ days: 7 }),
     ])
     summary.value = summaryData
     policies.value = policyData
     cases.value = caseData
     sources.value = sourceData
+    visitSummary.value = visitSummaryData || {}
+    policyVisitRankings.value = policyRankData || []
+    caseVisitRankings.value = caseRankData || []
+    visitTrend.value = visitTrendData || []
   } catch (err) {
     error.value = err.message || '统计数据加载失败'
   } finally {

@@ -58,6 +58,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { getPolicyDetail } from '@/api/policy'
+import { recordVisit } from '@/api/visit'
 
 const props = defineProps({
   id: {
@@ -74,6 +75,13 @@ onMounted(async () => {
   loading.value = true
   try {
     policy.value = await getPolicyDetail(props.id)
+    recordVisit({
+      pagePath: `/policies/${props.id}`,
+      pageTitle: policy.value.title || `政策详情 #${props.id}`,
+      targetType: 'policy',
+      targetId: Number(props.id),
+      referer: document.referrer || '/policies',
+    }).catch(() => {})
   } catch (err) {
     error.value = err.message || '政策详情加载失败'
   } finally {
