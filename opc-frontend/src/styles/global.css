@@ -1897,7 +1897,8 @@ button {
 
 .tag-cloud span,
 .chip,
-.status-pill {
+.status-pill,
+.visit-count-pill {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -1924,6 +1925,13 @@ button {
 .status-pill {
   color: var(--yellow-ink);
   background: var(--yellow-soft);
+}
+
+.visit-count-pill {
+  border-color: rgba(49, 92, 219, 0.22);
+  color: #315cdb;
+  background: rgba(49, 92, 219, 0.075);
+  font-family: "SF Mono", "Cascadia Mono", monospace;
 }
 
 .trend-chart {
@@ -5356,18 +5364,19 @@ td a:hover,
   line-height: 1.6;
 }
 
-.policy-table td:first-child {
-  width: 34%;
+.policy-table td:first-child,
+.policy-table th:first-child {
+  width: 30%;
 }
 
 .policy-table th:nth-child(2),
 .policy-table td:nth-child(2) {
-  width: 7%;
+  width: 8%;
 }
 
 .policy-table th:nth-child(3),
 .policy-table td:nth-child(3) {
-  width: 25%;
+  width: 22%;
 }
 
 .policy-table th:nth-child(4),
@@ -5377,12 +5386,17 @@ td a:hover,
 
 .policy-table th:nth-child(5),
 .policy-table td:nth-child(5) {
-  width: 17%;
+  width: 16%;
 }
 
 .policy-table th:nth-child(6),
 .policy-table td:nth-child(6) {
-  width: 9%;
+  width: 8%;
+}
+
+.policy-table th:nth-child(7),
+.policy-table td:nth-child(7) {
+  width: 8%;
 }
 
 .policy-table td a {
@@ -5411,6 +5425,13 @@ td a:hover,
   border-color: rgba(49, 92, 219, 0.2);
   color: #315cdb;
   background: rgba(49, 92, 219, 0.07);
+}
+
+.policy-index-page .visit-count-pill,
+.case-index-page .visit-count-pill {
+  border-color: rgba(49, 92, 219, 0.22);
+  color: #315cdb;
+  background: rgba(49, 92, 219, 0.075);
 }
 
 .policy-pagination {
@@ -5979,6 +6000,12 @@ td a:hover,
 .case-index-page .case-index-row > * {
   position: relative;
   z-index: 1;
+}
+
+.case-index-side {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
 }
 
 .case-index-page .case-index-no {
@@ -7779,7 +7806,9 @@ td a:hover,
   .policy-table th:nth-child(4),
   .policy-table td:nth-child(4),
   .policy-table th:nth-child(6),
-  .policy-table td:nth-child(6) {
+  .policy-table td:nth-child(6),
+  .policy-table th:nth-child(7),
+  .policy-table td:nth-child(7) {
     min-width: 88px;
     white-space: nowrap;
   }
@@ -7804,6 +7833,10 @@ td a:hover,
     grid-template-columns: 1fr;
     gap: 12px;
     padding: 16px;
+  }
+
+  .case-index-side {
+    justify-items: start;
   }
 
   .case-index-main,

@@ -55,11 +55,11 @@ public class VisitService {
     }
 
     public List<VisitRankingVO> getRankings(String targetType, Integer limit) {
-    String safeTargetType = StringUtils.hasText(targetType) ? targetType : "policy";
-    Integer safeLimit = limit == null || limit <= 0 ? 10 : Math.min(limit, 50);
+        String safeTargetType = StringUtils.hasText(targetType) ? targetType : "policy";
+        Integer safeLimit = limit == null || limit <= 0 ? 10 : Math.min(limit, 200);
 
-    return visitLogMapper.selectRankings(safeTargetType, safeLimit);
-}
+        return visitLogMapper.selectRankings(safeTargetType, safeLimit);
+    }
 
     public List<VisitTrendVO> getTrend(Integer days) {
         Integer safeDays = days == null || days <= 0 ? 7 : Math.min(days, 30);

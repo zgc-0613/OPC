@@ -119,6 +119,7 @@
               <th>发文单位</th>
               <th>发布日期</th>
               <th>标签</th>
+              <th>点击量</th>
               <th>状态</th>
             </tr>
           </thead>
@@ -135,6 +136,9 @@
                   <span v-for="tag in formatTags(policy.tags)" :key="tag" class="chip">{{ tag }}</span>
                 </div>
                 <span v-else>-</span>
+              </td>
+              <td>
+                <span class="visit-count-pill">{{ getPolicyPv(policy.id) }} 次</span>
               </td>
               <td><span class="status-pill">{{ policy.status || '-' }}</span></td>
             </tr>
@@ -165,6 +169,7 @@ import { useRoute } from 'vue-router'
 import { getPolicies } from '@/api/policy'
 import { getRegions } from '@/api/region'
 import { exportPolicies } from '@/api/export'
+import { getVisitRankings } from '@/api/visit'
 
 const route = useRoute()
 const loading = ref(false)
@@ -172,6 +177,7 @@ const error = ref('')
 const policies = ref([])
 const allPolicies = ref([])
 const regions = ref([])
+const policyVisitRankings = ref([])
 const currentPage = ref(1)
 const regionMenuOpen = ref(false)
 const policyTypeMenuOpen = ref(false)
@@ -263,6 +269,14 @@ const resultText = computed(() => {
     parts.push(`关键词：${query.keyword}`)
   }
   return parts.length ? `当前筛选 ${parts.join(' / ')}，共 ${policies.value.length} 条。` : `当前展示全部政策，共 ${policies.value.length} 条。`
+})
+
+const policyVisitMap = computed(() => {
+  const map = new Map()
+  policyVisitRankings.value.forEach((item) => {
+    map.set(Number(item.targetId), Number(item.pv || 0))
+  })
+  return map
 })
 
 async function loadPolicies() {
@@ -374,6 +388,10 @@ function formatTags(tags) {
     .slice(0, 4)
 }
 
+function getPolicyPv(id) {
+  return policyVisitMap.value.get(Number(id)) || 0
+}
+
 function handlePolicySpotlight(event) {
   const target = event.target.closest('.policy-filter-panel, .policy-summary-strip div, .policy-index-panel, .policy-table tbody tr')
   if (!target) {
@@ -427,9 +445,14 @@ watch(
 onMounted(async () => {
   await nextTick()
   setupScrollReveal()
-  const [regionList, policyList] = await Promise.all([getRegions(), getPolicies()])
+  const [regionList, policyList, visitRankingList] = await Promise.all([
+    getRegions(),
+    getPolicies(),
+    getVisitRankings({ targetType: 'policy', limit: 200 }),
+  ])
   regions.value = regionList
   allPolicies.value = policyList
+  policyVisitRankings.value = visitRankingList || []
   query.regionId = route.query.regionId ? String(route.query.regionId) : ''
   if (query.regionId) {
     await loadPolicies()

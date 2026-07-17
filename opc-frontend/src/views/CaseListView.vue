@@ -121,7 +121,10 @@
               <span v-for="tag in formatTags(item.tags)" :key="tag" class="chip">{{ tag }}</span>
             </div>
           </div>
-          <span class="status-pill">{{ item.status || '-' }}</span>
+          <div class="case-index-side">
+            <span class="visit-count-pill">{{ getCasePv(item.id) }} 次浏览</span>
+            <span class="status-pill">{{ item.status || '-' }}</span>
+          </div>
         </RouterLink>
       </div>
       <div v-if="cases.length" class="case-pagination" aria-label="案例分页">
@@ -146,12 +149,14 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { getCases } from '@/api/case'
 import { getRegions } from '@/api/region'
+import { getVisitRankings } from '@/api/visit'
 
 const loading = ref(false)
 const error = ref('')
 const cases = ref([])
 const allCases = ref([])
 const regions = ref([])
+const caseVisitRankings = ref([])
 const currentPage = ref(1)
 const regionMenuOpen = ref(false)
 const categoryMenuOpen = ref(false)
@@ -219,6 +224,14 @@ const resultText = computed(() => {
     parts.push(`关键词：${query.keyword}`)
   }
   return parts.length ? `当前筛选 ${parts.join(' / ')}，共 ${cases.value.length} 条。` : `当前展示全部案例，共 ${cases.value.length} 条。`
+})
+
+const caseVisitMap = computed(() => {
+  const map = new Map()
+  caseVisitRankings.value.forEach((item) => {
+    map.set(Number(item.targetId), Number(item.pv || 0))
+  })
+  return map
 })
 
 async function loadCases() {
@@ -309,6 +322,10 @@ function formatTags(tags) {
     .slice(0, 6)
 }
 
+function getCasePv(id) {
+  return caseVisitMap.value.get(Number(id)) || 0
+}
+
 function handleCaseSpotlight(event) {
   const target = event.target.closest('.case-filter-panel, .case-summary-strip div, .case-index-panel, .case-index-row')
   if (!target) {
@@ -362,9 +379,14 @@ watch(
 onMounted(async () => {
   await nextTick()
   setupScrollReveal()
-  const [regionList, caseList] = await Promise.all([getRegions(), getCases()])
+  const [regionList, caseList, visitRankingList] = await Promise.all([
+    getRegions(),
+    getCases(),
+    getVisitRankings({ targetType: 'case', limit: 200 }),
+  ])
   regions.value = regionList
   allCases.value = caseList
+  caseVisitRankings.value = visitRankingList || []
   cases.value = filterCases(caseList)
   currentPage.value = 1
   await nextTick()
