@@ -150,6 +150,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { getCases } from '@/api/case'
 import { getRegions } from '@/api/region'
 import { getVisitRankings } from '@/api/visit'
+import { recordSearchKeyword } from '@/api/searchLog'
 
 const loading = ref(false)
 const error = ref('')
@@ -162,6 +163,7 @@ const regionMenuOpen = ref(false)
 const categoryMenuOpen = ref(false)
 const pageSize = 10
 let revealObserver
+let searchLogTimer = null
 const query = reactive({
   keyword: '',
   regionId: '',
@@ -367,7 +369,11 @@ watch(
   () => query.keyword,
   () => {
     window.clearTimeout(keywordTimer)
-    keywordTimer = window.setTimeout(loadCases, 260)
+    window.clearTimeout(searchLogTimer)
+    keywordTimer = window.setTimeout(async () => {
+      await loadCases()
+      reportCaseSearch()
+    }, 260)
   },
 )
 
@@ -379,11 +385,11 @@ watch(
 onMounted(async () => {
   await nextTick()
   setupScrollReveal()
-  const [regionList, caseList, visitRankingList] = await Promise.all([
+  const [regionList, caseList] = await Promise.all([
     getRegions(),
     getCases(),
-    getVisitRankings({ targetType: 'case', limit: 200 }),
   ])
+  const visitRankingList = await getVisitRankings({ targetType: 'case', limit: 200 }).catch(() => [])
   regions.value = regionList
   allCases.value = caseList
   caseVisitRankings.value = visitRankingList || []
@@ -395,6 +401,23 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.clearTimeout(keywordTimer)
+  window.clearTimeout(searchLogTimer)
   revealObserver?.disconnect()
 })
+
+function reportCaseSearch() {
+  const keyword = query.keyword.trim()
+  if (keyword.length < 2) {
+    return
+  }
+
+  searchLogTimer = window.setTimeout(() => {
+    recordSearchKeyword({
+      keyword,
+      searchScope: 'case',
+      resultCount: cases.value.length,
+      pagePath: '/cases',
+    }).catch(() => {})
+  }, 700)
+}
 </script>

@@ -3,6 +3,7 @@ import MainLayout from '@/layouts/MainLayout.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import HomeView from '@/views/HomeView.vue'
 import LoginView from '@/views/LoginView.vue'
+import AdminLoginView from '@/views/AdminLoginView.vue'
 import RegionDirectoryView from '@/views/RegionDirectoryView.vue'
 import PolicyListView from '@/views/PolicyListView.vue'
 import PolicyDetailView from '@/views/PolicyDetailView.vue'
@@ -67,6 +68,11 @@ const routes = [
     component: LoginView,
   },
   {
+    path: '/admin/login',
+    name: 'admin-login',
+    component: AdminLoginView,
+  },
+  {
     path: '/admin',
     component: AdminLayout,
     meta: {
@@ -110,13 +116,13 @@ const router = createRouter({
 router.beforeEach((to) => {
   if (to.meta.requiresAdmin && !isAdminAuthenticated()) {
     return {
-      path: '/login',
+      path: '/admin/login',
       query: {
         redirect: to.fullPath,
       },
     }
   }
-  if (to.name === 'login' && isAdminAuthenticated()) {
+  if (to.name === 'admin-login' && isAdminAuthenticated()) {
     return '/admin'
   }
   return true

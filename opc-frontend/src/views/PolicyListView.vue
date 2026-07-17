@@ -170,6 +170,7 @@ import { getPolicies } from '@/api/policy'
 import { getRegions } from '@/api/region'
 import { exportPolicies } from '@/api/export'
 import { getVisitRankings } from '@/api/visit'
+import { recordSearchKeyword } from '@/api/searchLog'
 
 const route = useRoute()
 const loading = ref(false)
@@ -183,6 +184,7 @@ const regionMenuOpen = ref(false)
 const policyTypeMenuOpen = ref(false)
 const pageSize = 10
 let revealObserver
+let searchLogTimer = null
 const query = reactive({
   keyword: '',
   regionId: '',
@@ -433,7 +435,11 @@ watch(
   () => query.keyword,
   () => {
     window.clearTimeout(keywordTimer)
-    keywordTimer = window.setTimeout(loadPolicies, 260)
+    window.clearTimeout(searchLogTimer)
+    keywordTimer = window.setTimeout(async () => {
+      await loadPolicies()
+      reportPolicySearch()
+    }, 260)
   },
 )
 
@@ -445,11 +451,11 @@ watch(
 onMounted(async () => {
   await nextTick()
   setupScrollReveal()
-  const [regionList, policyList, visitRankingList] = await Promise.all([
+  const [regionList, policyList] = await Promise.all([
     getRegions(),
     getPolicies(),
-    getVisitRankings({ targetType: 'policy', limit: 200 }),
   ])
+  const visitRankingList = await getVisitRankings({ targetType: 'policy', limit: 200 }).catch(() => [])
   regions.value = regionList
   allPolicies.value = policyList
   policyVisitRankings.value = visitRankingList || []
@@ -466,6 +472,23 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.clearTimeout(keywordTimer)
+  window.clearTimeout(searchLogTimer)
   revealObserver?.disconnect()
 })
+
+function reportPolicySearch() {
+  const keyword = query.keyword.trim()
+  if (keyword.length < 2) {
+    return
+  }
+
+  searchLogTimer = window.setTimeout(() => {
+    recordSearchKeyword({
+      keyword,
+      searchScope: 'policy',
+      resultCount: policies.value.length,
+      pagePath: '/policies',
+    }).catch(() => {})
+  }, 700)
+}
 </script>

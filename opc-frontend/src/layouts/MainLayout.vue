@@ -7,22 +7,23 @@
     ]"
   >
     <button
+      v-if="!isHome"
       class="mobile-menu-button"
       type="button"
       :aria-expanded="mobileSidebarOpen"
-      aria-label="Open navigation"
+      aria-label="打开导航"
       @click="mobileSidebarOpen = true"
     >
       <span></span>
     </button>
     <button
-      v-if="mobileSidebarOpen"
+      v-if="!isHome && mobileSidebarOpen"
       class="mobile-menu-backdrop"
       type="button"
-      aria-label="Close navigation"
+      aria-label="关闭导航"
       @click="mobileSidebarOpen = false"
     ></button>
-    <aside class="sidebar site-sidebar archive-sidebar" aria-label="主导航">
+    <aside v-if="!isHome" class="sidebar site-sidebar archive-sidebar" aria-label="主导航">
       <div class="sidebar-head">
         <RouterLink class="brand archive-brand" to="/" aria-label="SoloFirm OPC Platform 首页">
           <span class="brand-mark archive-brand-mark brand-logo-mark" aria-hidden="true">
@@ -50,28 +51,27 @@
       </div>
 
       <nav class="nav side-nav archive-nav" aria-label="页面导航">
-        <RouterLink to="/" aria-label="首页概览">
+        <RouterLink to="/" aria-label="首页概览" :class="{ 'nav-active': isNavActive('home') }">
           <span>首页概览</span>
           <small>Index overview</small>
         </RouterLink>
-        <RouterLink to="/regions" aria-label="地区目录">
+        <RouterLink to="/regions" aria-label="地区目录" :class="{ 'nav-active': isNavActive('regions') }">
           <span>地区目录</span>
           <small>Region directory</small>
         </RouterLink>
-        <RouterLink to="/policies" aria-label="政策索引">
+        <RouterLink to="/policies" aria-label="政策索引" :class="{ 'nav-active': isNavActive('policies') }">
           <span>政策索引</span>
           <small>Policy archive</small>
         </RouterLink>
-        <RouterLink to="/cases" aria-label="案例索引">
+        <RouterLink to="/cases" aria-label="案例索引" :class="{ 'nav-active': isNavActive('cases') }">
           <span>案例索引</span>
           <small>Case archive</small>
         </RouterLink>
-        <RouterLink to="/sources" aria-label="来源台账">
+        <RouterLink to="/sources" aria-label="来源台账" :class="{ 'nav-active': isNavActive('sources') }">
           <span>来源台账</span>
           <small>Source ledger</small>
         </RouterLink>
       </nav>
-
     </aside>
 
     <main class="main archive-main">
@@ -129,7 +129,7 @@ const routeTitle = computed(() => {
     'case-detail': '案例详情',
     'source-ledger': '来源台账',
   }
-  return titles[route.name] || 'SoloFirm Index'
+  return titles[route.name] || 'SoloFirm'
 })
 
 const routeSubtitle = computed(() => {
@@ -144,4 +144,15 @@ const routeSubtitle = computed(() => {
   }
   return subtitles[route.name] || '资料库工作台'
 })
+
+function isNavActive(section) {
+  const sectionMap = {
+    home: ['home'],
+    regions: ['region-directory'],
+    policies: ['policy-list', 'policy-detail'],
+    cases: ['case-list', 'case-detail'],
+    sources: ['source-ledger'],
+  }
+  return sectionMap[section]?.includes(route.name)
+}
 </script>

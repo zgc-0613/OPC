@@ -5,6 +5,14 @@ const request = axios.create({
   timeout: 15000,
 })
 
+request.interceptors.request.use((config) => {
+  const token = sessionStorage.getItem('opc_user_token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
 request.interceptors.response.use(
   (response) => {
     const body = response.data

@@ -9,6 +9,25 @@ spring:
     url: jdbc:mysql://localhost:3306/opc_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: 123456
+  mail:
+    host: smtp.qq.com
+    port: 465
+    username:
+    password:
+    protocol: smtps
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+
+opc:
+  auth:
+    mail-enabled: false
+    verification-code-minutes: 10
+    resend-interval-seconds: 60
+    session-days: 30
 
 mybatis-plus:
   configuration:

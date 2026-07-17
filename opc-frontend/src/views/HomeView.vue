@@ -1,6 +1,32 @@
 ﻿<template>
   <div class="page-stack home-archive-page">
     <section class="archive-hero" @pointermove="handleHeroPointerMove" @pointerleave="clearCursorTrail">
+      <header class="home-landing-nav">
+        <RouterLink class="home-landing-brand" to="/" aria-label="SoloFirm 首页">
+          <span class="brand-mark brand-logo-mark archive-brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 72 72" focusable="false">
+              <rect x="4" y="4" width="64" height="64" rx="20" />
+              <path class="logo-path-main" d="M24 45V25h12c7 0 12 4 12 10s-5 10-12 10H24Z" />
+              <path class="logo-path-accent" d="M18 23C28 14 44 14 54 23" />
+              <path class="logo-path-accent" d="M18 49C28 58 44 58 54 49" />
+            </svg>
+          </span>
+          <strong>SoloFirm</strong>
+        </RouterLink>
+
+        <nav class="home-landing-links" aria-label="首页导航">
+          <RouterLink to="/">首页</RouterLink>
+          <RouterLink to="/policies">政策库</RouterLink>
+          <RouterLink to="/cases">案例库</RouterLink>
+          <a href="#home-data-view">数据分析</a>
+        </nav>
+
+        <div class="home-landing-actions">
+          <RouterLink class="home-landing-action" to="/login">登录</RouterLink>
+          <RouterLink class="home-landing-action primary" to="/policies">进入平台</RouterLink>
+        </div>
+      </header>
+
       <div class="hero-network" aria-hidden="true">
         <span class="hero-node"></span>
         <span class="hero-node"></span>
@@ -22,18 +48,10 @@
       </div>
 
       <div class="archive-hero-copy">
-        <span class="home-hero-logo" aria-hidden="true">
-          <svg viewBox="0 0 72 72" focusable="false">
-            <rect x="4" y="4" width="64" height="64" rx="20" />
-            <path class="logo-path-main" d="M24 45V25h12c7 0 12 4 12 10s-5 10-12 10H24Z" />
-            <path class="logo-path-accent" d="M18 23C28 14 44 14 54 23" />
-            <path class="logo-path-accent" d="M18 49C28 58 44 58 54 49" />
-          </svg>
-        </span>
         <span class="caption">AI + OPC POLICY AND CASE INDEX</span>
-        <h1>一人公司的政策经纬</h1>
+        <h1>一人公司的<br /><span>智能创业索引</span></h1>
         <p>
-          汇总全国 AI 与一人公司相关政策、案例和来源记录，按地区、类型与主题形成可筛选、可引用、可复核的资料索引。
+          汇聚 AI + OPC 相关政策、案例与来源资料，帮助创业者快速定位地区机会、政策支持与可参考案例。
         </p>
         <div class="archive-hero-actions">
           <RouterLink class="button" to="/policies">进入政策库</RouterLink>
@@ -46,57 +64,10 @@
         </div>
       </div>
 
-      <div class="archive-hero-board" aria-label="平台资料统计">
-        <div class="archive-board-head">
-          <span>资料总量</span>
-          <strong>{{ animatedTotalRecordCount }}</strong>
-          <p>汇总政策、案例与来源记录。</p>
-        </div>
-        <div v-if="loading" class="archive-loading">正在读取数据...</div>
-        <div v-else-if="error" class="error">{{ error }}</div>
-        <div v-else class="archive-metrics">
-          <div>
-            <span>政策记录</span>
-            <strong>{{ animatedPolicyCount }}</strong>
-            <p>按地区、政策类型、发布日期和标签检索。</p>
-          </div>
-          <div>
-            <span>案例记录</span>
-            <strong>{{ animatedCaseCount }}</strong>
-            <p>沉淀 AI 与一人公司相关案例线索。</p>
-          </div>
-          <div>
-            <span>来源记录</span>
-            <strong>{{ animatedSourceCount }}</strong>
-            <p>保留链接、文件、访问日期和出处信息。</p>
-          </div>
-          <div>
-            <span>覆盖地区</span>
-            <strong>{{ animatedCoveredRegionCount }}</strong>
-            <p>按省级地区观察资料覆盖与重点分布。</p>
-          </div>
-        </div>
-        <div class="archive-sparkline" aria-label="近月政策发布统计">
-          <div class="sparkline-head">
-            <span>{{ overviewChartTitle }}</span>
-            <strong>{{ overviewChartCaption }}</strong>
-          </div>
-          <div class="sparkline-bars">
-            <span
-              v-for="(item, index) in overviewBars"
-              :key="`${item.name}-${index}`"
-              class="sparkline-bar"
-            >
-              <b>{{ item.count }}</b>
-              <i :style="{ height: `${item.height}%`, animationDelay: `${index * 80}ms` }"></i>
-              <small>{{ item.label }}</small>
-            </span>
-          </div>
-        </div>
-      </div>
+      <a class="home-scroll-cue" href="#home-data-view" aria-label="跳转到资料分析概览"></a>
     </section>
 
-    <div class="home-section-heading scroll-reveal">
+    <div id="home-data-view" class="home-section-heading scroll-reveal">
       <span>DATA VIEW</span>
       <h2>资料分析概览</h2>
       <p>以下图表根据当前数据库记录动态生成，新增政策或案例后会随接口数据同步变化。</p>
@@ -311,6 +282,61 @@
         </div>
       </article>
     </section>
+
+    <footer class="home-contact-footer scroll-reveal">
+      <section class="home-contact-card" aria-labelledby="home-contact-title">
+        <div>
+          <span class="home-contact-kicker">CONTACT</span>
+          <h2 id="home-contact-title">联系我们，<span>共建 OPC 智能创业索引</span></h2>
+          <p>
+            如果你关注一人公司、AI 创业、政策资料整理或案例共建，欢迎通过以下方式与我们联系。
+          </p>
+
+          <div class="home-contact-methods" aria-label="联系方式">
+            <div class="home-contact-method">
+              <span class="home-contact-icon" aria-hidden="true">LOC</span>
+              <div>
+                <strong>所属单位</strong>
+                <p>西北工业大学软件学院</p>
+              </div>
+            </div>
+
+            <div class="home-contact-method">
+              <span class="home-contact-icon" aria-hidden="true">@</span>
+              <div>
+                <strong>联系人</strong>
+                <p>
+                  王兵书 <a href="mailto:wangbingshu@nwpu.edu.cn">wangbingshu@nwpu.edu.cn</a>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="home-site-footer" aria-label="网站页脚">
+        <div>
+          <div class="home-footer-brand">
+            <span class="brand-mark brand-logo-mark archive-brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 72 72" focusable="false">
+                <rect x="4" y="4" width="64" height="64" rx="20" />
+                <path class="logo-path-main" d="M24 45V25h12c7 0 12 4 12 10s-5 10-12 10H24Z" />
+                <path class="logo-path-accent" d="M18 23C28 14 44 14 54 23" />
+                <path class="logo-path-accent" d="M18 49C28 58 44 58 54 49" />
+              </svg>
+            </span>
+            <strong>SoloFirm</strong>
+          </div>
+          <p>聚合 AI + OPC 相关政策、案例与来源资料，帮助创业者和研究者更快理解一人公司的机会结构。</p>
+        </div>
+
+        <div class="home-footer-contact">
+          <strong>联系我们</strong>
+          <span>西北工业大学软件学院</span>
+          <a href="mailto:wangbingshu@nwpu.edu.cn">王兵书 wangbingshu@nwpu.edu.cn</a>
+        </div>
+      </section>
+    </footer>
   </div>
 </template>
 
@@ -376,6 +402,7 @@ const policyCount = computed(() => Number(summary.value.policyCount ?? policies.
 const caseCount = computed(() => Number(summary.value.caseCount ?? cases.value.length))
 const sourceCount = computed(() => Number(summary.value.sourceCount ?? sources.value.length))
 const totalRecordCount = computed(() => policyCount.value + caseCount.value + sourceCount.value)
+const todayPv = computed(() => Number(visitSummary.value.todayPv || 0))
 const coveredRegionCount = computed(() => {
   const fromSummary = summary.value.coveredRegionCount
   if (fromSummary !== undefined && fromSummary !== null) {
@@ -392,6 +419,7 @@ const animatedCaseCount = useAnimatedNumber(caseCount)
 const animatedSourceCount = useAnimatedNumber(sourceCount)
 const animatedCoveredRegionCount = useAnimatedNumber(coveredRegionCount)
 const animatedTotalRecordCount = useAnimatedNumber(totalRecordCount)
+const animatedTodayPv = useAnimatedNumber(todayPv)
 
 const overviewBars = computed(() => {
   const trendRows = publishTrend.value.slice(-6).map((item) => ({
@@ -694,15 +722,17 @@ onMounted(async () => {
   loading.value = true
   error.value = ''
   try {
-    const [summaryData, policyData, caseData, sourceData, visitSummaryData, policyRankData, caseRankData, visitTrendData] = await Promise.all([
-      getDashboardSummary(),
+    const [summaryData, policyData, caseData, sourceData] = await Promise.all([
+      getDashboardSummary().catch(() => ({})),
       getPolicies(),
       getCases(),
-      getSources(),
-      getVisitSummary(),
-      getVisitRankings({ targetType: 'policy', limit: 5 }),
-      getVisitRankings({ targetType: 'case', limit: 5 }),
-      getVisitTrend({ days: 7 }),
+      getSources().catch(() => []),
+    ])
+    const [visitSummaryData, policyRankData, caseRankData, visitTrendData] = await Promise.all([
+      getVisitSummary().catch(() => ({})),
+      getVisitRankings({ targetType: 'policy', limit: 5 }).catch(() => []),
+      getVisitRankings({ targetType: 'case', limit: 5 }).catch(() => []),
+      getVisitTrend({ days: 7 }).catch(() => []),
     ])
     summary.value = summaryData
     policies.value = policyData

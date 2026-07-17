@@ -168,6 +168,29 @@
               <p>用户访问案例详情页后会出现在这里。</p>
             </div>
           </article>
+
+          <article class="admin-analytics-panel">
+            <div class="admin-mini-head">
+              <div>
+                <span class="caption">SEARCH TOP 10</span>
+                <h3>热门搜索词</h3>
+              </div>
+            </div>
+            <ol v-if="hotKeywords.length" class="admin-ranking-list admin-keyword-list">
+              <li v-for="(item, index) in hotKeywords" :key="`${item.searchScope}-${item.keyword}`">
+                <span>{{ index + 1 }}</span>
+                <p>
+                  {{ item.keyword }}
+                  <small>{{ scopeLabel(item.searchScope) }}</small>
+                </p>
+                <strong>{{ formatNumber(item.searchCount) }}</strong>
+              </li>
+            </ol>
+            <div v-else class="empty-state">
+              <strong>暂无搜索记录</strong>
+              <p>用户在政策或案例页输入关键词后会出现在这里。</p>
+            </div>
+          </article>
         </div>
       </template>
     </section>
@@ -177,6 +200,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { getVisitRankings, getVisitSummary, getVisitTrend } from '@/api/visit'
+import { getHotSearchKeywords } from '@/api/searchLog'
 
 const loading = ref(false)
 const error = ref('')
@@ -184,6 +208,7 @@ const summary = ref({})
 const policyRankings = ref([])
 const caseRankings = ref([])
 const trend = ref([])
+const hotKeywords = ref([])
 
 const trendTotalPv = computed(() => trend.value.reduce((total, item) => total + Number(item.pv || 0), 0))
 const contentTotalPv = computed(() => Number(summary.value.policyPv || 0) + Number(summary.value.casePv || 0))
@@ -224,17 +249,19 @@ async function loadVisitAnalytics() {
   loading.value = true
   error.value = ''
   try {
-    const [summaryData, policyData, caseData, trendData] = await Promise.all([
+    const [summaryData, policyData, caseData, trendData, keywordData] = await Promise.all([
       getVisitSummary(),
       getVisitRankings({ targetType: 'policy', limit: 5 }),
       getVisitRankings({ targetType: 'case', limit: 5 }),
       getVisitTrend({ days: 7 }),
+      getHotSearchKeywords({ limit: 10 }),
     ])
 
     summary.value = summaryData || {}
     policyRankings.value = policyData || []
     caseRankings.value = caseData || []
     trend.value = trendData || []
+    hotKeywords.value = keywordData || []
   } catch (err) {
     error.value = err.message || '访问统计加载失败'
   } finally {
@@ -258,6 +285,17 @@ function formatDateLabel(date) {
     return '-'
   }
   return String(date).slice(5)
+}
+
+function scopeLabel(scope) {
+  const labels = {
+    policy: '政策',
+    case: '案例',
+    source: '来源',
+    region: '地区',
+    all: '全站',
+  }
+  return labels[scope] || scope || '全站'
 }
 
 onMounted(loadVisitAnalytics)

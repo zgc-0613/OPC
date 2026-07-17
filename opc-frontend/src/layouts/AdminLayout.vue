@@ -59,6 +59,6 @@ const routeTitle = computed(() => {
 
 function logout() {
   logoutAdmin()
-  router.replace('/login')
+  router.replace('/admin/login')
 }
 </script>
