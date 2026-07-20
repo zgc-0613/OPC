@@ -337,9 +337,17 @@ async function removePolicy(policy) {
 }
 
 onMounted(async () => {
-  const [regionList, sourceList] = await Promise.all([getRegions(), getSources()])
-  regions.value = regionList
-  sources.value = sourceList
-  await loadPolicies()
+  loading.value = true
+  error.value = ''
+  try {
+    const [regionList, sourceList, policyList] = await Promise.all([getRegions(), getSources(), getPolicies()])
+    regions.value = regionList
+    sources.value = sourceList
+    policies.value = policyList
+  } catch (err) {
+    error.value = err.message || '政策加载失败'
+  } finally {
+    loading.value = false
+  }
 })
 </script>

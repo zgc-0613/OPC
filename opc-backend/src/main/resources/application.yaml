@@ -23,6 +23,13 @@ spring:
             enable: true
 
 opc:
+  admin:
+    session-hours: 12
+  settings:
+    encryption-secret: ${OPC_SETTINGS_SECRET:local-development-only}
+    encryption-salt: ${OPC_SETTINGS_SALT:9f4c2d8a7b6e5f10}
+  altcha:
+    hmac-secret: ${ALTCHA_HMAC_SECRET:}
   auth:
     mail-enabled: false
     verification-code-minutes: 10

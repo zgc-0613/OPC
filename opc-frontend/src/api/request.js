@@ -10,6 +10,10 @@ request.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+  const adminToken = sessionStorage.getItem('opc_admin_token')
+  if (adminToken) {
+    config.headers['X-Admin-Token'] = adminToken
+  }
   return config
 })
 

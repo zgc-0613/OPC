@@ -1,0 +1,65 @@
+- generic [ref=f5e3]:
+  - complementary "主导航" [ref=f5e4]:
+    - generic [ref=f5e5]:
+      - link "SoloFirm OPC Platform 首页" [ref=f5e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f5e13]:
+          - strong [ref=f5e14]: SoloFirm
+          - generic [ref=f5e15]: OPC Platform
+      - button "收起导航栏" [ref=f5e16] [cursor=pointer]
+    - navigation "页面导航" [ref=f5e18]:
+      - link "首页概览" [ref=f5e19] [cursor=pointer]:
+        - /url: /
+        - text: "00"
+        - generic [ref=f5e21]: Index overview
+      - link "地区目录" [ref=f5e22] [cursor=pointer]:
+        - /url: /regions
+        - text: "01"
+        - generic [ref=f5e24]: Region directory
+      - link "政策索引" [ref=f5e25] [cursor=pointer]:
+        - /url: /policies
+        - text: "02"
+        - generic [ref=f5e27]: Policy archive
+      - link "案例索引" [ref=f5e28] [cursor=pointer]:
+        - /url: /cases
+        - text: "03"
+        - generic [ref=f5e30]: Case archive
+      - link "来源台账" [ref=f5e31] [cursor=pointer]:
+        - /url: /sources
+        - text: "04"
+        - generic [ref=f5e33]: Source ledger
+  - main [ref=f5e34]:
+    - generic [ref=f5e36]:
+      - generic [ref=f5e37]: AI + OPC policy and case index
+      - heading "地区目录" [level=1] [ref=f5e38]
+    - generic [ref=f5e40]:
+      - generic [ref=f5e41]:
+        - generic [ref=f5e42]:
+          - generic [ref=f5e43]:
+            - generic [ref=f5e44]: regional index
+            - heading "地区检索" [level=2] [ref=f5e45]
+          - generic [ref=f5e46]: 0 个地区
+        - generic [ref=f5e47]:
+          - generic [ref=f5e48]:
+            - generic [ref=f5e49]: 收录地区
+            - strong [ref=f5e50]: "0"
+            - generic [ref=f5e51]: 已排除上级地区
+          - generic [ref=f5e52]:
+            - generic [ref=f5e53]: 已有资料地区
+            - strong [ref=f5e54]: "0"
+            - generic [ref=f5e55]: 政策或案例至少一项
+          - generic [ref=f5e56]:
+            - generic [ref=f5e57]: 政策资料
+            - strong [ref=f5e58]: "0"
+            - generic [ref=f5e59]: 按地区归集
+          - generic [ref=f5e60]:
+            - generic [ref=f5e61]: 案例资料
+            - strong [ref=f5e62]: "0"
+            - generic [ref=f5e63]: 按地区归集
+        - generic [ref=f5e65]:
+          - generic [ref=f5e66]: 地区关键词
+          - textbox "地区关键词" [ref=f5e67]:
+            - /placeholder: 搜索省份、政策、案例或标签
+      - generic [ref=f5e68]:
+        - heading "省份资料覆盖" [level=2] [ref=f5e71]
+        - generic [ref=f5e72]: 正在加载地区数据...

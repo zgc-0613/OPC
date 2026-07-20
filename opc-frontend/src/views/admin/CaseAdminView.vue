@@ -294,9 +294,17 @@ async function removeCase(item) {
 }
 
 onMounted(async () => {
-  const [regionList, sourceList] = await Promise.all([getRegions(), getSources()])
-  regions.value = regionList
-  sources.value = sourceList
-  await loadCases()
+  loading.value = true
+  error.value = ''
+  try {
+    const [regionList, sourceList, caseList] = await Promise.all([getRegions(), getSources(), getCases()])
+    regions.value = regionList
+    sources.value = sourceList
+    cases.value = caseList
+  } catch (err) {
+    error.value = err.message || '案例加载失败'
+  } finally {
+    loading.value = false
+  }
 })
 </script>

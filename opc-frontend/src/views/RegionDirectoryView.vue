@@ -1,10 +1,10 @@
 <template>
-  <div class="page-stack region-directory-page">
+  <div class="page-stack region-directory-page archive-workspace-page">
     <section class="panel filter-panel region-hero-panel scroll-reveal" @pointermove="handleRegionSpotlight">
       <div class="section-header">
         <div>
           <span class="caption">regional index</span>
-          <h2>地区目录</h2>
+          <h2>地区检索</h2>
           <p>按省份查看政策与案例资料覆盖情况，数据随当前后端接口实时变化。</p>
         </div>
         <span class="analysis-badge">{{ visibleRegions.length }} 个地区</span>
@@ -252,7 +252,7 @@ onMounted(async () => {
     policies.value = policyList
     cases.value = caseList
   } catch (err) {
-    error.value = err.message || '地区数据加载失败'
+    error.value = '地区资料暂时无法读取，请确认数据库服务是否运行。'
   } finally {
     loading.value = false
     await nextTick()

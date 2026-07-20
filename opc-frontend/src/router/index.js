@@ -3,6 +3,7 @@ import MainLayout from '@/layouts/MainLayout.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import HomeView from '@/views/HomeView.vue'
 import LoginView from '@/views/LoginView.vue'
+import UserAccountView from '@/views/UserAccountView.vue'
 import AdminLoginView from '@/views/AdminLoginView.vue'
 import RegionDirectoryView from '@/views/RegionDirectoryView.vue'
 import PolicyListView from '@/views/PolicyListView.vue'
@@ -15,7 +16,8 @@ import PolicyAdminView from '@/views/admin/PolicyAdminView.vue'
 import CaseAdminView from '@/views/admin/CaseAdminView.vue'
 import SourceAdminView from '@/views/admin/SourceAdminView.vue'
 import TagAdminView from '@/views/admin/TagAdminView.vue'
-import { isAdminAuthenticated } from '@/api/auth'
+import AdminSettingsView from '@/views/admin/AdminSettingsView.vue'
+import { isAdminAuthenticated, isUserAuthenticated } from '@/api/auth'
 import { recordVisit } from '@/api/visit'
 
 const routes = [
@@ -59,6 +61,14 @@ const routes = [
         path: 'sources',
         name: 'source-ledger',
         component: SourceLedgerView,
+      },
+      {
+        path: 'account',
+        name: 'user-account',
+        component: UserAccountView,
+        meta: {
+          requiresUser: true,
+        },
       },
     ],
   },
@@ -104,6 +114,11 @@ const routes = [
         name: 'admin-tags',
         component: TagAdminView,
       },
+      {
+        path: 'settings',
+        name: 'admin-settings',
+        component: AdminSettingsView,
+      },
     ],
   },
 ]
@@ -114,6 +129,14 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
+  if (to.meta.requiresUser && !isUserAuthenticated()) {
+    return {
+      path: '/login',
+      query: {
+        redirect: to.fullPath,
+      },
+    }
+  }
   if (to.meta.requiresAdmin && !isAdminAuthenticated()) {
     return {
       path: '/admin/login',
@@ -199,6 +222,7 @@ function getPageTitle(route) {
     'case-list': '案例索引',
     'case-detail': `案例详情 #${route.params.id}`,
     'source-ledger': '来源台账',
+    'user-account': '个人主页',
   }
 
   return titleMap[route.name] || document.title || route.fullPath

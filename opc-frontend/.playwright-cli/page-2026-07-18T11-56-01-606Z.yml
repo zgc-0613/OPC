@@ -1,0 +1,129 @@
+- generic [ref=f14e3]:
+  - complementary [ref=f14e4]:
+    - link "SoloFirm 管理端" [ref=f14e5] [cursor=pointer]:
+      - /url: /admin
+      - generic [ref=f14e12]:
+        - strong [ref=f14e13]: SoloFirm
+        - generic [ref=f14e14]: OPC Platform / Admin
+    - navigation "管理导航" [ref=f14e15]:
+      - link "工作台" [ref=f14e16] [cursor=pointer]:
+        - /url: /admin
+      - link "政策管理" [ref=f14e23] [cursor=pointer]:
+        - /url: /admin/policies
+      - link "案例管理" [ref=f14e28] [cursor=pointer]:
+        - /url: /admin/cases
+      - link "来源管理" [ref=f14e34] [cursor=pointer]:
+        - /url: /admin/sources
+      - link "标签管理" [ref=f14e38] [cursor=pointer]:
+        - /url: /admin/tags
+      - link "系统设置" [ref=f14e44] [cursor=pointer]:
+        - /url: /admin/settings
+    - link "返回前台" [ref=f14e49] [cursor=pointer]:
+      - /url: /
+    - button "退出登录" [ref=f14e52] [cursor=pointer]
+  - main [ref=f14e56]:
+    - generic [ref=f14e57]:
+      - generic [ref=f14e58]:
+        - generic [ref=f14e59]: admin workspace
+        - heading "政策管理" [level=1] [ref=f14e60]
+        - paragraph [ref=f14e61]: 维护公开平台可检索、可引用、可复核的政策与案例资料。
+      - generic [ref=f14e62]: MVP 管理模式
+    - generic [ref=f14e64]:
+      - generic [ref=f14e65]:
+        - generic [ref=f14e67]:
+          - heading "新增政策" [level=2] [ref=f14e68]
+          - paragraph [ref=f14e69]: 政策记录会展示在前台政策库，并参与首页统计与 Excel 导出。
+        - generic [ref=f14e70]:
+          - generic [ref=f14e71]:
+            - generic [ref=f14e72]: 政策标题 *
+            - textbox "政策标题 *" [ref=f14e73]:
+              - /placeholder: 政策文件标题
+          - generic [ref=f14e74]:
+            - generic [ref=f14e75]: 地区 *
+            - combobox "地区 *" [ref=f14e76]:
+              - option "请选择地区" [selected]
+          - generic [ref=f14e77]:
+            - generic [ref=f14e78]: 发文单位 *
+            - textbox "发文单位 *" [ref=f14e79]
+          - generic [ref=f14e80]:
+            - generic [ref=f14e81]: 文号
+            - textbox "文号" [ref=f14e82]
+          - generic [ref=f14e83]:
+            - generic [ref=f14e84]: 来源 *
+            - combobox "来源 *" [ref=f14e85]:
+              - option "请选择来源" [selected]
+          - button "快速新增来源" [ref=f14e87] [cursor=pointer]
+          - generic [ref=f14e88]:
+            - generic [ref=f14e89]: 政策层级 *
+            - combobox "政策层级 *" [ref=f14e90]:
+              - option "国家级"
+              - option "省级" [selected]
+              - option "市级"
+              - option "区县级"
+              - option "其他"
+          - generic [ref=f14e91]:
+            - generic [ref=f14e92]: 政策类型 *
+            - combobox "政策类型 *" [ref=f14e93]:
+              - option "综合政策" [selected]
+              - option "算力支持"
+              - option "资金补贴"
+              - option "场景需求"
+              - option "人才服务"
+              - option "投资融资"
+              - option "其他"
+          - generic [ref=f14e94]:
+            - generic [ref=f14e95]: 发布日期
+            - textbox "发布日期" [ref=f14e96]
+          - generic [ref=f14e97]:
+            - generic [ref=f14e98]: 开始实施时间
+            - textbox "开始实施时间" [ref=f14e99]
+          - generic [ref=f14e100]:
+            - generic [ref=f14e101]: 有效时长
+            - textbox "有效时长" [ref=f14e102]:
+              - /placeholder: 例如：长期有效 / 三年
+          - generic [ref=f14e103]:
+            - generic [ref=f14e104]: 访问日期 *
+            - textbox "访问日期 *" [ref=f14e105]: 2026-07-18
+          - generic [ref=f14e106]:
+            - generic [ref=f14e107]: 状态 *
+            - combobox "状态 *" [ref=f14e108]:
+              - option "已发布" [selected]
+              - option "草稿"
+              - option "待校对"
+              - option "归档"
+          - generic [ref=f14e109]:
+            - generic [ref=f14e110]: 校对人
+            - textbox "校对人" [ref=f14e111]
+          - generic [ref=f14e112]:
+            - generic [ref=f14e113]: 摘要 *
+            - textbox "摘要 *" [ref=f14e114]:
+              - /placeholder: 100-300 字摘要
+          - generic [ref=f14e115]:
+            - generic [ref=f14e116]: 政策要点
+            - textbox "政策要点" [ref=f14e117]
+          - generic [ref=f14e118]:
+            - generic [ref=f14e119]: 支持措施
+            - textbox "支持措施" [ref=f14e120]
+          - generic [ref=f14e121]:
+            - generic [ref=f14e122]: 标签
+            - textbox "标签" [ref=f14e123]:
+              - /placeholder: 多个标签用中文逗号隔开，例如：资金补贴，算力支持
+          - generic [ref=f14e124]:
+            - generic [ref=f14e125]: 原文链接
+            - textbox "原文链接" [ref=f14e126]:
+              - /placeholder: https://...
+          - generic [ref=f14e127]:
+            - generic [ref=f14e128]: 本地文件
+            - textbox "本地文件" [ref=f14e129]
+          - generic [ref=f14e130]:
+            - generic [ref=f14e131]: 辅证链接
+            - textbox "辅证链接" [ref=f14e132]:
+              - /placeholder: https://...
+          - button "新增政策" [ref=f14e134] [cursor=pointer]
+      - generic [ref=f14e135]:
+        - generic [ref=f14e136]:
+          - generic [ref=f14e137]:
+            - heading "政策列表" [level=2] [ref=f14e138]
+            - paragraph [ref=f14e139]: 点击编辑会读取完整详情，再回填到上方表单。
+          - button "刷新" [ref=f14e140] [cursor=pointer]
+        - generic [ref=f14e141]: 正在加载政策...

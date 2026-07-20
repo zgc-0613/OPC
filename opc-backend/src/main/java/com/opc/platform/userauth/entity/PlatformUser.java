@@ -18,6 +18,8 @@ public class PlatformUser {
 
     private String email;
 
+    private String passwordHash;
+
     private String status;
 
     private LocalDateTime lastLoginAt;

@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-18T02:20:00+08:00",
+  "title": "Design System: SoloFirm Prisma Light",
+  "extensions": {
+    "colorMeta": {
+      "paper-canvas": { "role": "neutral", "displayName": "Paper Canvas", "canonical": "#F2F3EF", "tonalRamp": ["#1A1C1A", "#343734", "#555A55", "#7B817B", "#A6ABA5", "#CDD0CC", "#E7E9E5", "#F2F3EF"] },
+      "paper-surface": { "role": "neutral", "displayName": "Paper Surface", "canonical": "#FBFBF8", "tonalRamp": ["#1C1D1B", "#3C3D3A", "#63645F", "#8B8C86", "#B7B8B1", "#DADBD5", "#EEEEEA", "#FBFBF8"] },
+      "paper-card": { "role": "neutral", "displayName": "Paper Card", "canonical": "#ECEEEB", "tonalRamp": ["#1A1C1A", "#353835", "#585C58", "#7E837E", "#A7ACA7", "#CDD1CD", "#E2E5E1", "#F3F5F2"] },
+      "ink": { "role": "primary", "displayName": "Archive Ink", "canonical": "#181A18", "tonalRamp": ["#181A18", "#30332F", "#4A4E49", "#686D67", "#8B908A", "#B1B5B0", "#D5D8D4", "#F2F3EF"] },
+      "state-green": { "role": "tertiary", "displayName": "Quiet State Green", "canonical": "#4F6F58", "tonalRamp": ["#142019", "#24382B", "#36513F", "#4F6F58", "#718C78", "#98AA9B", "#C2CCC2", "#EAF0EA"] },
+      "hero-cream": { "role": "neutral", "displayName": "Hero Cream", "canonical": "#E1E0CC", "tonalRamp": ["#24231F", "#3E3D35", "#5A594E", "#777568", "#969384", "#B6B3A2", "#D2D0BC", "#EDEBD7"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Bookman Hero", "purpose": "SoloFirm English display only." },
+      "headline": { "displayName": "Kaiti Editorial", "purpose": "Expressive Chinese section statements." },
+      "body": { "displayName": "Songti Product", "purpose": "Public records, descriptions, and controls." },
+      "label": { "displayName": "Songti Label", "purpose": "Filters, metadata, states, and navigation." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "state-fast", "value": "180ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Public component state changes." },
+      { "name": "word-pull", "value": "800ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Prisma word reveal with 80ms staggering." },
+      { "name": "feature-enter", "value": "700ms cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Feature and analytics card entrance." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" },
+      { "name": "2xl", "value": "1536px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Ink command button used consistently across all public routes.",
+      "html": "<button class=\"ds-btn-primary\">完成登录</button>",
+      "css": ".ds-btn-primary{padding:12px 18px;border:1px solid #181A18;border-radius:999px;background:#181A18;color:#FBFBF8;font:600 16px/1.2 'Noto Serif SC','Songti SC',serif;box-shadow:none}.ds-btn-primary:hover{background:#30332F}.ds-btn-primary:focus-visible{outline:2px solid #181A18;outline-offset:3px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Neutral paper command for secondary actions.",
+      "html": "<button class=\"ds-btn-secondary\">获取验证码</button>",
+      "css": ".ds-btn-secondary{padding:12px 18px;border:1px solid #BFC4BE;border-radius:999px;background:#FBFBF8;color:#181A18;font:600 16px/1.2 'Noto Serif SC','Songti SC',serif;box-shadow:none}.ds-btn-secondary:hover{background:#ECEEEB}.ds-btn-secondary:focus-visible{outline:2px solid #181A18;outline-offset:3px}"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Readable paper input with ink focus treatment.",
+      "html": "<label class=\"ds-field\"><span>关键词检索</span><input placeholder=\"搜索标题、摘要、标签\"></label>",
+      "css": ".ds-field{display:grid;gap:8px;color:#515752;font:700 12px/1.2 'Noto Serif SC','Songti SC',serif}.ds-field input{min-height:48px;padding:14px 16px;border:1px solid #C6CBC5;border-radius:6px;background:#F2F3EF;color:#181A18;font:400 16px/1.4 'Noto Serif SC','Songti SC',serif}.ds-field input:focus{border-color:#181A18;outline:2px solid rgba(24,26,24,.18);outline-offset:2px}"
+    },
+    {
+      "name": "Data Card",
+      "kind": "card",
+      "refersTo": "data-surface",
+      "description": "Shared light card for feature and analytics content.",
+      "html": "<article class=\"ds-card\"><span>LIVE</span><h3>平台访问热度</h3><p>基于公开页面访问记录动态统计。</p></article>",
+      "css": ".ds-card{padding:24px;border:1px solid #D0D4CF;border-radius:8px;background:#ECEEEB;color:#181A18;font-family:'Noto Serif SC','Songti SC',serif;box-shadow:none}.ds-card span{color:#515752;font-size:12px;font-weight:700}.ds-card h3{margin:24px 0 8px;font-size:22px}.ds-card p{margin:0;color:#515752;line-height:1.5}"
+    },
+    {
+      "name": "Metadata Chip",
+      "kind": "chip",
+      "description": "High-contrast neutral chip for capability and status labels.",
+      "html": "<span class=\"ds-chip\">地区分类检索</span>",
+      "css": ".ds-chip{display:inline-flex;padding:8px 12px;border:1px solid #C8CCC7;border-radius:999px;background:#FBFBF8;color:#252925;font:600 12px/1.2 'Noto Serif SC','Songti SC',serif}.ds-chip:focus-visible{outline:2px solid #181A18;outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Cinematic Paper Index",
+    "overview": "Prisma's cinematic Hero leads into a unified light paper product interface. Every public route and micro-component uses the same ink, paper, border, typography, and motion vocabulary while preserving all existing behavior.",
+    "keyCharacteristics": [
+      "Playing inset Hero video with a processed outer-frame still.",
+      "Pure light paper sections below the Hero.",
+      "Bookman English display with Songti and Kaiti Chinese typography.",
+      "Grayscale commands and semantic green state feedback.",
+      "One Prisma component vocabulary across every public route."
+    ],
+    "rules": [
+      { "name": "The Grayscale Command Rule", "body": "Commands are black, white, or gray. Green never fills a button.", "section": "colors" },
+      { "name": "The White Below Rule", "body": "About, features, analytics, contact, and footer remain on light paper.", "section": "colors" },
+      { "name": "The No Rounded Type Rule", "body": "Rounded geometric display faces are prohibited in the public redesign.", "section": "typography" },
+      { "name": "The Flat Archive Rule", "body": "A resting component has no shadow, glow, or gradient text.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do preserve every existing SoloFirm function, route, filter, control, API call, source link, content block, authentication action, and SVG brand mark.",
+      "Do keep Hero and lower feature videos playing as specified.",
+      "Do maintain readable ink contrast on every light card and control.",
+      "Do use black, white, and gray for all command buttons."
+    ],
+    "donts": [
+      "Don't remove a feature because it does not fit the new composition.",
+      "Don't use blue or multicolor button fills, gradient text, glow, or text shadows.",
+      "Don't allow one public route or micro-component to retain the old visual system.",
+      "Don't put Hero imagery behind lower white sections."
+    ]
+  }
+}

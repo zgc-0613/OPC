@@ -1,24 +1,45 @@
 import request from './request'
 
-const ADMIN_PASSWORD = 'opc2026'
-const ADMIN_AUTH_KEY = 'opc_admin_authenticated'
+const ADMIN_TOKEN_KEY = 'opc_admin_token'
+const ADMIN_EXPIRY_KEY = 'opc_admin_expires_at'
+const ADMIN_USERNAME_KEY = 'opc_admin_username'
 const USER_TOKEN_KEY = 'opc_user_token'
 const USER_PROFILE_KEY = 'opc_user_profile'
 
 export function isAdminAuthenticated() {
-  return sessionStorage.getItem(ADMIN_AUTH_KEY) === 'true'
-}
-
-export function loginAdmin(password) {
-  const success = password === ADMIN_PASSWORD
-  if (success) {
-    sessionStorage.setItem(ADMIN_AUTH_KEY, 'true')
+  const token = sessionStorage.getItem(ADMIN_TOKEN_KEY)
+  const expiresAt = sessionStorage.getItem(ADMIN_EXPIRY_KEY)
+  if (!token || !expiresAt || new Date(expiresAt).getTime() <= Date.now()) {
+    clearAdminSession()
+    return false
   }
-  return success
+  return true
 }
 
-export function logoutAdmin() {
-  sessionStorage.removeItem(ADMIN_AUTH_KEY)
+export function getAdminUsername() {
+  return sessionStorage.getItem(ADMIN_USERNAME_KEY) || ''
+}
+
+export async function loginAdmin(username, password) {
+  const session = await request.post('/admin/auth/login', { username, password })
+  sessionStorage.setItem(ADMIN_TOKEN_KEY, session.token)
+  sessionStorage.setItem(ADMIN_EXPIRY_KEY, session.expiresAt)
+  sessionStorage.setItem(ADMIN_USERNAME_KEY, session.username)
+  return session
+}
+
+export function submitAdminRegistrationRequest(username, password) {
+  return request.post('/admin/auth/register-request', { username, password })
+}
+
+export async function logoutAdmin() {
+  try {
+    if (sessionStorage.getItem(ADMIN_TOKEN_KEY)) {
+      await request.post('/admin/auth/logout')
+    }
+  } finally {
+    clearAdminSession()
+  }
 }
 
 export function getUserToken() {
@@ -41,12 +62,22 @@ export function isUserAuthenticated() {
   return Boolean(getUserToken())
 }
 
-export function sendUserEmailCode(email) {
-  return request.post('/auth/email-code', { email })
+export function getAltchaConfig() {
+  return request.get('/auth/altcha/config')
 }
 
-export async function verifyUserEmailCode(payload) {
-  const user = await request.post('/auth/verify', payload)
+export function sendUserEmailCode(email, altcha = '') {
+  return request.post('/auth/email-code', { email, altcha })
+}
+
+export async function loginUser(identifier, password) {
+  const user = await request.post('/auth/login', { identifier, password })
+  saveUserSession(user)
+  return user
+}
+
+export async function registerUser(payload) {
+  const user = await request.post('/auth/register', payload)
   saveUserSession(user)
   return user
 }
@@ -83,4 +114,10 @@ function saveUserSession(user) {
 function clearUserSession() {
   sessionStorage.removeItem(USER_TOKEN_KEY)
   sessionStorage.removeItem(USER_PROFILE_KEY)
+}
+
+function clearAdminSession() {
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY)
+  sessionStorage.removeItem(ADMIN_EXPIRY_KEY)
+  sessionStorage.removeItem(ADMIN_USERNAME_KEY)
 }

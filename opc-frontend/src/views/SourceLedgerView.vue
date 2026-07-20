@@ -1,10 +1,10 @@
 <template>
-  <div class="page-stack source-ledger-page">
+  <div class="page-stack source-ledger-page archive-workspace-page">
     <section class="panel filter-panel source-filter-panel scroll-reveal" @pointermove="handleSourceSpotlight">
       <div class="section-header">
         <div>
           <span class="caption">source ledger</span>
-          <h2>来源台账</h2>
+          <h2>来源检索</h2>
           <p>展示来源链接、文件名、访问日期和状态，方便回到原始出处复核。</p>
         </div>
         <span class="analysis-badge">{{ filteredSources.length }} sources</span>
@@ -304,7 +304,7 @@ onMounted(async () => {
   try {
     sources.value = await getSources()
   } catch (err) {
-    error.value = err.message || '来源加载失败'
+    error.value = '来源资料暂时无法读取，请确认数据库服务是否运行。'
   } finally {
     loading.value = false
     await nextTick()

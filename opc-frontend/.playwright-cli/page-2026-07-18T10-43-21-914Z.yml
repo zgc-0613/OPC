@@ -1,0 +1,30 @@
+- main [ref=f2e3]:
+  - generic [ref=f2e4]:
+    - generic [ref=f2e5]:
+      - generic [ref=f2e6]: Admin Workspace
+      - heading [level=2] [ref=f2e7]: 维护可追溯的政策、案例与来源数据
+      - paragraph [ref=f2e8]: 管理员入口仅用于数据录入、校对、标签维护和平台内容管理。
+      - generic [ref=f2e9]:
+        - generic [ref=f2e10]: Manage
+        - generic [ref=f2e11]: Review
+        - generic [ref=f2e12]: Export
+    - generic [ref=f2e13]:
+      - link "SoloFirm 管理员登录" [ref=f2e15] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f2e22]:
+          - strong [ref=f2e23]: SoloFirm
+          - generic [ref=f2e24]: 管理员登录
+      - generic [ref=f2e25]:
+        - generic [ref=f2e26]: admin access
+        - heading "管理后台入口" [level=1] [ref=f2e27]
+        - paragraph [ref=f2e28]: 请输入管理员密码，进入政策、案例、来源与标签维护后台。
+      - generic [ref=f2e29]:
+        - generic [ref=f2e30]:
+          - generic [ref=f2e31]: 管理员密码
+          - textbox "管理员密码" [ref=f2e32]:
+            - /placeholder: 请输入密码
+        - button "进入后台" [ref=f2e33] [cursor=pointer]
+      - generic [ref=f2e34]:
+        - link "返回前台" [ref=f2e35] [cursor=pointer]:
+          - /url: /
+        - strong [ref=f2e36]: Admin

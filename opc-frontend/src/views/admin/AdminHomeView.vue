@@ -74,32 +74,86 @@
           <article class="admin-analytics-panel admin-trend-panel">
             <div class="admin-mini-head">
               <div>
-                <span class="caption">7 DAY TREND</span>
-                <h3>最近七天访问趋势</h3>
+                <span class="caption">{{ trendCaption }}</span>
+                <h3>{{ trendHeading }}</h3>
               </div>
-              <strong>{{ formatNumber(trendTotalPv) }}</strong>
+              <div class="admin-trend-meta">
+                <strong>
+                  <span>区间 PV</span>
+                  {{ formatNumber(trendTotalPv) }}
+                </strong>
+                <div class="admin-trend-range" role="group" aria-label="访问趋势时间范围">
+                  <button
+                    v-for="option in trendRangeOptions"
+                    :key="option.days"
+                    type="button"
+                    :class="{ 'is-active': selectedTrendDays === option.days }"
+                    :aria-pressed="selectedTrendDays === option.days"
+                    @click="changeTrendRange(option.days)"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </div>
             </div>
-            <div v-if="trend.length" class="admin-trend-chart">
-              <svg viewBox="0 0 640 220" role="img" aria-label="最近七天访问趋势">
-                <defs>
-                  <linearGradient id="adminTrendFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stop-color="#315cdb" stop-opacity="0.18" />
-                    <stop offset="100%" stop-color="#315cdb" stop-opacity="0" />
-                  </linearGradient>
-                </defs>
-                <path class="admin-trend-area" :d="trendAreaPath" />
-                <polyline class="admin-trend-line" :points="trendPoints" fill="none" />
-                <circle
-                  v-for="point in trendPointList"
-                  :key="point.date"
-                  class="admin-trend-dot"
-                  :cx="point.x"
-                  :cy="point.y"
-                  r="4"
-                />
-              </svg>
-              <div class="admin-trend-labels">
-                <span v-for="item in trend" :key="item.date">{{ formatDateLabel(item.date) }}</span>
+            <p v-if="trendError" class="admin-trend-error" role="alert">{{ trendError }}</p>
+            <div v-if="trend.length" class="admin-trend-chart" :aria-busy="trendLoading">
+              <div class="admin-trend-plot" @mouseleave="clearActiveTrendPoint()">
+                <svg viewBox="0 0 640 220" role="group" :aria-label="`${trendHeading}，可聚焦数据点查看日期、PV 和 UV`">
+                  <title>{{ trendHeading }}，区间访问量 {{ formatNumber(trendTotalPv) }} PV</title>
+                  <defs>
+                    <linearGradient id="adminTrendFill" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stop-color="#4F6F58" stop-opacity="0.2" />
+                      <stop offset="100%" stop-color="#4F6F58" stop-opacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <path class="admin-trend-area" :d="trendAreaPath" />
+                  <polyline class="admin-trend-line" :points="trendPoints" fill="none" />
+                  <g v-for="point in trendPointList" :key="point.date">
+                    <circle
+                      class="admin-trend-hit-area"
+                      :cx="point.x"
+                      :cy="point.y"
+                      r="13"
+                      tabindex="0"
+                      role="button"
+                      :aria-label="trendPointAriaLabel(point)"
+                      @mouseenter="setActiveTrendPoint(point)"
+                      @focus="setActiveTrendPoint(point)"
+                      @blur="clearActiveTrendPoint(point)"
+                      @click="setActiveTrendPoint(point)"
+                      @keyup.enter.space.prevent="setActiveTrendPoint(point)"
+                    />
+                    <circle
+                      class="admin-trend-dot"
+                      :class="{ 'is-active': activeTrendPoint?.date === point.date }"
+                      :cx="point.x"
+                      :cy="point.y"
+                      r="4"
+                      aria-hidden="true"
+                    />
+                  </g>
+                </svg>
+                <div
+                  v-if="activeTrendPoint"
+                  class="admin-trend-tooltip"
+                  :class="{ 'is-below': activeTrendPoint.y < 82 }"
+                  :style="trendTooltipStyle"
+                  role="status"
+                >
+                  <time :datetime="activeTrendPoint.date">{{ formatFullDate(activeTrendPoint.date) }}</time>
+                  <span>PV <strong>{{ formatNumber(activeTrendPoint.pv) }}</strong></span>
+                  <span>UV <strong>{{ formatNumber(activeTrendPoint.uv) }}</strong></span>
+                </div>
+                <span v-if="trendLoading" class="admin-trend-loading" role="status">正在更新趋势...</span>
+              </div>
+              <div class="admin-trend-labels" aria-hidden="true">
+                <span
+                  v-for="item in trendLabels"
+                  :key="item.date"
+                  :class="item.alignment"
+                  :style="{ left: `${(item.x / 640) * 100}%` }"
+                >{{ formatDateLabel(item.date) }}</span>
               </div>
             </div>
             <div v-else class="empty-state">
@@ -116,12 +170,12 @@
               </div>
             </div>
             <div class="admin-share-bars">
-              <div>
+              <div class="admin-share-item">
                 <span>政策访问</span>
                 <strong>{{ formatNumber(summary.policyPv) }}</strong>
                 <i><b :style="{ width: `${policyShare}%` }"></b></i>
               </div>
-              <div>
+              <div class="admin-share-item">
                 <span>案例访问</span>
                 <strong>{{ formatNumber(summary.casePv) }}</strong>
                 <i><b :style="{ width: `${caseShare}%` }"></b></i>
@@ -209,11 +263,31 @@ const policyRankings = ref([])
 const caseRankings = ref([])
 const trend = ref([])
 const hotKeywords = ref([])
+const selectedTrendDays = ref(7)
+const loadedTrendDays = ref(7)
+const activeTrendPoint = ref(null)
+const trendLoading = ref(false)
+const trendError = ref('')
+let trendRequestId = 0
+
+const trendRangeOptions = [
+  { days: 7, label: '7 天' },
+  { days: 30, label: '30 天' },
+  { days: 180, label: '半年' },
+]
 
 const trendTotalPv = computed(() => trend.value.reduce((total, item) => total + Number(item.pv || 0), 0))
 const contentTotalPv = computed(() => Number(summary.value.policyPv || 0) + Number(summary.value.casePv || 0))
 const policyShare = computed(() => getShare(summary.value.policyPv, contentTotalPv.value))
 const caseShare = computed(() => getShare(summary.value.casePv, contentTotalPv.value))
+const trendCaption = computed(() => {
+  const captions = { 7: '7 DAY TREND', 30: '30 DAY TREND', 180: '6 MONTH TREND' }
+  return captions[selectedTrendDays.value]
+})
+const trendHeading = computed(() => {
+  const headings = { 7: '最近七天访问趋势', 30: '最近三十天访问趋势', 180: '最近半年访问趋势' }
+  return headings[selectedTrendDays.value]
+})
 
 const trendPointList = computed(() => {
   if (!trend.value.length) {
@@ -229,12 +303,42 @@ const trendPointList = computed(() => {
 
   return trend.value.map((item, index) => ({
     date: item.date,
+    pv: Number(item.pv || 0),
+    uv: Number(item.uv || 0),
     x: startX + step * index,
     y: startY + height - (Number(item.pv || 0) / maxPv) * height,
   }))
 })
 
+const trendLabels = computed(() => {
+  const points = trendPointList.value
+  if (!points.length) {
+    return []
+  }
+
+  const targetCount = selectedTrendDays.value === 7 ? points.length : selectedTrendDays.value === 30 ? 6 : 7
+  const labelCount = Math.min(points.length, targetCount)
+  const indexes = new Set()
+  for (let index = 0; index < labelCount; index += 1) {
+    indexes.add(labelCount === 1 ? 0 : Math.round((index * (points.length - 1)) / (labelCount - 1)))
+  }
+
+  return [...indexes].map((pointIndex, labelIndex, allIndexes) => ({
+    ...points[pointIndex],
+    alignment: labelIndex === 0 ? 'is-first' : labelIndex === allIndexes.length - 1 ? 'is-last' : '',
+  }))
+})
+
 const trendPoints = computed(() => trendPointList.value.map((point) => `${point.x},${point.y}`).join(' '))
+const trendTooltipStyle = computed(() => {
+  if (!activeTrendPoint.value) {
+    return {}
+  }
+  return {
+    '--trend-tooltip-x': `${(activeTrendPoint.value.x / 640) * 100}%`,
+    '--trend-tooltip-y': `${(activeTrendPoint.value.y / 220) * 100}%`,
+  }
+})
 const trendAreaPath = computed(() => {
   const points = trendPointList.value
   if (!points.length) {
@@ -248,12 +352,14 @@ const trendAreaPath = computed(() => {
 async function loadVisitAnalytics() {
   loading.value = true
   error.value = ''
+  trendError.value = ''
+  activeTrendPoint.value = null
   try {
     const [summaryData, policyData, caseData, trendData, keywordData] = await Promise.all([
       getVisitSummary(),
       getVisitRankings({ targetType: 'policy', limit: 5 }),
       getVisitRankings({ targetType: 'case', limit: 5 }),
-      getVisitTrend({ days: 7 }),
+      getVisitTrend({ days: selectedTrendDays.value }),
       getHotSearchKeywords({ limit: 10 }),
     ])
 
@@ -261,12 +367,58 @@ async function loadVisitAnalytics() {
     policyRankings.value = policyData || []
     caseRankings.value = caseData || []
     trend.value = trendData || []
+    loadedTrendDays.value = selectedTrendDays.value
     hotKeywords.value = keywordData || []
   } catch (err) {
     error.value = err.message || '访问统计加载失败'
   } finally {
     loading.value = false
   }
+}
+
+async function changeTrendRange(days) {
+  if (days === selectedTrendDays.value && trend.value.length) {
+    return
+  }
+
+  const requestId = ++trendRequestId
+  selectedTrendDays.value = days
+  activeTrendPoint.value = null
+  trendLoading.value = true
+  trendError.value = ''
+
+  try {
+    const trendData = await getVisitTrend({ days })
+    if (requestId !== trendRequestId) {
+      return
+    }
+    trend.value = trendData || []
+    loadedTrendDays.value = days
+  } catch (err) {
+    if (requestId !== trendRequestId) {
+      return
+    }
+    selectedTrendDays.value = loadedTrendDays.value
+    trendError.value = err.message || '趋势数据更新失败，请稍后重试。'
+  } finally {
+    if (requestId === trendRequestId) {
+      trendLoading.value = false
+    }
+  }
+}
+
+function setActiveTrendPoint(point) {
+  activeTrendPoint.value = point
+}
+
+function clearActiveTrendPoint(point) {
+  if (!point || activeTrendPoint.value?.date === point.date) {
+    activeTrendPoint.value = null
+  }
+}
+
+function trendPointAriaLabel(point) {
+  return `${formatFullDate(point.date)}，PV ${formatNumber(point.pv)}，UV ${formatNumber(point.uv)}`
 }
 
 function formatNumber(value) {
@@ -287,6 +439,11 @@ function formatDateLabel(date) {
   return String(date).slice(5)
 }
 
+function formatFullDate(date) {
+  const match = String(date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  return match ? `${match[1]}年${match[2]}月${match[3]}日` : date || '-'
+}
+
 function scopeLabel(scope) {
   const labels = {
     policy: '政策',
@@ -300,3 +457,204 @@ function scopeLabel(scope) {
 
 onMounted(loadVisitAnalytics)
 </script>
+
+<style scoped>
+.admin-trend-meta {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.admin-trend-meta > strong {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  color: #181a18;
+  font-family: 'Bookman Old Style', Georgia, serif;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.admin-trend-meta > strong span {
+  color: #626863;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.admin-trend-range {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(52px, 1fr));
+  min-width: 184px;
+  padding: 3px;
+  border: 1px solid #c8ccc7;
+  border-radius: 6px;
+  background: #f5f5f1;
+}
+
+.admin-trend-range button {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #535954;
+  font: 600 12px/1 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  cursor: pointer;
+}
+
+.admin-trend-range button:hover {
+  background: #e5e7e4;
+  color: #181a18;
+}
+
+.admin-trend-range button.is-active {
+  background: #181a18;
+  color: #fbfbf8;
+}
+
+.admin-trend-range button:focus-visible {
+  outline: 2px solid #181a18;
+  outline-offset: 2px;
+}
+
+.admin-trend-error {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid #d4b4ad;
+  border-radius: 6px;
+  background: #f8eeeb;
+  color: #742e26;
+  font-size: 13px;
+}
+
+.admin-trend-plot {
+  position: relative;
+}
+
+.admin-trend-hit-area {
+  fill: transparent;
+  stroke: transparent;
+  cursor: crosshair;
+}
+
+.admin-trend-hit-area:focus {
+  fill: rgba(24, 26, 24, 0.08);
+  stroke: #181a18;
+  stroke-width: 2;
+  outline: none;
+}
+
+.admin-trend-dot {
+  pointer-events: none;
+  transition: r 160ms ease, fill 160ms ease;
+}
+
+.admin-trend-dot.is-active {
+  fill: #181a18 !important;
+  r: 6px;
+}
+
+.admin-trend-tooltip {
+  position: absolute;
+  z-index: 3;
+  top: var(--trend-tooltip-y);
+  left: clamp(76px, var(--trend-tooltip-x), calc(100% - 76px));
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 5px 14px;
+  min-width: 152px;
+  padding: 9px 11px;
+  border: 1px solid #181a18;
+  border-radius: 6px;
+  background: #fbfbf8;
+  color: #4e544f;
+  font-size: 12px;
+  line-height: 1.25;
+  box-shadow: 0 8px 22px rgba(24, 26, 24, 0.12);
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 10px));
+}
+
+.admin-trend-tooltip.is-below {
+  transform: translate(-50%, 14px);
+}
+
+.admin-trend-tooltip time {
+  grid-column: 1 / -1;
+  color: #181a18;
+  font-weight: 700;
+}
+
+.admin-trend-tooltip strong {
+  color: #181a18;
+  font-family: 'Bookman Old Style', Georgia, serif;
+}
+
+.admin-trend-loading {
+  position: absolute;
+  inset: 1px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: rgba(251, 251, 248, 0.72);
+  color: #333833;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.admin-trend-labels {
+  position: relative;
+  display: block;
+  height: 18px;
+}
+
+.admin-trend-labels span {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.admin-trend-labels span.is-first {
+  transform: none;
+}
+
+.admin-trend-labels span.is-last {
+  transform: translateX(-100%);
+}
+
+.admin-share-bars > .admin-share-item {
+  min-height: 112px;
+  padding: 16px;
+  border: 1px solid #d0d4cf !important;
+  border-radius: 6px;
+  background: #fbfbf8 !important;
+  color: #252925 !important;
+}
+
+@media (max-width: 640px) {
+  .admin-mini-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-trend-meta {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: end;
+    justify-items: stretch;
+  }
+
+  .admin-trend-meta > strong {
+    justify-items: start;
+  }
+
+  .admin-trend-range {
+    min-width: 0;
+  }
+
+  .admin-trend-chart svg {
+    min-height: 184px;
+  }
+}
+</style>

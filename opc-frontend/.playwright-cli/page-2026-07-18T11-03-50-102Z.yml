@@ -1,0 +1,205 @@
+- main [ref=e4]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - navigation "首页导航" [ref=e12]:
+          - link "首页" [ref=e13] [cursor=pointer]:
+            - /url: /
+          - link "地区目录" [ref=e14] [cursor=pointer]:
+            - /url: /regions
+          - link "政策库" [ref=e15] [cursor=pointer]:
+            - /url: /policies
+          - link "案例库" [ref=e16] [cursor=pointer]:
+            - /url: /cases
+          - link "来源台账" [ref=e17] [cursor=pointer]:
+            - /url: /sources
+        - generic [ref=e18]:
+          - heading [level=1] [ref=e27]:
+            - generic "SoloFirm" [ref=e28]:
+              - generic [ref=e30]:
+                - text: SoloFirm
+                - superscript [ref=e31]: "*"
+          - generic [ref=e32]:
+            - paragraph [ref=e33]: 汇聚 AI + OPC 相关政策、案例与来源资料，帮助创业者快速定位地区机会、政策支持与可参考案例。
+            - generic [ref=e34]:
+              - link "进入政策库" [ref=e35] [cursor=pointer]:
+                - /url: /policies
+              - link "查看案例库" [ref=e40] [cursor=pointer]:
+                - /url: /cases
+              - link "登录" [ref=e41] [cursor=pointer]:
+                - /url: /login
+      - link "跳转到资料分析概览" [ref=e46] [cursor=pointer]:
+        - /url: "#home-data-view"
+    - region [ref=e47]:
+      - generic [ref=e48]:
+        - heading [level=2] [ref=e49]:
+          - generic "SoloFirm， 一人公司的智能创业索引。 汇聚政策、案例、来源与地区数据。" [ref=e50]:
+            - generic [ref=e51]: SoloFirm，
+            - generic [ref=e53]: 一人公司的智能创业索引。
+            - generic [ref=e55]: 汇聚政策、案例、来源与地区数据。
+        - paragraph [ref=e57]: 围绕 AI + OPC 与一人公司创业，我们把分散的政策、案例和来源资料整理为可检索、可比较、可回到原始出处复核的公开索引。新增记录会随接口数据同步进入分析视图。
+        - generic "平台核心能力" [ref=e58]:
+          - generic [ref=e59]: 地区分类检索
+          - generic [ref=e60]: 来源出处追溯
+          - generic [ref=e61]: 摘要标签分析
+    - generic [ref=e62]:
+      - heading "面向创业者与研究者的资料工作流。 从地区机会出发，沿证据回到原始出处。" [level=2] [ref=e64]:
+        - generic [ref=e65]: 面向创业者与研究者的资料工作流。
+        - generic [ref=e67]: 从地区机会出发，沿证据回到原始出处。
+      - generic [ref=e69]:
+        - article [ref=e70]:
+          - strong [ref=e73]: 你的智能创业研究画布。
+        - article [ref=e74]:
+          - generic [ref=e75]:
+            - heading "政策索引。" [level=3] [ref=e76]
+            - generic [ref=e77]: "01"
+          - list [ref=e78]:
+            - listitem [ref=e79]: 按地区与政策类型筛选
+            - listitem [ref=e82]: 标题、摘要与标签检索
+            - listitem [ref=e85]: 政策原文与辅证链接
+            - listitem [ref=e88]: Excel 导出与点击热度
+          - link "进入政策库" [ref=e91] [cursor=pointer]:
+            - /url: /policies
+        - article [ref=e96]:
+          - generic [ref=e97]:
+            - heading "案例洞察。" [level=3] [ref=e98]
+            - generic [ref=e99]: "02"
+          - list [ref=e100]:
+            - listitem [ref=e101]: 按地区、类型与关键词定位
+            - listitem [ref=e104]: 商业模式与 AI 工具拆解
+            - listitem [ref=e107]: 成果、主体与来源追溯
+          - link "查看案例库" [ref=e110] [cursor=pointer]:
+            - /url: /cases
+        - article [ref=e115]:
+          - generic [ref=e116]:
+            - heading "证据台账。" [level=3] [ref=e117]
+            - generic [ref=e118]: "03"
+          - list [ref=e119]:
+            - listitem [ref=e120]: 来源链接与访问日期留痕
+            - listitem [ref=e123]: 地区资料覆盖实时汇总
+            - listitem [ref=e126]: 状态、文件与发布单位复核
+          - link "打开来源台账" [ref=e129] [cursor=pointer]:
+            - /url: /sources
+      - heading "资料分析概览，随当前数据实时更新。 新增政策或案例后，统计、趋势与观察同步变化。" [level=2] [ref=e135]:
+        - generic [ref=e136]: 资料分析概览，随当前数据实时更新。
+        - generic [ref=e138]: 新增政策或案例后，统计、趋势与观察同步变化。
+      - status [ref=e140]: 正在同步资料分析数据...
+      - generic [ref=e141]:
+        - article [ref=e142]:
+          - generic [ref=e143]:
+            - generic [ref=e144]:
+              - heading "平台访问热度" [level=2] [ref=e145]
+              - paragraph [ref=e146]: 基于公开页面访问记录动态统计，反映近期内容关注情况。
+            - generic [ref=e147]: LIVE
+          - generic [ref=e148]:
+            - generic [ref=e149]:
+              - generic [ref=e150]:
+                - generic [ref=e151]: 总访问量
+                - strong [ref=e152]: "0"
+                - generic [ref=e153]: PV
+              - generic [ref=e154]:
+                - generic [ref=e155]: 独立访客
+                - strong [ref=e156]: "0"
+                - generic [ref=e157]: UV
+              - generic [ref=e158]:
+                - generic [ref=e159]: 今日访问
+                - strong [ref=e160]: "0"
+                - generic [ref=e161]: 今日 PV
+            - generic [ref=e162]:
+              - generic [ref=e163]: 最近七天趋势
+              - paragraph [ref=e164]: 暂无访问趋势。
+            - generic [ref=e165]:
+              - generic [ref=e166]:
+                - generic [ref=e167]: 热门政策
+                - strong [ref=e168]: 暂无数据
+              - generic [ref=e169]:
+                - generic [ref=e170]: 热门案例
+                - strong [ref=e171]: 暂无数据
+        - article [ref=e172]:
+          - generic [ref=e173]:
+            - generic [ref=e174]:
+              - heading "地区资料排行" [level=2] [ref=e175]
+              - paragraph [ref=e176]: 合并政策和案例的地区字段统计。
+            - generic [ref=e177]: TOP 0
+          - generic [ref=e178]: 暂无地区统计数据。
+        - article [ref=e179]:
+          - generic [ref=e181]:
+            - heading "来源追溯概览" [level=2] [ref=e182]
+            - paragraph [ref=e183]: 统计来源链接、访问日期与出处信息的记录情况。
+          - generic [ref=e184]:
+            - generic [ref=e185]:
+              - generic [ref=e186]:
+                - strong [ref=e187]: 0%
+                - generic [ref=e188]: 来源关联
+                - text: 0/0
+              - generic [ref=e189]: 0%
+            - generic [ref=e191]:
+              - generic [ref=e192]:
+                - strong [ref=e193]: 0%
+                - generic [ref=e194]: 来源链接
+                - text: 0/0
+              - generic [ref=e195]: 0%
+            - generic [ref=e197]:
+              - generic [ref=e198]:
+                - strong [ref=e199]: 0%
+                - generic [ref=e200]: 访问日期
+                - text: 0/0
+              - generic [ref=e201]: 0%
+        - article [ref=e203]:
+          - generic [ref=e205]:
+            - heading "高频标签" [level=2] [ref=e206]
+            - paragraph [ref=e207]: 从政策和案例标签字段提取高频主题。
+          - generic [ref=e208]: 暂无标签统计数据。
+        - article [ref=e209]:
+          - generic [ref=e210]:
+            - generic [ref=e211]:
+              - heading "政策发布趋势" [level=2] [ref=e212]
+              - paragraph [ref=e213]: 按月份统计政策发布日期。
+            - generic [ref=e214]: 最近 0 期
+          - generic [ref=e215]: 暂无发布日期数据。
+        - article [ref=e216]:
+          - generic [ref=e218]:
+            - heading "资料观察" [level=2] [ref=e219]
+            - paragraph [ref=e220]: 基于当前记录生成的概览性线索。
+          - generic [ref=e221]:
+            - paragraph [ref=e222]: 当前还缺少可用于地区分析的资料数据。
+            - paragraph [ref=e223]: 当前还缺少可用于类型分析的政策数据。
+            - paragraph [ref=e224]: 当前标签还不够完整，建议录入时补齐 3-8 个标签。
+            - paragraph [ref=e225]: 建议补齐政策发布日期，用于形成时间趋势分析。
+        - article [ref=e226]:
+          - generic [ref=e228]:
+            - heading "案例领域分布" [level=2] [ref=e229]
+            - paragraph [ref=e230]: 按案例类型字段统计应用方向。
+          - generic [ref=e231]: 暂无案例领域数据。
+        - article [ref=e232]:
+          - generic [ref=e234]:
+            - heading "最近更新" [level=2] [ref=e235]
+            - paragraph [ref=e236]: 最新 5 条资料记录。
+          - generic [ref=e237]: 暂无最近更新。
+    - generic [ref=e238]:
+      - region [ref=e239]:
+        - generic [ref=e240]:
+          - generic [ref=e241]: CONTACT
+          - heading "联系我们， 共建 OPC 智能创业索引" [level=2] [ref=e242]:
+            - text: 联系我们，
+            - generic [ref=e243]: 共建 OPC 智能创业索引
+          - paragraph [ref=e244]: 如果你关注一人公司、AI 创业、政策资料整理或案例共建，欢迎通过以下方式与我们联系。
+          - generic "联系方式" [ref=e245]:
+            - generic [ref=e251]:
+              - strong [ref=e252]: 所属单位
+              - paragraph [ref=e253]: 西北工业大学软件学院
+            - generic [ref=e259]:
+              - strong [ref=e260]: 联系人
+              - paragraph [ref=e261]:
+                - text: 王兵书
+                - link "wangbingshu@nwpu.edu.cn" [ref=e262] [cursor=pointer]:
+                  - /url: mailto:wangbingshu@nwpu.edu.cn
+      - region "网站页脚" [ref=e263]:
+        - generic [ref=e264]:
+          - strong [ref=e272]: SoloFirm
+          - paragraph [ref=e273]: 聚合 AI + OPC 相关政策、案例与来源资料，帮助创业者和研究者更快理解一人公司的机会结构。
+        - generic [ref=e274]:
+          - strong [ref=e275]: 联系我们
+          - generic [ref=e276]: 西北工业大学软件学院
+          - link "王兵书 wangbingshu@nwpu.edu.cn" [ref=e277] [cursor=pointer]:
+            - /url: mailto:wangbingshu@nwpu.edu.cn

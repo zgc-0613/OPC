@@ -1,0 +1,31 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading [level=2] [ref=e6]: 连接你的 OPC 研究与创业资料空间
+      - paragraph [ref=e7]: 使用邮箱验证码完成登录，后续可承接收藏、浏览记录和个性化分析功能。
+    - generic [ref=e8]:
+      - link "SoloFirm 用户登录" [ref=e10] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e17]:
+          - strong [ref=e18]: SoloFirm
+          - generic [ref=e19]: 用户登录
+      - generic [ref=e20]:
+        - heading "邮箱验证码登录" [level=1] [ref=e21]
+        - paragraph [ref=e22]: 使用已注册邮箱获取验证码，验证后进入资料空间。
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - generic [ref=e25]: 邮箱
+          - textbox "邮箱" [ref=e26]:
+            - /placeholder: 请输入邮箱
+        - generic [ref=e27]:
+          - generic [ref=e28]:
+            - generic [ref=e29]: 验证码
+            - textbox "验证码" [ref=e30]:
+              - /placeholder: 6 位验证码
+          - button "获取验证码" [ref=e31] [cursor=pointer]
+        - button "完成登录" [ref=e32] [cursor=pointer]
+      - generic [ref=e33]:
+        - generic [ref=e34]: 没有账号？
+        - button "点击注册" [ref=e35] [cursor=pointer]
+      - link "返回首页" [ref=e37] [cursor=pointer]:
+        - /url: /

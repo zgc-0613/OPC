@@ -62,7 +62,7 @@ public class VisitService {
     }
 
     public List<VisitTrendVO> getTrend(Integer days) {
-        Integer safeDays = days == null || days <= 0 ? 7 : Math.min(days, 30);
+        Integer safeDays = days == null || days <= 0 ? 7 : Math.min(days, 180);
 
         return visitLogMapper.selectTrend(safeDays);
     }

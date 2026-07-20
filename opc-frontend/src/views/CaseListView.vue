@@ -1,10 +1,10 @@
 <template>
-  <div class="page-stack case-index-page">
+  <div class="page-stack case-index-page archive-workspace-page">
     <section class="panel filter-panel case-filter-panel scroll-reveal" @pointermove="handleCaseSpotlight">
       <div class="section-header">
         <div>
           <span class="caption">case index</span>
-          <h2>案例库</h2>
+          <h2>案例检索</h2>
           <p>按地区、类型和关键词快速定位 AI + OPC / 一人公司案例。</p>
         </div>
         <span class="analysis-badge">{{ cases.length }} records</span>
@@ -246,7 +246,7 @@ async function loadCases() {
     cases.value = filterCases(allCases.value)
     currentPage.value = 1
   } catch (err) {
-    error.value = err.message || '案例数据加载失败'
+    error.value = '案例资料暂时无法读取，请确认数据库服务是否运行。'
   } finally {
     loading.value = false
     await nextTick()
@@ -385,18 +385,26 @@ watch(
 onMounted(async () => {
   await nextTick()
   setupScrollReveal()
-  const [regionList, caseList] = await Promise.all([
-    getRegions(),
-    getCases(),
-  ])
-  const visitRankingList = await getVisitRankings({ targetType: 'case', limit: 200 }).catch(() => [])
-  regions.value = regionList
-  allCases.value = caseList
-  caseVisitRankings.value = visitRankingList || []
-  cases.value = filterCases(caseList)
-  currentPage.value = 1
-  await nextTick()
-  setupScrollReveal()
+  loading.value = true
+  error.value = ''
+  try {
+    const [regionList, caseList] = await Promise.all([
+      getRegions(),
+      getCases(),
+    ])
+    const visitRankingList = await getVisitRankings({ targetType: 'case', limit: 200 }).catch(() => [])
+    regions.value = regionList
+    allCases.value = caseList
+    caseVisitRankings.value = visitRankingList || []
+    cases.value = filterCases(caseList)
+    currentPage.value = 1
+  } catch (err) {
+    error.value = '案例资料暂时无法读取，请确认数据库服务是否运行。'
+  } finally {
+    loading.value = false
+    await nextTick()
+    setupScrollReveal()
+  }
 })
 
 onUnmounted(() => {

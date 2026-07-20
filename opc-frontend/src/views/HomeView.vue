@@ -1,79 +1,221 @@
 ﻿<template>
   <div class="page-stack home-archive-page">
-    <section class="archive-hero" @pointermove="handleHeroPointerMove" @pointerleave="clearCursorTrail">
-      <header class="home-landing-nav">
-        <RouterLink class="home-landing-brand" to="/" aria-label="SoloFirm 首页">
-          <span class="brand-mark brand-logo-mark archive-brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 72 72" focusable="false">
-              <rect x="4" y="4" width="64" height="64" rx="20" />
-              <path class="logo-path-main" d="M24 45V25h12c7 0 12 4 12 10s-5 10-12 10H24Z" />
-              <path class="logo-path-accent" d="M18 23C28 14 44 14 54 23" />
-              <path class="logo-path-accent" d="M18 49C28 58 44 58 54 49" />
-            </svg>
-          </span>
-          <strong>SoloFirm</strong>
-        </RouterLink>
+    <section class="archive-hero prisma-hero">
+      <div class="prisma-hero-frame">
+        <video
+          class="prisma-hero-media"
+          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260405_170732_8a9ccda6-5cff-4628-b164-059c500a2b41.mp4"
+          autoplay
+          loop
+          muted
+          playsinline
+        ></video>
+        <div class="noise-overlay" aria-hidden="true"></div>
+        <div class="prisma-hero-gradient" aria-hidden="true"></div>
 
-        <nav class="home-landing-links" aria-label="首页导航">
-          <RouterLink to="/">首页</RouterLink>
-          <RouterLink to="/policies">政策库</RouterLink>
-          <RouterLink to="/cases">案例库</RouterLink>
-          <a href="#home-data-view">数据分析</a>
-        </nav>
+        <header class="home-landing-nav prisma-hero-nav">
+          <nav class="home-landing-links prisma-hanging-nav" aria-label="首页导航">
+            <RouterLink to="/">首页</RouterLink>
+            <RouterLink to="/regions">地区目录</RouterLink>
+            <RouterLink to="/policies">政策库</RouterLink>
+            <RouterLink to="/cases">案例库</RouterLink>
+            <RouterLink to="/sources">来源台账</RouterLink>
+          </nav>
 
-        <div class="home-landing-actions">
-          <RouterLink class="home-landing-action" to="/login">登录</RouterLink>
-          <RouterLink class="home-landing-action primary" to="/policies">进入平台</RouterLink>
-        </div>
-      </header>
+          <RouterLink
+            class="prisma-hero-account-entry"
+            :class="{
+              'is-authenticated': Boolean(currentUser),
+              'is-pending': accountLoginNoticeVisible,
+            }"
+            :to="accountEntryTarget"
+            :aria-label="currentUser ? `前往 ${currentUser.username} 的个人主页` : '登录后进入个人主页'"
+            :title="currentUser ? '前往个人主页' : '登录后进入个人主页'"
+            @click="handleAccountEntryClick"
+          >
+            <UserRound :size="25" :stroke-width="1.7" aria-hidden="true" />
+          </RouterLink>
 
-      <div class="hero-network" aria-hidden="true">
-        <span class="hero-node"></span>
-        <span class="hero-node"></span>
-        <span class="hero-node"></span>
-        <span class="hero-node"></span>
-        <span class="hero-beam hero-beam-one"></span>
-        <span class="hero-beam hero-beam-two"></span>
-        <span class="hero-beam hero-beam-three"></span>
-        <span class="hero-flow hero-flow-one"></span>
-        <span class="hero-flow hero-flow-two"></span>
-        <span class="hero-flow hero-flow-three"></span>
-      </div>
-      <div class="cursor-trail" aria-hidden="true">
-        <span
-          v-for="dot in cursorTrail"
-          :key="dot.id"
-          :style="{ left: `${dot.x}px`, top: `${dot.y}px`, '--trail-size': `${dot.size}px` }"
-        ></span>
-      </div>
+          <Transition name="account-toast">
+            <div
+              v-if="accountLoginNoticeVisible"
+              class="prisma-account-login-notice"
+              role="status"
+              aria-live="polite"
+            >
+              <LogIn :size="18" aria-hidden="true" />
+              <span>
+                <strong>请先登录</strong>
+                <small>3 秒后前往登录页</small>
+              </span>
+            </div>
+          </Transition>
+        </header>
 
-      <div class="archive-hero-copy">
-        <span class="caption">AI + OPC POLICY AND CASE INDEX</span>
-        <h1>一人公司的<br /><span>智能创业索引</span></h1>
-        <p>
-          汇聚 AI + OPC 相关政策、案例与来源资料，帮助创业者快速定位地区机会、政策支持与可参考案例。
-        </p>
-        <div class="archive-hero-actions">
-          <RouterLink class="button" to="/policies">进入政策库</RouterLink>
-          <RouterLink class="button button-ghost" to="/cases">查看案例库</RouterLink>
-        </div>
-        <div class="archive-hero-proof" aria-label="平台核心能力">
-          <span>地区分类检索</span>
-          <span>来源出处追溯</span>
-          <span>摘要标签分析</span>
+        <div class="archive-hero-copy prisma-hero-copy">
+          <div class="prisma-hero-title-wrap">
+            <div class="prisma-hero-brand-lockup">
+              <BrandMark />
+              <h1 class="prisma-hero-title">
+                <WordsPullUp text="SoloFirm" />
+              </h1>
+            </div>
+          </div>
+          <div class="prisma-hero-aside">
+            <p>
+              汇聚 AI + OPC 相关政策、案例与来源资料，帮助创业者快速定位地区机会、政策支持与可参考案例。
+            </p>
+            <div class="archive-hero-actions">
+              <RouterLink class="button prisma-primary-cta" to="/policies">
+                <span>进入政策库</span>
+                <span class="prisma-cta-icon" aria-hidden="true"><ArrowRight :size="18" /></span>
+              </RouterLink>
+              <RouterLink class="button button-ghost prisma-ghost-cta" to="/cases">查看案例库</RouterLink>
+              <RouterLink
+                class="button button-ghost prisma-ghost-cta prisma-login-cta"
+                :class="accountButtonClass"
+                :to="accountTarget"
+                :aria-label="currentUser ? `退出用户 ${currentUser.username}` : '登录'"
+                :title="currentUser ? '退出登录' : '登录'"
+                :aria-disabled="accountSigningOut || undefined"
+                @click="handleAccountButtonClick"
+                @pointerdown="handleAccountPointerDown"
+                @pointerup="releaseAccountPreview"
+                @pointercancel="clearAccountPreview"
+                @pointerleave="handleAccountPointerLeave"
+                @contextmenu="handleAccountContextMenu"
+              >
+                <span v-if="currentUser" class="prisma-account-icon" aria-hidden="true">
+                  <UserRound class="prisma-account-icon--current" :size="17" />
+                  <LogOut class="prisma-account-icon--destination" :size="17" />
+                </span>
+                <LogIn v-else :size="17" aria-hidden="true" />
+                <span v-if="currentUser" class="prisma-account-copy" aria-hidden="true">
+                  <span class="prisma-account-state prisma-account-state--current prisma-account-label">
+                    <span>已登录用户：</span>
+                    <strong class="prisma-account-username">{{ currentUser.username }}</strong>
+                  </span>
+                  <span class="prisma-account-state prisma-account-state--destination">
+                    {{ accountSigningOut ? '正在退出...' : '退出登录' }}
+                  </span>
+                </span>
+                <span v-else>登录</span>
+              </RouterLink>
+            </div>
+          </div>
         </div>
       </div>
 
       <a class="home-scroll-cue" href="#home-data-view" aria-label="跳转到资料分析概览"></a>
     </section>
 
-    <div id="home-data-view" class="home-section-heading scroll-reveal">
-      <span>DATA VIEW</span>
-      <h2>资料分析概览</h2>
-      <p>以下图表根据当前数据库记录动态生成，新增政策或案例后会随接口数据同步变化。</p>
-    </div>
+    <section class="prisma-about" aria-labelledby="prisma-about-title">
+      <div class="prisma-about-card">
+        <h2 id="prisma-about-title" class="prisma-about-title">
+          <WordsPullUpMultiStyle :segments="aboutSegments" />
+        </h2>
+        <AnimatedLetters :text="aboutBody" />
+        <div class="archive-hero-proof prisma-about-proof" aria-label="平台核心能力">
+          <span>地区分类检索</span>
+          <span>来源出处追溯</span>
+          <span>摘要标签分析</span>
+        </div>
+      </div>
+    </section>
 
-    <section class="analysis-grid archive-analysis-grid" @pointermove="handlePanelSpotlight">
+    <section id="home-data-view" class="prisma-features">
+      <div class="bg-noise" aria-hidden="true"></div>
+      <header class="prisma-features-heading">
+        <WordsPullUpMultiStyle :segments="featureHeadingSegments" tag="h2" />
+      </header>
+
+      <div class="prisma-feature-grid">
+        <article class="prisma-feature-card prisma-feature-card--video scroll-reveal" style="--feature-index: 0">
+          <video
+            src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260406_133058_0504132a-0cf3-4450-a370-8ea3b05c95d4.mp4"
+            autoplay
+            loop
+            muted
+            playsinline
+          ></video>
+          <div class="prisma-feature-video-gradient" aria-hidden="true"></div>
+          <strong>你的智能创业研究画布。</strong>
+        </article>
+
+        <article class="prisma-feature-card scroll-reveal" style="--feature-index: 1">
+          <img
+            class="prisma-feature-icon"
+            src="https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260405_171918_4a5edc79-d78f-4637-ac8b-53c43c220606.png&w=1280&q=85"
+            alt=""
+          />
+          <div class="prisma-feature-title">
+            <h3>政策索引。</h3>
+            <span>01</span>
+          </div>
+          <ul>
+            <li><Check :size="16" />按地区与政策类型筛选</li>
+            <li><Check :size="16" />标题、摘要与标签检索</li>
+            <li><Check :size="16" />政策原文与辅证链接</li>
+            <li><Check :size="16" />Excel 导出与点击热度</li>
+          </ul>
+          <RouterLink class="prisma-learn-link" to="/policies">
+            <span>进入政策库</span><ArrowRight :size="17" />
+          </RouterLink>
+        </article>
+
+        <article class="prisma-feature-card scroll-reveal" style="--feature-index: 2">
+          <img
+            class="prisma-feature-icon"
+            src="https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260405_171741_ed9845ab-f5b2-4018-8ce7-07cc01823522.png&w=1280&q=85"
+            alt=""
+          />
+          <div class="prisma-feature-title">
+            <h3>案例洞察。</h3>
+            <span>02</span>
+          </div>
+          <ul>
+            <li><Check :size="16" />按地区、类型与关键词定位</li>
+            <li><Check :size="16" />商业模式与 AI 工具拆解</li>
+            <li><Check :size="16" />成果、主体与来源追溯</li>
+          </ul>
+          <RouterLink class="prisma-learn-link" to="/cases">
+            <span>查看案例库</span><ArrowRight :size="17" />
+          </RouterLink>
+        </article>
+
+        <article class="prisma-feature-card scroll-reveal" style="--feature-index: 3">
+          <img
+            class="prisma-feature-icon"
+            src="https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260405_171809_f56666dc-c099-4778-ad82-9ad4f209567b.png&w=1280&q=85"
+            alt=""
+          />
+          <div class="prisma-feature-title">
+            <h3>证据台账。</h3>
+            <span>03</span>
+          </div>
+          <ul>
+            <li><Check :size="16" />来源链接与访问日期留痕</li>
+            <li><Check :size="16" />地区资料覆盖实时汇总</li>
+            <li><Check :size="16" />状态、文件与发布单位复核</li>
+          </ul>
+          <RouterLink class="prisma-learn-link" to="/sources">
+            <span>打开来源台账</span><ArrowRight :size="17" />
+          </RouterLink>
+        </article>
+      </div>
+
+      <header class="home-section-heading prisma-features-heading scroll-reveal">
+        <WordsPullUpMultiStyle :segments="analysisHeadingSegments" tag="h2" />
+      </header>
+
+      <div v-if="loading" class="analysis-state analysis-state--loading" role="status" aria-live="polite">
+        正在同步资料分析数据...
+      </div>
+      <div v-else-if="error" class="analysis-state analysis-state--error" role="alert">
+        {{ error }}。分析结构与真实接口请求已保留，请确认后端服务和数据库状态。
+      </div>
+
+      <section id="home-analysis" class="analysis-grid archive-analysis-grid" @pointermove="handlePanelSpotlight">
       <article class="panel analysis-panel wide-panel public-visit-panel scroll-reveal">
         <div class="section-header">
           <div>
@@ -197,33 +339,78 @@
             <h2>政策发布趋势</h2>
             <p>按月份统计政策发布日期。</p>
           </div>
-          <span class="analysis-badge">最近 {{ publishTrend.length }} 期</span>
+          <div class="policy-trend-range" role="group" aria-label="政策发布趋势时间范围">
+            <button
+              v-for="option in publishTrendRangeOptions"
+              :key="option.value"
+              type="button"
+              :class="{ 'is-active': publishTrendRange === option.value }"
+              :aria-pressed="publishTrendRange === option.value"
+              @click="publishTrendRange = option.value"
+            >
+              {{ option.label }}
+            </button>
+          </div>
         </div>
 
         <div v-if="!publishTrend.length" class="muted">暂无发布日期数据。</div>
         <div v-else class="trend-chart">
-          <svg viewBox="0 0 640 210" role="img" aria-label="政策发布时间趋势">
-            <defs>
-              <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stop-color="#2563eb" stop-opacity="0.18" />
-                <stop offset="100%" stop-color="#2563eb" stop-opacity="0" />
-              </linearGradient>
-            </defs>
-            <polygon class="trend-area" :points="trendAreaPoints" fill="url(#trendFill)" />
-            <polyline class="trend-line" :points="trendLinePoints" fill="none" stroke="#334155" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-            <circle
-              v-for="(point, index) in trendDots"
-              :key="point.label"
-              class="trend-dot"
-              :style="{ animationDelay: `${320 + index * 90}ms` }"
-              :cx="point.x"
-              :cy="point.y"
-              r="5"
-              fill="#2563eb"
-            />
-          </svg>
-          <div class="trend-labels">
-            <span v-for="item in publishTrend" :key="item.name">{{ item.name }}</span>
+          <div class="policy-trend-plot" @mouseleave="clearActivePublishTrendPoint()">
+            <svg viewBox="0 0 640 210" role="group" aria-label="政策发布时间趋势，可聚焦数据点查看当月政策发布数量">
+              <title>政策发布趋势，共 {{ publishTrendTotal }} 条政策</title>
+              <defs>
+                <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stop-color="#4F6F58" stop-opacity="0.2" />
+                  <stop offset="100%" stop-color="#4F6F58" stop-opacity="0" />
+                </linearGradient>
+              </defs>
+              <polygon class="trend-area" :points="trendAreaPoints" fill="url(#trendFill)" />
+              <polyline class="trend-line" :points="trendLinePoints" fill="none" stroke="#222522" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+              <g v-for="(point, index) in trendDots" :key="point.label">
+                <circle
+                  class="policy-trend-hit-area"
+                  :cx="point.x"
+                  :cy="point.y"
+                  r="14"
+                  tabindex="0"
+                  role="button"
+                  :aria-label="`${formatMonthLabel(point.label)}发布 ${point.count} 条政策`"
+                  @mouseenter="setActivePublishTrendPoint(point)"
+                  @focus="setActivePublishTrendPoint(point)"
+                  @blur="clearActivePublishTrendPoint(point)"
+                  @click="setActivePublishTrendPoint(point)"
+                  @keyup.enter.space.prevent="setActivePublishTrendPoint(point)"
+                />
+                <circle
+                  class="trend-dot"
+                  :class="{ 'is-active': activePublishTrendPoint?.label === point.label }"
+                  :style="{ animationDelay: `${320 + index * 60}ms` }"
+                  :cx="point.x"
+                  :cy="point.y"
+                  r="5"
+                  fill="#4F6F58"
+                  aria-hidden="true"
+                />
+              </g>
+            </svg>
+            <div
+              v-if="activePublishTrendPoint"
+              class="policy-trend-tooltip"
+              :class="{ 'is-below': activePublishTrendPoint.y < 74 }"
+              :style="publishTrendTooltipStyle"
+              role="status"
+            >
+              <strong>{{ formatMonthLabel(activePublishTrendPoint.label) }}</strong>
+              <span>发布 <b>{{ activePublishTrendPoint.count }}</b> 条政策</span>
+            </div>
+          </div>
+          <div class="policy-trend-labels" aria-hidden="true">
+            <span
+              v-for="(item, index) in publishTrendLabels"
+              :key="item.label"
+              :class="{ 'is-first': index === 0, 'is-last': index === publishTrendLabels.length - 1 }"
+              :style="{ left: `${(item.x / 640) * 100}%` }"
+            >{{ item.label }}</span>
           </div>
         </div>
       </article>
@@ -281,6 +468,7 @@
           </div>
         </div>
       </article>
+      </section>
     </section>
 
     <footer class="home-contact-footer scroll-reveal">
@@ -294,7 +482,7 @@
 
           <div class="home-contact-methods" aria-label="联系方式">
             <div class="home-contact-method">
-              <span class="home-contact-icon" aria-hidden="true">LOC</span>
+              <span class="home-contact-icon" aria-hidden="true"><MapPin :size="18" /></span>
               <div>
                 <strong>所属单位</strong>
                 <p>西北工业大学软件学院</p>
@@ -302,11 +490,12 @@
             </div>
 
             <div class="home-contact-method">
-              <span class="home-contact-icon" aria-hidden="true">@</span>
+              <span class="home-contact-icon" aria-hidden="true"><Mail :size="18" /></span>
               <div>
                 <strong>联系人</strong>
-                <p>
-                  王兵书 <a href="mailto:wangbingshu@nwpu.edu.cn">wangbingshu@nwpu.edu.cn</a>
+                <p class="home-contact-person">
+                  <span>王兵书</span>
+                  <a href="mailto:wangbingshu@nwpu.edu.cn">wangbingshu@nwpu.edu.cn</a>
                 </p>
               </div>
             </div>
@@ -317,14 +506,7 @@
       <section class="home-site-footer" aria-label="网站页脚">
         <div>
           <div class="home-footer-brand">
-            <span class="brand-mark brand-logo-mark archive-brand-mark" aria-hidden="true">
-              <svg viewBox="0 0 72 72" focusable="false">
-                <rect x="4" y="4" width="64" height="64" rx="20" />
-                <path class="logo-path-main" d="M24 45V25h12c7 0 12 4 12 10s-5 10-12 10H24Z" />
-                <path class="logo-path-accent" d="M18 23C28 14 44 14 54 23" />
-                <path class="logo-path-accent" d="M18 49C28 58 44 58 54 49" />
-              </svg>
-            </span>
+            <BrandMark />
             <strong>SoloFirm</strong>
           </div>
           <p>聚合 AI + OPC 相关政策、案例与来源资料，帮助创业者和研究者更快理解一人公司的机会结构。</p>
@@ -342,12 +524,20 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { ArrowRight, Check, LogIn, LogOut, Mail, MapPin, UserRound } from 'lucide-vue-next'
+import AnimatedLetters from '@/components/AnimatedLetters.vue'
+import BrandMark from '@/components/BrandMark.vue'
+import WordsPullUp from '@/components/WordsPullUp.vue'
+import WordsPullUpMultiStyle from '@/components/WordsPullUpMultiStyle.vue'
 import { getDashboardSummary } from '@/api/dashboard'
 import { getCases } from '@/api/case'
 import { getPolicies } from '@/api/policy'
 import { getSources } from '@/api/source'
 import { getVisitRankings, getVisitSummary, getVisitTrend } from '@/api/visit'
+import { getUserProfile, isUserAuthenticated, logoutUser } from '@/api/auth'
 
+const router = useRouter()
 const loading = ref(false)
 const error = ref('')
 const summary = ref({})
@@ -358,11 +548,126 @@ const visitSummary = ref({})
 const visitTrend = ref([])
 const policyVisitRankings = ref([])
 const caseVisitRankings = ref([])
-const cursorTrail = ref([])
-const trailTimers = []
-let trailId = 0
-let lastTrailAt = 0
+const currentUser = ref(isUserAuthenticated() ? getUserProfile() : null)
+const currentUsernameLength = computed(() => Array.from(currentUser.value?.username || '').length)
+const accountTarget = computed(() => (currentUser.value ? '/' : '/login'))
+const accountEntryTarget = computed(() => (currentUser.value ? '/account' : '/login'))
+const accountPreviewActive = ref(false)
+const accountSigningOut = ref(false)
+const accountLoginNoticeVisible = ref(false)
+const accountButtonClass = computed(() => ({
+  'is-authenticated': Boolean(currentUser.value),
+  'is-compact-account': currentUsernameLength.value > 10,
+  'is-extra-long-account': currentUsernameLength.value > 18,
+  'is-account-preview': accountPreviewActive.value,
+  'is-signing-out': accountSigningOut.value,
+}))
+const publishTrendRange = ref('quarter')
+const activePublishTrendPoint = ref(null)
 let revealObserver
+let accountPreviewTimer
+let accountLoginRedirectTimer
+
+const publishTrendRangeOptions = [
+  { value: 'quarter', label: '近一季度', months: 3 },
+  { value: 'halfYear', label: '近半年', months: 6 },
+  { value: 'year', label: '近一年', months: 12 },
+  { value: 'all', label: '有史以来', months: null },
+]
+
+const aboutSegments = [
+  { text: 'SoloFirm，', className: 'prisma-about-normal' },
+  { text: '一人公司的智能创业索引。', className: 'prisma-about-serif' },
+  { text: '汇聚政策、案例、来源与地区数据。', className: 'prisma-about-normal' },
+]
+
+const aboutBody =
+  '围绕 AI + OPC 与一人公司创业，我们把分散的政策、案例和来源资料整理为可检索、可比较、可回到原始出处复核的公开索引。新增记录会随接口数据同步进入分析视图。'
+
+const featureHeadingSegments = [
+  { text: '面向创业者与研究者的资料工作流。', className: 'prisma-feature-heading-primary' },
+  { text: '从地区机会出发，沿证据回到原始出处。', className: 'prisma-feature-heading-muted' },
+]
+
+const analysisHeadingSegments = [
+  { text: '资料分析概览，随当前数据实时更新。', className: 'prisma-feature-heading-primary' },
+  { text: '新增政策或案例后，统计、趋势与观察同步变化。', className: 'prisma-feature-heading-muted' },
+]
+
+async function handleAccountButtonClick(event) {
+  if (!currentUser.value) {
+    return
+  }
+  event.preventDefault()
+  if (accountSigningOut.value) {
+    return
+  }
+
+  clearAccountPreview()
+  accountSigningOut.value = true
+  try {
+    await logoutUser()
+  } catch {
+    // logoutUser clears the local session even when the server is unavailable.
+  } finally {
+    currentUser.value = null
+    accountSigningOut.value = false
+  }
+}
+
+function handleAccountEntryClick(event) {
+  if (currentUser.value) {
+    return
+  }
+
+  event.preventDefault()
+  if (accountLoginNoticeVisible.value) {
+    return
+  }
+
+  accountLoginNoticeVisible.value = true
+  window.clearTimeout(accountLoginRedirectTimer)
+  accountLoginRedirectTimer = window.setTimeout(() => {
+    accountLoginNoticeVisible.value = false
+    router.push('/login')
+  }, 3000)
+}
+
+function handleAccountPointerDown(event) {
+  if (!currentUser.value || event.pointerType === 'mouse') {
+    return
+  }
+  window.clearTimeout(accountPreviewTimer)
+  accountPreviewTimer = window.setTimeout(() => {
+    accountPreviewActive.value = true
+  }, 280)
+}
+
+function releaseAccountPreview() {
+  window.clearTimeout(accountPreviewTimer)
+  if (accountPreviewActive.value) {
+    accountPreviewTimer = window.setTimeout(() => {
+      accountPreviewActive.value = false
+    }, 220)
+  }
+}
+
+function clearAccountPreview() {
+  window.clearTimeout(accountPreviewTimer)
+  accountPreviewActive.value = false
+}
+
+function handleAccountPointerLeave(event) {
+  if (event.pointerType !== 'mouse') {
+    clearAccountPreview()
+  }
+}
+
+function handleAccountContextMenu(event) {
+  if (currentUser.value) {
+    event.preventDefault()
+  }
+}
 
 const typeLabels = {
   comprehensive: '综合政策',
@@ -374,7 +679,7 @@ const typeLabels = {
   other: '其他',
 }
 
-const chartColors = ['#334155', '#2563eb', '#64748b', '#94a3b8', '#1e293b', '#475569', '#cbd5e1']
+const chartColors = ['#181A18', '#4F6F58', '#555B56', '#777D78', '#939A94', '#B0B5AF', '#D0D4CF']
 
 const recentUpdates = computed(() => summary.value.recentUpdates || [])
 const dedupedRecentUpdates = computed(() => {
@@ -504,36 +809,6 @@ function useAnimatedNumber(target) {
   return value
 }
 
-function handleHeroPointerMove(event) {
-  if (event.pointerType !== 'mouse') {
-    return
-  }
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    return
-  }
-  const now = window.performance.now()
-  if (now - lastTrailAt < 30) {
-    return
-  }
-  lastTrailAt = now
-  const rect = event.currentTarget.getBoundingClientRect()
-  const dot = {
-    id: trailId++,
-    x: event.clientX - rect.left,
-    y: event.clientY - rect.top,
-    size: 8 + Math.round(Math.random() * 8),
-  }
-  cursorTrail.value = [...cursorTrail.value.slice(-10), dot]
-  const timer = window.setTimeout(() => {
-    cursorTrail.value = cursorTrail.value.filter((item) => item.id !== dot.id)
-  }, 560)
-  trailTimers.push(timer)
-}
-
-function clearCursorTrail() {
-  cursorTrail.value = []
-}
-
 function handlePanelSpotlight(event) {
   const panel = event.target.closest('.analysis-panel')
   if (!panel) {
@@ -574,14 +849,33 @@ const tagStats = computed(() => {
   }))
 })
 
-const publishTrend = computed(() => {
-  const values = policies.value
+const allPublishTrend = computed(() => {
+  const counts = new Map()
+  policies.value
     .map((item) => monthKey(item.publishDate))
     .filter(Boolean)
-  return countValues(values)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(-8)
+    .forEach((month) => counts.set(month, (counts.get(month) || 0) + 1))
+
+  const months = [...counts.keys()].sort((a, b) => a.localeCompare(b))
+  if (!months.length) {
+    return []
+  }
+
+  return enumerateMonths(months[0], months[months.length - 1]).map((name) => ({
+    name,
+    count: counts.get(name) || 0,
+  }))
 })
+
+const publishTrend = computed(() => {
+  const option = publishTrendRangeOptions.find((item) => item.value === publishTrendRange.value)
+  if (!option?.months) {
+    return allPublishTrend.value
+  }
+  return allPublishTrend.value.slice(-option.months)
+})
+
+const publishTrendTotal = computed(() => publishTrend.value.reduce((total, item) => total + item.count, 0))
 
 const trendDots = computed(() => {
   if (!publishTrend.value.length) {
@@ -598,9 +892,36 @@ const trendDots = computed(() => {
 
   return publishTrend.value.map((item, index) => ({
     label: item.name,
+    count: item.count,
     x: left + index * step,
     y: top + height - (item.count / max) * height,
   }))
+})
+
+const publishTrendLabels = computed(() => {
+  const points = trendDots.value
+  if (!points.length) {
+    return []
+  }
+  const labelCount = Math.min(points.length, 8)
+  const indexes = new Set()
+  for (let index = 0; index < labelCount; index += 1) {
+    indexes.add(labelCount === 1 ? 0 : Math.round((index * (points.length - 1)) / (labelCount - 1)))
+  }
+  return [...indexes].map((pointIndex) => ({
+    ...points[pointIndex],
+    label: points[pointIndex].label,
+  }))
+})
+
+const publishTrendTooltipStyle = computed(() => {
+  if (!activePublishTrendPoint.value) {
+    return {}
+  }
+  return {
+    '--policy-tooltip-x': `${(activePublishTrendPoint.value.x / 640) * 100}%`,
+    '--policy-tooltip-y': `${(activePublishTrendPoint.value.y / 210) * 100}%`,
+  }
 })
 
 const trendLinePoints = computed(() => trendDots.value.map((point) => `${point.x},${point.y}`).join(' '))
@@ -620,9 +941,9 @@ const sourceTraceStats = computed(() => {
   const totalPolicies = policies.value.length
   const totalItems = policies.value.length + cases.value.length
   return [
-    makeTraceItem('来源关联', [...policies.value, ...cases.value].filter((item) => item.sourceId).length, totalItems, '#315cdb'),
-    makeTraceItem('来源链接', sources.value.filter((item) => item.url).length, totalSources, '#334155'),
-    makeTraceItem('访问日期', sources.value.filter((item) => item.accessedAt).length, totalSources, '#0f766e'),
+    makeTraceItem('来源关联', [...policies.value, ...cases.value].filter((item) => item.sourceId).length, totalItems, '#181A18'),
+    makeTraceItem('来源链接', sources.value.filter((item) => item.url).length, totalSources, '#555B56'),
+    makeTraceItem('访问日期', sources.value.filter((item) => item.accessedAt).length, totalSources, '#4F6F58'),
   ]
 })
 
@@ -680,6 +1001,35 @@ function monthKey(date) {
     return ''
   }
   return String(date).slice(0, 7)
+}
+
+function enumerateMonths(start, end) {
+  const [startYear, startMonth] = start.split('-').map(Number)
+  const [endYear, endMonth] = end.split('-').map(Number)
+  const startIndex = startYear * 12 + startMonth - 1
+  const endIndex = endYear * 12 + endMonth - 1
+  const months = []
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const year = Math.floor(index / 12)
+    const month = (index % 12) + 1
+    months.push(`${year}-${String(month).padStart(2, '0')}`)
+  }
+  return months
+}
+
+function formatMonthLabel(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})$/)
+  return match ? `${match[1]}年${Number(match[2])}月` : value || '-'
+}
+
+function setActivePublishTrendPoint(point) {
+  activePublishTrendPoint.value = point
+}
+
+function clearActivePublishTrendPoint(point) {
+  if (!point || activePublishTrendPoint.value?.label === point.label) {
+    activePublishTrendPoint.value = null
+  }
 }
 
 function makeTraceItem(name, count, total, color) {
@@ -743,15 +1093,15 @@ onMounted(async () => {
     caseVisitRankings.value = caseRankData || []
     visitTrend.value = visitTrendData || []
   } catch (err) {
-    error.value = err.message || '统计数据加载失败'
+    error.value = '资料分析数据暂时无法读取'
   } finally {
     loading.value = false
   }
 })
 
 onUnmounted(() => {
-  trailTimers.forEach((timer) => window.clearTimeout(timer))
   revealObserver?.disconnect()
+  window.clearTimeout(accountPreviewTimer)
+  window.clearTimeout(accountLoginRedirectTimer)
 })
 </script>
-

@@ -1,0 +1,61 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading [level=2] [ref=e6]: 连接你的 OPC 研究与创业资料空间
+      - paragraph [ref=e7]: 使用账号密码进入资料空间；邮箱验证码只用于注册时确认邮箱所有权。
+    - generic [ref=e8]:
+      - link "SoloFirm 账号注册" [ref=e44] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e17]:
+          - strong [ref=e18]: SoloFirm
+          - generic [ref=e19]: 账号注册
+      - generic [ref=e20]:
+        - heading "创建 SoloFirm 账号" [level=1] [ref=e45]
+        - paragraph [ref=e22]: 填写用户名、邮箱和密码，再用邮箱验证码完成注册。
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - generic [ref=e25]: 用户名
+          - textbox "用户名" [ref=e46]:
+            - /placeholder: 请输入用户名
+        - generic [ref=e47]:
+          - generic [ref=e48]: 邮箱
+          - textbox "邮箱" [ref=e49]:
+            - /placeholder: 请输入邮箱
+        - generic [ref=e27]:
+          - generic [ref=e28]: 密码
+          - generic [ref=e29]:
+            - textbox "密码" [ref=e30]:
+              - /placeholder: 设置 8-64 位密码
+            - button "显示密码" [ref=e31]
+        - generic [ref=e53]:
+          - generic [ref=e54]:
+            - generic [ref=e55]:
+              - checkbox "我不是机器人" [ref=e57] [cursor=pointer]
+              - generic [ref=e60]: 我不是机器人
+            - link [ref=e62] [cursor=pointer]:
+              - /url: https://altcha.org
+          - paragraph [ref=e68]:
+            - text: 由
+            - link "Altcha (官方网站)" [ref=e69] [cursor=pointer]:
+              - /url: https://altcha.org/
+              - text: ALTCHA
+            - text: 保护
+        - generic [ref=e70]:
+          - generic [ref=e71]:
+            - generic [ref=e72]: 邮箱验证码
+            - textbox "邮箱验证码" [ref=e73]:
+              - /placeholder: 6 位验证码
+          - button "请先完成验证" [disabled] [ref=e74] [cursor=pointer]
+        - button "创建账号" [ref=e75] [cursor=pointer]
+      - generic [ref=e36]:
+        - generic [ref=e37]: 已有账号？
+        - button "返回登录" [active] [ref=e76] [cursor=pointer]
+      - link "返回首页" [ref=e40] [cursor=pointer]:
+        - /url: /
+  - generic [ref=e41]:
+    - text: Copyright © 2026
+    - link [ref=e42] [cursor=pointer]:
+      - /url: /
+      - text: SoloFirm
+      - superscript [ref=e43]: ®
+    - text: "- All rights reserved"

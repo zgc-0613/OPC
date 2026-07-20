@@ -85,7 +85,7 @@ onMounted(async () => {
       referer: document.referrer || '/cases',
     }).catch(() => {})
   } catch (err) {
-    error.value = err.message || '案例详情加载失败'
+    error.value = '案例详情暂时无法读取，请确认数据库服务是否运行。'
   } finally {
     loading.value = false
   }

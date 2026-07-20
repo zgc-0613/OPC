@@ -1,5 +1,5 @@
 <template>
-  <div class="page-stack policy-index-page">
+  <div class="page-stack policy-index-page archive-workspace-page">
     <section class="panel filter-panel policy-filter-panel scroll-reveal" @pointermove="handlePolicySpotlight">
       <div class="policy-motion-field" aria-hidden="true">
         <span class="policy-ray policy-ray-one"></span>
@@ -291,7 +291,7 @@ async function loadPolicies() {
     policies.value = filterPolicies(allPolicies.value)
     currentPage.value = 1
   } catch (err) {
-    error.value = err.message || '政策数据加载失败'
+    error.value = '政策资料暂时无法读取，请确认数据库服务是否运行。'
   } finally {
     loading.value = false
     await nextTick()
@@ -451,23 +451,31 @@ watch(
 onMounted(async () => {
   await nextTick()
   setupScrollReveal()
-  const [regionList, policyList] = await Promise.all([
-    getRegions(),
-    getPolicies(),
-  ])
-  const visitRankingList = await getVisitRankings({ targetType: 'policy', limit: 200 }).catch(() => [])
-  regions.value = regionList
-  allPolicies.value = policyList
-  policyVisitRankings.value = visitRankingList || []
-  query.regionId = route.query.regionId ? String(route.query.regionId) : ''
-  if (query.regionId) {
-    await loadPolicies()
-  } else {
-    policies.value = filterPolicies(policyList)
-    currentPage.value = 1
+  loading.value = true
+  error.value = ''
+  try {
+    const [regionList, policyList] = await Promise.all([
+      getRegions(),
+      getPolicies(),
+    ])
+    const visitRankingList = await getVisitRankings({ targetType: 'policy', limit: 200 }).catch(() => [])
+    regions.value = regionList
+    allPolicies.value = policyList
+    policyVisitRankings.value = visitRankingList || []
+    query.regionId = route.query.regionId ? String(route.query.regionId) : ''
+    if (query.regionId) {
+      await loadPolicies()
+    } else {
+      policies.value = filterPolicies(policyList)
+      currentPage.value = 1
+    }
+  } catch (err) {
+    error.value = '政策资料暂时无法读取，请确认数据库服务是否运行。'
+  } finally {
+    loading.value = false
+    await nextTick()
+    setupScrollReveal()
   }
-  await nextTick()
-  setupScrollReveal()
 })
 
 onUnmounted(() => {

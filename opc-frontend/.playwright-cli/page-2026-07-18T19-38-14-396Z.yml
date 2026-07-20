@@ -1,0 +1,38 @@
+- main [ref=f2e3]:
+  - generic [ref=f2e4]:
+    - generic [ref=f2e5]:
+      - heading [level=2] [ref=f2e6]: 维护可追溯的政策、案例与来源数据
+      - paragraph [ref=f2e7]: 管理员入口仅用于数据录入、校对、标签维护和平台内容管理。
+    - generic [ref=f2e8]:
+      - link "SoloFirm 管理员登录" [ref=f2e10] [cursor=pointer]:
+        - /url: https://findopc.online/
+        - generic [ref=f2e17]:
+          - strong [ref=f2e18]: SoloFirm
+          - generic [ref=f2e19]: 管理员登录
+      - generic [ref=f2e20]:
+        - heading "管理后台入口" [level=1] [ref=f2e21]
+        - paragraph [ref=f2e22]: 使用管理员用户名和密码进入后台。
+      - generic [ref=f2e23]:
+        - generic [ref=f2e24]:
+          - generic [ref=f2e25]: 管理员用户名
+          - textbox "管理员用户名" [ref=f2e26]:
+            - /placeholder: 请输入用户名
+        - generic [ref=f2e27]:
+          - generic [ref=f2e28]: 密码
+          - generic [ref=f2e29]:
+            - textbox "密码" [ref=f2e30]:
+              - /placeholder: 请输入密码
+            - button "显示密码" [ref=f2e31]
+        - button "进入后台" [ref=f2e35] [cursor=pointer]
+      - generic [ref=f2e36]:
+        - generic [ref=f2e37]: 没有管理员账号？
+        - button "提交注册申请" [ref=f2e38] [cursor=pointer]
+      - link "返回前台" [ref=f2e40] [cursor=pointer]:
+        - /url: https://findopc.online/
+  - generic [ref=f2e41]:
+    - text: Copyright © 2026
+    - link [ref=f2e42] [cursor=pointer]:
+      - /url: https://findopc.online/
+      - text: SoloFirm
+      - superscript [ref=f2e43]: ®
+    - text: "- All rights reserved"

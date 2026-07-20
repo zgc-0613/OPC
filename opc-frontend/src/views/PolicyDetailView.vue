@@ -83,7 +83,7 @@ onMounted(async () => {
       referer: document.referrer || '/policies',
     }).catch(() => {})
   } catch (err) {
-    error.value = err.message || '政策详情加载失败'
+    error.value = '政策详情暂时无法读取，请确认数据库服务是否运行。'
   } finally {
     loading.value = false
   }

@@ -1,0 +1,69 @@
+- generic [ref=f2e37]:
+  - complementary [ref=f2e38]:
+    - link "SoloFirm 管理端" [ref=f2e39] [cursor=pointer]:
+      - /url: /admin
+      - generic [ref=f2e46]:
+        - strong [ref=f2e47]: SoloFirm
+        - generic [ref=f2e48]: OPC Platform / Admin
+    - navigation "管理导航" [ref=f2e49]:
+      - link "工作台" [ref=f2e50] [cursor=pointer]:
+        - /url: /admin
+      - link "政策管理" [ref=f2e57] [cursor=pointer]:
+        - /url: /admin/policies
+      - link "案例管理" [ref=f2e62] [cursor=pointer]:
+        - /url: /admin/cases
+      - link "来源管理" [ref=f2e68] [cursor=pointer]:
+        - /url: /admin/sources
+      - link "标签管理" [ref=f2e72] [cursor=pointer]:
+        - /url: /admin/tags
+      - link "系统设置" [active] [ref=f2e78] [cursor=pointer]:
+        - /url: /admin/settings
+    - link "返回前台" [ref=f2e83] [cursor=pointer]:
+      - /url: /
+    - button "退出登录" [ref=f2e86] [cursor=pointer]
+  - main [ref=f2e90]:
+    - generic [ref=f2e91]:
+      - generic [ref=f2e92]:
+        - generic [ref=f2e93]: admin workspace
+        - heading "系统设置" [level=1] [ref=f2e131]
+        - paragraph [ref=f2e95]: 维护公开平台可检索、可引用、可复核的政策与案例资料。
+      - generic [ref=f2e96]: MVP 管理模式
+    - generic [ref=f2e132]:
+      - generic [ref=f2e133]:
+        - generic [ref=f2e134]:
+          - generic [ref=f2e135]: CONTROL CENTER
+          - heading "账号、会话与邮件投递" [level=2] [ref=f2e136]
+          - paragraph [ref=f2e137]: 集中管理注册账号、验证码策略和 SMTP 投递配置。敏感密码只写入后端加密存储，不会返回浏览器。
+        - generic "设置状态概览" [ref=f2e138]:
+          - generic [ref=f2e139]:
+            - generic [ref=f2e145]: 注册账号
+            - strong [ref=f2e146]: "0"
+          - generic [ref=f2e147]:
+            - generic [ref=f2e151]: 可用账号
+            - strong [ref=f2e152]: "0"
+          - generic [ref=f2e153]:
+            - generic [ref=f2e157]: 邮件投递
+            - strong [ref=f2e158]: 未启用
+      - tablist "系统设置分类" [ref=f2e159]:
+        - tab "账号与会话" [selected] [ref=f2e160] [cursor=pointer]
+        - tab "邮件与验证码" [ref=f2e166] [cursor=pointer]
+      - tabpanel [ref=f2e170]:
+        - generic [ref=f2e171]:
+          - generic [ref=f2e172]:
+            - generic [ref=f2e173]: REGISTERED ACCOUNTS
+            - heading "已注册账号" [level=2] [ref=f2e174]
+            - paragraph [ref=f2e175]: 最多展示最近 200 个账号。禁用账号时会同时撤销该账号的全部登录会话。
+          - button "刷新" [ref=f2e176] [cursor=pointer]
+        - generic [ref=f2e182]:
+          - generic [ref=f2e183]:
+            - generic [ref=f2e184]: 搜索账号
+            - textbox "搜索账号" [ref=f2e185]:
+              - /placeholder: 用户名或邮箱
+          - generic [ref=f2e186]:
+            - generic [ref=f2e187]: 账号状态
+            - combobox "账号状态" [ref=f2e188]:
+              - option "全部状态" [selected]
+              - option "正常"
+              - option "已禁用"
+          - button "查询" [ref=f2e189] [cursor=pointer]
+        - generic [ref=f2e190]: Internal server error

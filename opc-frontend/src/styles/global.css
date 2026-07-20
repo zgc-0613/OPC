@@ -567,7 +567,6 @@ button {
 }
 
 .topbar-status,
-.admin-mode,
 .analysis-badge {
   display: inline-flex;
   align-items: center;
