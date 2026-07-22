@@ -20,6 +20,7 @@ public class SourceService {
     private final SourceMapper sourceMapper;
 
     public SourceVO createSource(SourceCreateDTO dto) {
+        validateUniqueTitle(dto.getTitle(), null);
         Source source = new Source();
         copyCreateFields(dto, source);
         sourceMapper.insert(source);
@@ -31,6 +32,7 @@ public class SourceService {
         if (source == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Source not found");
         }
+        validateUniqueTitle(dto.getTitle(), id);
         copyUpdateFields(dto, source);
         sourceMapper.updateById(source);
         return toVO(sourceMapper.selectById(id));
@@ -57,7 +59,7 @@ public class SourceService {
     }
 
     private void copyCreateFields(SourceCreateDTO dto, Source source) {
-        source.setTitle(dto.getTitle());
+        source.setTitle(dto.getTitle().trim());
         source.setSourceType(dto.getSourceType());
         source.setPublisher(dto.getPublisher());
         source.setUrl(dto.getUrl());
@@ -68,7 +70,7 @@ public class SourceService {
     }
 
     private void copyUpdateFields(SourceUpdateDTO dto, Source source) {
-        source.setTitle(dto.getTitle());
+        source.setTitle(dto.getTitle().trim());
         source.setSourceType(dto.getSourceType());
         source.setPublisher(dto.getPublisher());
         source.setUrl(dto.getUrl());
@@ -76,6 +78,21 @@ public class SourceService {
         source.setAccessedAt(dto.getAccessedAt());
         source.setNotes(dto.getNotes());
         source.setStatus(dto.getStatus());
+    }
+
+    private void validateUniqueTitle(String title, Long excludedId) {
+        LambdaQueryWrapper<Source> wrapper = new LambdaQueryWrapper<Source>()
+                .eq(Source::getTitle, title.trim());
+        if (excludedId != null) {
+            wrapper.ne(Source::getId, excludedId);
+        }
+        Source conflict = sourceMapper.selectOne(wrapper.last("LIMIT 1"));
+        if (conflict != null) {
+            throw new BusinessException(
+                    ErrorCode.BAD_REQUEST,
+                    "来源名称“" + conflict.getTitle() + "”已存在（ID: " + conflict.getId() + "），请使用该来源或修改名称"
+            );
+        }
     }
 
     private SourceVO toVO(Source source) {

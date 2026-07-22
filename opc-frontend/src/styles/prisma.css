@@ -3236,6 +3236,62 @@ body:has(#app > .home-shell) {
   color: #4b514c !important;
 }
 
+.admin-shell .admin-source-field {
+  display: grid;
+  min-width: 0;
+  align-self: end;
+  gap: 8px;
+}
+
+.admin-shell .admin-source-guidance {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-shell .admin-source-guidance small {
+  min-width: 0;
+  color: #626862 !important;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.admin-shell .admin-source-guidance.has-error small {
+  color: #772f29 !important;
+  font-weight: 700;
+}
+
+.admin-shell .admin-source-field input[aria-invalid='true'] {
+  border-color: #8b3d35 !important;
+  outline-color: rgba(139, 61, 53, 0.18) !important;
+}
+
+.admin-shell .admin-source-management-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: #292e2a;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.admin-shell .admin-source-management-link:hover {
+  color: #111310;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.admin-shell .admin-source-management-link:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid #535a54;
+  outline-offset: 3px;
+}
+
 .admin-shell .button {
   border: 1px solid #181a18 !important;
   border-radius: 999px !important;

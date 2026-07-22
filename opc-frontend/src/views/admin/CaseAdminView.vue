@@ -28,49 +28,26 @@
           <span>主体</span>
           <input v-model.trim="form.actorName" placeholder="企业、团队或个人" />
         </label>
-        <label>
-          <span>来源 *</span>
-          <select v-model.number="form.sourceId" required>
-            <option value="">请选择来源</option>
-            <option v-for="source in sources" :key="source.id" :value="source.id">{{ source.title }}</option>
-          </select>
-        </label>
-        <div class="quick-source-toggle">
-          <button class="button button-ghost" type="button" @click="showQuickSource = !showQuickSource">
-            {{ showQuickSource ? '收起新增来源' : '快速新增来源' }}
-          </button>
-        </div>
-        <div v-if="showQuickSource" class="quick-source-box span-3">
-          <label class="span-2">
-            <span>新来源标题 *</span>
-            <input v-model.trim="quickSource.title" placeholder="例如：案例报道或原始来源标题" />
-          </label>
+        <div class="admin-source-field">
           <label>
-            <span>来源类型</span>
-            <select v-model="quickSource.sourceType">
-              <option value="web">网页</option>
-              <option value="file">文件</option>
-              <option value="paper">文献</option>
-              <option value="news">新闻</option>
-              <option value="other">其他</option>
-            </select>
+            <span>来源 *</span>
+            <input
+              v-model.trim="form.sourceTitle"
+              required
+              autocomplete="off"
+              placeholder="输入来源名称"
+              :aria-invalid="Boolean(sourceValidationError)"
+              @input="handleSourceTitleInput"
+            />
           </label>
-          <label>
-            <span>发布机构</span>
-            <input v-model.trim="quickSource.publisher" placeholder="例如：媒体、平台或机构" />
-          </label>
-          <label class="span-2">
-            <span>来源链接</span>
-            <input v-model.trim="quickSource.url" placeholder="https://..." />
-          </label>
-          <label>
-            <span>访问日期</span>
-            <input v-model="quickSource.accessedAt" type="date" />
-          </label>
-          <div class="admin-actions span-3">
-            <button class="button" type="button" :disabled="sourceCreating" @click="createSourceInline">
-              {{ sourceCreating ? '正在新增...' : '新增并选中来源' }}
-            </button>
+          <div class="admin-source-guidance" :class="{ 'has-error': sourceValidationError }">
+            <small role="status">
+              {{ sourceValidationError || '新名称将创建待补充来源，保存后请到来源管理完善资料' }}
+            </small>
+            <RouterLink class="admin-source-management-link" to="/admin/sources" target="_blank" rel="noopener">
+              <span>打开来源管理</span>
+              <ArrowUpRight :size="15" aria-hidden="true" />
+            </RouterLink>
           </div>
         </div>
         <label>
@@ -173,9 +150,10 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { ArrowUpRight } from 'lucide-vue-next'
 import { createCase, deleteCase, getCaseDetail, getCases, updateCase } from '@/api/case'
 import { getRegions } from '@/api/region'
-import { createSource, getSources } from '@/api/source'
+import { getSources, resolveSourcePlaceholder } from '@/api/source'
 
 const today = new Date().toISOString().slice(0, 10)
 const loading = ref(false)
@@ -184,8 +162,7 @@ const cases = ref([])
 const regions = ref([])
 const sources = ref([])
 const editingId = ref(null)
-const showQuickSource = ref(false)
-const sourceCreating = ref(false)
+const sourceValidationError = ref('')
 
 const defaultForm = () => ({
   title: '',
@@ -193,6 +170,7 @@ const defaultForm = () => ({
   category: '',
   actorName: '',
   sourceId: '',
+  sourceTitle: '',
   summary: '',
   businessModel: '',
   aiTools: '',
@@ -206,7 +184,6 @@ const defaultForm = () => ({
 })
 
 const form = reactive(defaultForm())
-const quickSource = reactive(defaultQuickSource())
 
 async function loadCases() {
   loading.value = true
@@ -222,38 +199,8 @@ async function loadCases() {
 
 function resetForm() {
   editingId.value = null
+  sourceValidationError.value = ''
   Object.assign(form, defaultForm())
-}
-
-function defaultQuickSource() {
-  return {
-    title: '',
-    sourceType: 'web',
-    publisher: '',
-    url: '',
-    localFile: '',
-    accessedAt: today,
-    notes: '',
-    status: 'active',
-  }
-}
-
-async function createSourceInline() {
-  if (!quickSource.title) {
-    window.alert('请先填写新来源标题')
-    return
-  }
-
-  sourceCreating.value = true
-  try {
-    const created = await createSource({ ...quickSource })
-    sources.value = await getSources()
-    form.sourceId = Number(created.id)
-    Object.assign(quickSource, defaultQuickSource())
-    showQuickSource.value = false
-  } finally {
-    sourceCreating.value = false
-  }
 }
 
 async function startEdit(item) {
@@ -262,20 +209,52 @@ async function startEdit(item) {
   Object.assign(form, {
     ...defaultForm(),
     ...detail,
+    sourceTitle: detail.sourceTitle || '',
     accessedAt: detail.accessedAt || today,
   })
 }
 
-function toPayload() {
+function toPayload(sourceId) {
+  const { sourceTitle, ...caseFields } = form
   return {
-    ...form,
+    ...caseFields,
     regionId: Number(form.regionId),
-    sourceId: Number(form.sourceId),
+    sourceId,
   }
 }
 
+async function resolveSourceId() {
+  sources.value = await getSources()
+  const resolution = await resolveSourcePlaceholder(sources.value, form.sourceTitle, {
+    publisher: form.actorName,
+    url: form.originalUrl,
+    localFile: form.localFile,
+    accessedAt: form.accessedAt || today,
+    notes: `待补充：由案例“${form.title}”录入`,
+  })
+  const { source } = resolution
+  if (resolution.created) {
+    sources.value.push(source)
+  }
+  sourceValidationError.value = ''
+  form.sourceId = Number(source.id)
+  return { ...resolution, sourceId: Number(source.id) }
+}
+
+function handleSourceTitleInput() {
+  form.sourceId = ''
+  sourceValidationError.value = ''
+}
+
 async function submitForm() {
-  const payload = toPayload()
+  let sourceResolution
+  try {
+    sourceResolution = await resolveSourceId()
+  } catch (err) {
+    sourceValidationError.value = err.message || '来源关联失败，请检查来源名称'
+    return
+  }
+  const payload = toPayload(sourceResolution.sourceId)
   if (editingId.value) {
     await updateCase(editingId.value, payload)
   } else {
@@ -283,6 +262,11 @@ async function submitForm() {
   }
   resetForm()
   await loadCases()
+  if (sourceResolution.created) {
+    window.alert(
+      `已创建待补充来源“${sourceResolution.source.title}”（ID: ${sourceResolution.source.id}），请到来源管理完善其余信息。`,
+    )
+  }
 }
 
 async function removeCase(item) {

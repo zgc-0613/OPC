@@ -9,9 +9,15 @@
       </div>
 
       <form class="admin-form" @submit.prevent="submitForm">
+        <div v-if="formError" class="error span-3" role="alert">{{ formError }}</div>
         <label class="span-2">
           <span>来源标题 *</span>
-          <input v-model.trim="form.title" required placeholder="例如：北京市人工智能产业政策原文" />
+          <input
+            v-model.trim="form.title"
+            required
+            placeholder="例如：北京市人工智能产业政策原文"
+            @input="formError = ''"
+          />
         </label>
         <label>
           <span>来源类型 *</span>
@@ -43,7 +49,7 @@
           <span>状态 *</span>
           <select v-model="form.status" required>
             <option value="active">可用</option>
-            <option value="pending">待校对</option>
+            <option value="pending">待补充</option>
             <option value="archived">归档</option>
           </select>
         </label>
@@ -88,7 +94,7 @@
               <td><span class="chip">{{ source.sourceType }}</span></td>
               <td>{{ source.publisher || '-' }}</td>
               <td>{{ source.accessedAt || '-' }}</td>
-              <td><span class="status-pill">{{ source.status || '-' }}</span></td>
+              <td><span class="status-pill">{{ sourceStatusLabel(source.status) }}</span></td>
               <td>
                 <div class="row-actions">
                   <button type="button" @click="startEdit(source)">编辑</button>
@@ -110,6 +116,7 @@ import { createSource, deleteSource, getSources, updateSource } from '@/api/sour
 const today = new Date().toISOString().slice(0, 10)
 const loading = ref(false)
 const error = ref('')
+const formError = ref('')
 const sources = ref([])
 const editingId = ref(null)
 const form = reactive({
@@ -137,6 +144,7 @@ async function loadSources() {
 
 function resetForm() {
   editingId.value = null
+  formError.value = ''
   Object.assign(form, {
     title: '',
     sourceType: 'web',
@@ -151,6 +159,7 @@ function resetForm() {
 
 function startEdit(source) {
   editingId.value = source.id
+  formError.value = ''
   Object.assign(form, {
     title: source.title || '',
     sourceType: source.sourceType || 'web',
@@ -165,13 +174,27 @@ function startEdit(source) {
 
 async function submitForm() {
   const payload = { ...form }
-  if (editingId.value) {
-    await updateSource(editingId.value, payload)
-  } else {
-    await createSource(payload)
+  formError.value = ''
+  try {
+    if (editingId.value) {
+      await updateSource(editingId.value, payload)
+    } else {
+      await createSource(payload)
+    }
+  } catch (err) {
+    formError.value = err.message || '来源保存失败'
+    return
   }
   resetForm()
   await loadSources()
+}
+
+function sourceStatusLabel(status) {
+  return {
+    active: '可用',
+    pending: '待补充',
+    archived: '归档',
+  }[status] || status || '-'
 }
 
 async function removeSource(source) {

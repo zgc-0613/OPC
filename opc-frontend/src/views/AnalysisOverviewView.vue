@@ -1,9 +1,5 @@
 <template>
   <div class="page-stack analysis-overview-page">
-    <header class="home-section-heading prisma-features-heading analysis-overview-heading scroll-reveal">
-      <WordsPullUpMultiStyle :segments="analysisHeadingSegments" tag="h2" />
-    </header>
-
     <div v-if="loading" class="analysis-state analysis-state--loading" role="status" aria-live="polite">
       正在同步资料分析数据...
     </div>
@@ -274,7 +270,6 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import WordsPullUpMultiStyle from '@/components/WordsPullUpMultiStyle.vue'
 import { getDashboardSummary } from '@/api/dashboard'
 import { getCases } from '@/api/case'
 import { getPolicies } from '@/api/policy'
@@ -294,11 +289,6 @@ const caseVisitRankings = ref([])
 const publishTrendRange = ref('quarter')
 const activePublishTrendPoint = ref(null)
 let revealObserver
-
-const analysisHeadingSegments = [
-  { text: '资料分析概览，随当前数据实时更新。', className: 'prisma-feature-heading-primary' },
-  { text: '新增政策或案例后，统计、趋势与观察同步变化。', className: 'prisma-feature-heading-muted' },
-]
 
 const publishTrendRangeOptions = [
   { value: 'quarter', label: '近一季度', months: 3 },
