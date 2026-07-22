@@ -479,6 +479,11 @@ body {
   font-weight: 400;
 }
 
+.prisma-about-title .prisma-about-subtitle {
+  font-size: 0.62em;
+  line-height: 1.08;
+}
+
 .prisma-about .animated-letters {
   max-width: 72ch;
   margin: 54px auto 0;
@@ -591,7 +596,7 @@ body {
   background: var(--prisma-surface);
 }
 
-.prisma-feature-card--video video,
+.prisma-feature-video-loop,
 .prisma-feature-video-gradient {
   position: absolute;
   inset: 0;
@@ -599,11 +604,37 @@ body {
   height: 100%;
 }
 
-.prisma-feature-card--video video {
+.prisma-feature-video-loop {
+  z-index: 0;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.prisma-feature-video-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
+  opacity: 0;
+  transition: opacity 1400ms cubic-bezier(0.645, 0.045, 0.355, 1);
+  will-change: opacity;
+}
+
+.prisma-feature-video-layer.is-active {
+  opacity: 1;
+}
+
+.prisma-feature-video-layer.is-outgoing {
+  z-index: 1;
+}
+
+.prisma-feature-video-layer.is-incoming {
+  z-index: 2;
 }
 
 .prisma-feature-video-gradient {
+  z-index: 1;
   background: linear-gradient(to bottom, transparent 40%, rgba(0, 0, 0, 0.76));
 }
 
@@ -617,10 +648,17 @@ body {
   line-height: 1.15;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .prisma-feature-video-layer {
+    transition: none;
+  }
+}
+
 .prisma-feature-icon {
   width: 48px;
   height: 48px;
-  border-radius: 8px;
+  border-radius: 0;
+  background: transparent;
   object-fit: cover;
 }
 
@@ -725,7 +763,7 @@ body {
   line-height: 1.55;
 }
 
-.home-shell .archive-analysis-grid {
+:is(.home-shell, .route-analysis-overview) .archive-analysis-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
@@ -733,7 +771,7 @@ body {
   margin: 0 auto;
 }
 
-.home-shell .analysis-panel {
+:is(.home-shell, .route-analysis-overview) .analysis-panel {
   grid-column: auto;
   min-width: 0;
   min-height: 420px;
@@ -745,57 +783,57 @@ body {
   box-shadow: none;
 }
 
-.home-shell .analysis-panel.wide-panel {
+:is(.home-shell, .route-analysis-overview) .analysis-panel.wide-panel {
   grid-column: auto;
 }
 
-.home-shell .analysis-panel:not(.wide-panel) + .analysis-panel:not(.wide-panel) {
+:is(.home-shell, .route-analysis-overview) .analysis-panel:not(.wide-panel) + .analysis-panel:not(.wide-panel) {
   grid-column: auto;
 }
 
-.home-shell .analysis-panel::before,
-.home-shell .analysis-panel::after {
+:is(.home-shell, .route-analysis-overview) .analysis-panel::before,
+:is(.home-shell, .route-analysis-overview) .analysis-panel::after {
   content: none;
 }
 
-.home-shell .analysis-panel .section-header {
+:is(.home-shell, .route-analysis-overview) .analysis-panel .section-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
 }
 
-.home-shell .analysis-panel h2 {
+:is(.home-shell, .route-analysis-overview) .analysis-panel h2 {
   margin: 0;
   color: var(--prisma-text);
   font-size: 1.25rem;
   font-weight: 700;
 }
 
-.home-shell .analysis-panel .section-header p {
+:is(.home-shell, .route-analysis-overview) .analysis-panel .section-header p {
   margin: 8px 0 0;
   color: var(--prisma-muted);
   line-height: 1.45;
 }
 
-.home-shell .analysis-panel :is(.public-visit-summary > div, .public-visit-hot > div, .trace-item, .category-row, .list-row) {
+:is(.home-shell, .route-analysis-overview) .analysis-panel :is(.public-visit-summary > div, .public-visit-hot > div, .trace-item, .category-row, .list-row) {
   border-color: var(--prisma-border);
   background: var(--prisma-surface);
   color: var(--prisma-text);
   box-shadow: none;
 }
 
-.home-shell :is(.rank-track, .category-row > i, .public-visit-bars) {
+:is(.home-shell, .route-analysis-overview) :is(.rank-track, .category-row > i, .public-visit-bars) {
   background-color: rgba(29, 33, 30, 0.1);
 }
 
-.home-shell :is(.rank-track > span, .category-row > i, .public-visit-bars > i) {
+:is(.home-shell, .route-analysis-overview) :is(.rank-track > span, .category-row > i, .public-visit-bars > i) {
   background: var(--prisma-primary);
 }
 
-.home-shell .tag-cloud span,
+:is(.home-shell, .route-analysis-overview) .tag-cloud span,
 .home-shell .chip,
-.home-shell .analysis-badge {
+:is(.home-shell, .route-analysis-overview) .analysis-badge {
   border: 1px solid var(--prisma-border);
   border-radius: 999px;
   background: var(--prisma-card);
@@ -1110,7 +1148,7 @@ body {
   cursor: not-allowed;
 }
 
-.archive-shell:not(.home-shell) :is(.analysis-badge, .chip, .status-pill, .visit-count-pill) {
+.archive-shell:not(:is(.home-shell, .route-analysis-overview)) :is(.analysis-badge, .chip, .status-pill, .visit-count-pill) {
   border: 1px solid var(--prisma-border);
   border-radius: 999px;
   background: var(--prisma-card);
@@ -1137,7 +1175,7 @@ body {
   color: var(--prisma-muted);
 }
 
-.archive-shell:not(.home-shell) :is(.region-index-bars i, .rank-track span) {
+.archive-shell:not(:is(.home-shell, .route-analysis-overview)) :is(.region-index-bars i, .rank-track span) {
   background: var(--prisma-primary);
 }
 
@@ -1469,7 +1507,7 @@ body {
     min-height: 420px;
   }
 
-  .home-shell .archive-analysis-grid {
+  :is(.home-shell, .route-analysis-overview) .archive-analysis-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1574,13 +1612,13 @@ body {
     min-height: 400px;
   }
 
-  .home-shell .archive-analysis-grid {
+  :is(.home-shell, .route-analysis-overview) .archive-analysis-grid {
     grid-template-columns: 1fr;
   }
 
-  .home-shell .analysis-panel,
-  .home-shell .analysis-panel.wide-panel,
-  .home-shell .analysis-panel:not(.wide-panel) + .analysis-panel:not(.wide-panel) {
+  :is(.home-shell, .route-analysis-overview) .analysis-panel,
+  :is(.home-shell, .route-analysis-overview) .analysis-panel.wide-panel,
+  :is(.home-shell, .route-analysis-overview) .analysis-panel:not(.wide-panel) + .analysis-panel:not(.wide-panel) {
     grid-column: auto;
   }
 
@@ -1712,8 +1750,8 @@ body {
   background: var(--prisma-surface) !important;
 }
 
-.home-shell .public-visit-bars,
-.home-shell .archive-analysis-grid .trend-chart svg,
+:is(.home-shell, .route-analysis-overview) .public-visit-bars,
+:is(.home-shell, .route-analysis-overview) .archive-analysis-grid .trend-chart svg,
 .admin-shell .admin-trend-chart svg {
   border: 0 !important;
   border-radius: 0 !important;
@@ -1722,11 +1760,11 @@ body {
   box-shadow: none !important;
 }
 
-.home-shell .public-visit-bars {
+:is(.home-shell, .route-analysis-overview) .public-visit-bars {
   padding: 0 !important;
 }
 
-.home-shell .policy-trend-range {
+:is(.home-shell, .route-analysis-overview) .policy-trend-range {
   display: grid;
   grid-template-columns: repeat(4, minmax(72px, 1fr));
   min-width: min(100%, 360px);
@@ -1736,7 +1774,7 @@ body {
   background: #fbfbf8;
 }
 
-.home-shell .policy-trend-range button {
+:is(.home-shell, .route-analysis-overview) .policy-trend-range button {
   min-height: 32px;
   padding: 5px 8px;
   border: 0;
@@ -1749,50 +1787,50 @@ body {
   transition: background-color 160ms ease, color 160ms ease;
 }
 
-.home-shell .policy-trend-range button:hover {
+:is(.home-shell, .route-analysis-overview) .policy-trend-range button:hover {
   background: #e5e7e4;
   color: #181a18;
 }
 
-.home-shell .policy-trend-range button.is-active {
+:is(.home-shell, .route-analysis-overview) .policy-trend-range button.is-active {
   background: #181a18;
   color: #fbfbf8;
 }
 
-.home-shell .policy-trend-range button:focus-visible {
+:is(.home-shell, .route-analysis-overview) .policy-trend-range button:focus-visible {
   outline: 2px solid #181a18;
   outline-offset: 2px;
 }
 
-.home-shell .policy-trend-plot {
+:is(.home-shell, .route-analysis-overview) .policy-trend-plot {
   position: relative;
   min-width: 0;
 }
 
-.home-shell .policy-trend-hit-area {
+:is(.home-shell, .route-analysis-overview) .policy-trend-hit-area {
   fill: transparent !important;
   stroke: transparent;
   cursor: crosshair;
 }
 
-.home-shell .policy-trend-hit-area:focus {
+:is(.home-shell, .route-analysis-overview) .policy-trend-hit-area:focus {
   fill: rgba(24, 26, 24, 0.08) !important;
   stroke: #181a18;
   stroke-width: 2;
   outline: none;
 }
 
-.home-shell .trend-dot {
+:is(.home-shell, .route-analysis-overview) .trend-dot {
   pointer-events: none;
   transition: r 160ms ease, fill 160ms ease;
 }
 
-.home-shell .trend-dot.is-active {
+:is(.home-shell, .route-analysis-overview) .trend-dot.is-active {
   fill: #181a18 !important;
   r: 7px;
 }
 
-.home-shell .policy-trend-tooltip {
+:is(.home-shell, .route-analysis-overview) .policy-trend-tooltip {
   position: absolute;
   z-index: 3;
   top: var(--policy-tooltip-y);
@@ -1811,17 +1849,17 @@ body {
   transform: translate(-50%, calc(-100% - 10px));
 }
 
-.home-shell .policy-trend-tooltip.is-below {
+:is(.home-shell, .route-analysis-overview) .policy-trend-tooltip.is-below {
   transform: translate(-50%, 14px);
 }
 
-.home-shell .policy-trend-tooltip strong,
-.home-shell .policy-trend-tooltip b {
+:is(.home-shell, .route-analysis-overview) .policy-trend-tooltip strong,
+:is(.home-shell, .route-analysis-overview) .policy-trend-tooltip b {
   color: #181a18 !important;
   font-family: 'Bookman Old Style', Georgia, serif;
 }
 
-.home-shell .policy-trend-labels {
+:is(.home-shell, .route-analysis-overview) .policy-trend-labels {
   position: relative;
   height: 22px;
   margin-top: 4px;
@@ -1829,18 +1867,18 @@ body {
   font: 600 0.6875rem/1 'Bookman Old Style', Georgia, serif;
 }
 
-.home-shell .policy-trend-labels span {
+:is(.home-shell, .route-analysis-overview) .policy-trend-labels span {
   position: absolute;
   top: 0;
   white-space: nowrap;
   transform: translateX(-50%);
 }
 
-.home-shell .policy-trend-labels span.is-first {
+:is(.home-shell, .route-analysis-overview) .policy-trend-labels span.is-first {
   transform: none;
 }
 
-.home-shell .policy-trend-labels span.is-last {
+:is(.home-shell, .route-analysis-overview) .policy-trend-labels span.is-last {
   transform: translateX(-100%);
 }
 
@@ -1876,18 +1914,18 @@ body {
 }
 
 @media (max-width: 760px) {
-  .home-shell .analysis-panel .section-header {
+  :is(.home-shell, .route-analysis-overview) .analysis-panel .section-header {
     align-items: stretch !important;
     flex-direction: column;
   }
 
-  .home-shell .policy-trend-range {
+  :is(.home-shell, .route-analysis-overview) .policy-trend-range {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
     min-width: 0;
   }
 
-  .home-shell .policy-trend-labels span:nth-child(even):not(.is-last) {
+  :is(.home-shell, .route-analysis-overview) .policy-trend-labels span:nth-child(even):not(.is-last) {
     display: none;
   }
 
@@ -1930,15 +1968,33 @@ body {
 }
 
 .prisma-hero {
+  isolation: isolate;
+  overflow: hidden;
   background-color: #20231f !important;
-  background-image:
-    linear-gradient(rgba(18, 20, 18, 0.34), rgba(18, 20, 18, 0.5)),
-    url('/media/solofirm-hero-frame.webp') !important;
-  background-position: center !important;
-  background-size: cover !important;
+  background-image: none !important;
+}
+
+.prisma-hero-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.prisma-hero-backdrop::before {
+  content: "";
+  position: absolute;
+  inset: -24px;
+  background:
+    linear-gradient(rgba(18, 20, 18, 0.26), rgba(18, 20, 18, 0.42)),
+    url('/media/solofirm-hero-frame-sunrise.webp') center / cover no-repeat;
+  filter: blur(16px) saturate(0.78) brightness(0.88);
+  transform: scale(1.035);
 }
 
 .prisma-hero-frame {
+  z-index: 1;
   background: #151713 !important;
 }
 
@@ -2139,14 +2195,14 @@ body {
   background: transparent !important;
 }
 
-.home-shell .archive-analysis-grid {
+:is(.home-shell, .route-analysis-overview) .archive-analysis-grid {
   grid-auto-rows: minmax(320px, auto) !important;
   gap: 10px !important;
 }
 
-.home-shell .analysis-panel,
-.home-shell .analysis-panel.wide-panel,
-.home-shell .analysis-panel:not(.wide-panel) + .analysis-panel:not(.wide-panel) {
+:is(.home-shell, .route-analysis-overview) .analysis-panel,
+:is(.home-shell, .route-analysis-overview) .analysis-panel.wide-panel,
+:is(.home-shell, .route-analysis-overview) .analysis-panel:not(.wide-panel) + .analysis-panel:not(.wide-panel) {
   grid-column: auto !important;
   min-height: 320px !important;
   border: 1px solid #d0d4cf !important;
@@ -2158,24 +2214,24 @@ body {
   filter: none !important;
 }
 
-.home-shell .analysis-panel::before,
-.home-shell .analysis-panel::after {
+:is(.home-shell, .route-analysis-overview) .analysis-panel::before,
+:is(.home-shell, .route-analysis-overview) .analysis-panel::after {
   display: none !important;
   content: none !important;
 }
 
-.home-shell .analysis-panel :is(h2, h3, strong, b) {
+:is(.home-shell, .route-analysis-overview) .analysis-panel :is(h2, h3, strong, b) {
   color: #181a18 !important;
   text-shadow: none !important;
   -webkit-text-fill-color: #181a18 !important;
 }
 
-.home-shell .analysis-panel :is(p, small, .muted, .rank-name, .category-row span) {
+:is(.home-shell, .route-analysis-overview) .analysis-panel :is(p, small, .muted, .rank-name, .category-row span) {
   color: #515752 !important;
   -webkit-text-fill-color: #515752 !important;
 }
 
-.home-shell .analysis-badge,
+:is(.home-shell, .route-analysis-overview) .analysis-badge,
 .home-shell .chip,
 .home-shell .status-pill,
 .home-shell .visit-count-pill {
@@ -2187,13 +2243,13 @@ body {
   -webkit-text-fill-color: #252925 !important;
 }
 
-.home-shell .public-visit-layout {
+:is(.home-shell, .route-analysis-overview) .public-visit-layout {
   display: grid !important;
   grid-template-columns: 1fr !important;
   gap: 12px !important;
 }
 
-.home-shell .public-visit-summary {
+:is(.home-shell, .route-analysis-overview) .public-visit-summary {
   display: grid !important;
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   gap: 8px !important;
@@ -2204,12 +2260,12 @@ body {
   box-shadow: none !important;
 }
 
-.home-shell .public-visit-summary > div,
-.home-shell .public-visit-hot > div,
-.home-shell .trace-item,
-.home-shell .category-row,
+:is(.home-shell, .route-analysis-overview) .public-visit-summary > div,
+:is(.home-shell, .route-analysis-overview) .public-visit-hot > div,
+:is(.home-shell, .route-analysis-overview) .trace-item,
+:is(.home-shell, .route-analysis-overview) .category-row,
 .home-shell .list-row,
-.home-shell .insight-list p {
+:is(.home-shell, .route-analysis-overview) .insight-list p {
   width: auto !important;
   min-width: 0 !important;
   min-height: 0 !important;
@@ -2222,7 +2278,7 @@ body {
   filter: none !important;
 }
 
-.home-shell .public-visit-summary > div {
+:is(.home-shell, .route-analysis-overview) .public-visit-summary > div {
   display: flex !important;
   min-height: 92px !important;
   flex-direction: column !important;
@@ -2231,17 +2287,17 @@ body {
   padding: 14px !important;
 }
 
-.home-shell .public-visit-summary > div :is(span, small) {
+:is(.home-shell, .route-analysis-overview) .public-visit-summary > div :is(span, small) {
   color: #646a65 !important;
 }
 
-.home-shell .public-visit-summary > div strong {
+:is(.home-shell, .route-analysis-overview) .public-visit-summary > div strong {
   color: #181a18 !important;
   font-size: 1.75rem !important;
 }
 
-.home-shell .public-visit-trend,
-.home-shell .public-visit-hot {
+:is(.home-shell, .route-analysis-overview) .public-visit-trend,
+:is(.home-shell, .route-analysis-overview) .public-visit-hot {
   border: 1px solid #d0d4cf !important;
   border-radius: 6px !important;
   background: #fbfbf8 !important;
@@ -2250,72 +2306,72 @@ body {
   box-shadow: none !important;
 }
 
-.home-shell .public-visit-trend {
+:is(.home-shell, .route-analysis-overview) .public-visit-trend {
   min-height: 150px !important;
   padding: 14px !important;
 }
 
-.home-shell .public-visit-trend > span,
-.home-shell .public-visit-trend p,
-.home-shell .public-visit-hot :is(span, strong) {
+:is(.home-shell, .route-analysis-overview) .public-visit-trend > span,
+:is(.home-shell, .route-analysis-overview) .public-visit-trend p,
+:is(.home-shell, .route-analysis-overview) .public-visit-hot :is(span, strong) {
   color: #353a35 !important;
   -webkit-text-fill-color: #353a35 !important;
 }
 
-.home-shell .public-visit-hot {
+:is(.home-shell, .route-analysis-overview) .public-visit-hot {
   display: grid !important;
   gap: 8px !important;
   padding: 8px !important;
 }
 
-.home-shell .public-visit-hot > div {
+:is(.home-shell, .route-analysis-overview) .public-visit-hot > div {
   padding: 12px !important;
 }
 
-.home-shell .public-visit-bars,
-.home-shell .rank-track,
-.home-shell .category-row > i {
+:is(.home-shell, .route-analysis-overview) .public-visit-bars,
+:is(.home-shell, .route-analysis-overview) .rank-track,
+:is(.home-shell, .route-analysis-overview) .category-row > i {
   background: #d6d9d5 !important;
   background-image: none !important;
 }
 
-.home-shell .public-visit-bars > i,
-.home-shell .rank-track > span,
-.home-shell .category-row > i {
+:is(.home-shell, .route-analysis-overview) .public-visit-bars > i,
+:is(.home-shell, .route-analysis-overview) .rank-track > span,
+:is(.home-shell, .route-analysis-overview) .category-row > i {
   background: #2b2e2b !important;
   background-image: none !important;
 }
 
-.home-shell .trace-ring {
+:is(.home-shell, .route-analysis-overview) .trace-ring {
   background: conic-gradient(var(--prisma-check) var(--value), #d2d6d1 0) !important;
   box-shadow: none !important;
 }
 
-.home-shell .trace-ring::before {
+:is(.home-shell, .route-analysis-overview) .trace-ring::before {
   background: #fbfbf8 !important;
 }
 
-.home-shell .trace-ring span {
+:is(.home-shell, .route-analysis-overview) .trace-ring span {
   color: #252925 !important;
 }
 
-.home-shell .trace-item :is(strong, span, small),
-.home-shell .source-trace-list :is(strong, span, small) {
+:is(.home-shell, .route-analysis-overview) .trace-item :is(strong, span, small),
+:is(.home-shell, .route-analysis-overview) .source-trace-list :is(strong, span, small) {
   color: #353a35 !important;
   -webkit-text-fill-color: #353a35 !important;
 }
 
-.home-shell .analysis-panel :is(.trend-labels span, .category-row p, .timeline-list span, .insight-list p) {
+:is(.home-shell, .route-analysis-overview) .analysis-panel :is(.trend-labels span, .category-row p, .timeline-list span, .insight-list p) {
   color: #515752 !important;
   -webkit-text-fill-color: #515752 !important;
 }
 
-.home-shell .archive-analysis-grid .insight-list p::before {
+:is(.home-shell, .route-analysis-overview) .archive-analysis-grid .insight-list p::before {
   background: var(--prisma-check) !important;
   box-shadow: none !important;
 }
 
-.home-shell .tag-cloud span {
+:is(.home-shell, .route-analysis-overview) .tag-cloud span {
   border: 1px solid #cbd0ca !important;
   background: #fbfbf8 !important;
   color: #252925 !important;
@@ -2323,11 +2379,11 @@ body {
   -webkit-text-fill-color: #252925 !important;
 }
 
-.home-shell .trend-line {
+:is(.home-shell, .route-analysis-overview) .trend-line {
   stroke: #222522 !important;
 }
 
-.home-shell .trend-dot {
+:is(.home-shell, .route-analysis-overview) .trend-dot {
   fill: var(--prisma-check) !important;
 }
 
@@ -2514,7 +2570,7 @@ body {
   -webkit-text-fill-color: #fbfbf8 !important;
 }
 
-.archive-shell:not(.home-shell) :is(.analysis-badge, .chip, .status-pill, .visit-count-pill),
+.archive-shell:not(:is(.home-shell, .route-analysis-overview)) :is(.analysis-badge, .chip, .status-pill, .visit-count-pill),
 .user-login-shell .login-status-card,
 .user-login-shell .login-dev-code {
   border-color: #c7cbc6 !important;
@@ -2567,17 +2623,17 @@ body {
 }
 
 @media (max-width: 1024px) {
-  .home-shell .archive-analysis-grid {
+  :is(.home-shell, .route-analysis-overview) .archive-analysis-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
 
 @media (max-width: 760px) {
-  .home-shell .archive-analysis-grid {
+  :is(.home-shell, .route-analysis-overview) .archive-analysis-grid {
     grid-template-columns: 1fr !important;
   }
 
-  .home-shell .public-visit-summary {
+  :is(.home-shell, .route-analysis-overview) .public-visit-summary {
     grid-template-columns: 1fr !important;
   }
 }
@@ -2645,7 +2701,7 @@ body {
 
 .archive-shell:not(.home-shell) .error,
 .user-login-shell .error,
-.home-shell .analysis-state--error {
+:is(.home-shell, .route-analysis-overview) .analysis-state--error {
   border: 1px solid #d4b4ad !important;
   border-radius: 6px !important;
   background: #f8eeeb !important;
@@ -2659,7 +2715,7 @@ body {
   padding: 12px 14px !important;
 }
 
-.home-shell .analysis-state {
+:is(.home-shell, .route-analysis-overview) .analysis-state {
   max-width: 1400px;
   margin: -20px auto 20px;
   padding: 12px 14px;
@@ -2671,12 +2727,12 @@ body {
   line-height: 1.5;
 }
 
-.home-shell .analysis-state--loading {
+:is(.home-shell, .route-analysis-overview) .analysis-state--loading {
   border-style: dashed;
 }
 
 @media (max-width: 760px) {
-  .home-shell .analysis-state {
+  :is(.home-shell, .route-analysis-overview) .analysis-state {
     margin-top: -16px;
   }
 }
@@ -3732,14 +3788,14 @@ body:has(#app > .home-shell) {
 }
 
 /* Unified Prisma analytics composition. */
-.home-shell .archive-analysis-grid {
+:is(.home-shell, .route-analysis-overview) .archive-analysis-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   grid-auto-rows: auto !important;
   align-items: stretch !important;
   gap: 14px !important;
 }
 
-.home-shell .archive-analysis-grid > .analysis-panel {
+:is(.home-shell, .route-analysis-overview) .archive-analysis-grid > .analysis-panel {
   grid-column: auto !important;
   align-self: stretch !important;
   min-height: 440px !important;
@@ -3748,30 +3804,30 @@ body:has(#app > .home-shell) {
   background: #f1f2ee !important;
 }
 
-.home-shell .public-visit-layout {
+:is(.home-shell, .route-analysis-overview) .public-visit-layout {
   grid-template-columns: minmax(0, 1.15fr) minmax(190px, 0.85fr) !important;
   align-items: stretch !important;
 }
 
-.home-shell .public-visit-summary {
+:is(.home-shell, .route-analysis-overview) .public-visit-summary {
   grid-column: 1 / -1 !important;
 }
 
-.home-shell .public-visit-trend,
-.home-shell .public-visit-hot {
+:is(.home-shell, .route-analysis-overview) .public-visit-trend,
+:is(.home-shell, .route-analysis-overview) .public-visit-hot {
   min-height: 164px !important;
 }
 
-.home-shell .analysis-panel .section-header {
+:is(.home-shell, .route-analysis-overview) .analysis-panel .section-header {
   padding-bottom: 18px !important;
   border-bottom: 1px solid #d0d4cf !important;
 }
 
-.home-shell .analysis-panel .section-header + :is(.public-visit-layout, .rank-chart, .trace-list, .tag-cloud, .trend-chart, .insight-list, .category-chart, .list, .muted) {
+:is(.home-shell, .route-analysis-overview) .analysis-panel .section-header + :is(.public-visit-layout, .rank-chart, .trace-list, .tag-cloud, .trend-chart, .insight-list, .category-chart, .list, .muted) {
   margin-top: 20px !important;
 }
 
-.home-shell .analysis-panel .section-header + .muted {
+:is(.home-shell, .route-analysis-overview) .analysis-panel .section-header + .muted {
   display: grid !important;
   min-height: 250px !important;
   place-items: center !important;
@@ -3892,6 +3948,10 @@ body:has(#app > .home-shell) {
   background: #eceeeb !important;
 }
 
+.archive-shell:not(.home-shell) :is(.case-index-page, .policy-index-page) .auto-filter-grid {
+  grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(155px, 0.34fr)) !important;
+}
+
 .archive-shell:not(.home-shell) .archive-workspace-page .auto-filter-grid.single-filter-grid {
   grid-template-columns: 1fr !important;
 }
@@ -3949,7 +4009,7 @@ body:has(#app > .home-shell) {
     grid-column: 1 !important;
   }
 
-  .home-shell .archive-analysis-grid > .analysis-panel:nth-child(n) {
+  :is(.home-shell, .route-analysis-overview) .archive-analysis-grid > .analysis-panel:nth-child(n) {
     min-height: 400px !important;
   }
 
@@ -3962,26 +4022,49 @@ body:has(#app > .home-shell) {
     grid-template-columns: 1fr 1fr !important;
   }
 
+  .archive-shell:not(.home-shell) :is(.case-index-page, .policy-index-page) .auto-filter-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
   .archive-shell:not(.home-shell) .archive-workspace-page .auto-filter-grid > label:first-child {
     grid-column: 1 / -1 !important;
   }
 }
 
 @media (max-width: 760px) {
+  .archive-shell:not(.home-shell) :is(.case-index-page, .policy-index-page) .auto-filter-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .archive-shell:not(.home-shell) :is(.case-index-page, .policy-index-page) .auto-filter-grid > label:first-child {
+    grid-column: auto !important;
+  }
+
   .home-shell .prisma-hanging-nav {
-    width: auto !important;
+    width: calc(100% - 56px) !important;
+    max-width: calc(100% - 56px) !important;
     min-height: 56px !important;
+    flex: 0 0 calc(100% - 56px) !important;
     justify-content: space-between !important;
     gap: 8px !important;
+    overflow-x: auto !important;
+    overscroll-behavior-inline: contain;
     padding-inline: 14px !important;
     border-radius: 0 0 16px 16px !important;
+    scrollbar-width: none;
+  }
+
+  .home-shell .prisma-hanging-nav::-webkit-scrollbar {
+    display: none;
   }
 
   .home-shell .prisma-hanging-nav a {
+    flex: 0 0 auto;
     font-size: 0.68rem !important;
   }
 
   .home-shell .prisma-hero-account-entry {
+    z-index: 3;
     width: 56px;
     height: 56px;
   }
@@ -4004,7 +4087,7 @@ body:has(#app > .home-shell) {
 
   .home-shell .archive-hero-actions {
     display: grid !important;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.9fr) minmax(112px, 1.4fr) !important;
+    grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr) minmax(82px, 0.95fr) !important;
     width: 100% !important;
     gap: 7px !important;
   }
@@ -4030,15 +4113,27 @@ body:has(#app > .home-shell) {
   .home-shell .prisma-primary-cta .prisma-cta-icon {
     width: 30px !important;
     height: 30px !important;
+    flex-basis: 30px !important;
   }
 
-  .home-shell .archive-analysis-grid > .analysis-panel:nth-child(n) {
+  .home-shell .prisma-primary-cta.button {
+    justify-content: space-between !important;
+    gap: 5px !important;
+    padding: 5px 5px 5px 11px !important;
+  }
+
+  .home-shell .prisma-primary-cta > span:first-child {
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  :is(.home-shell, .route-analysis-overview) .archive-analysis-grid > .analysis-panel:nth-child(n) {
     grid-column: 1 / -1 !important;
     min-height: 0 !important;
     padding: 24px !important;
   }
 
-  .home-shell .public-visit-layout {
+  :is(.home-shell, .route-analysis-overview) .public-visit-layout {
     grid-template-columns: 1fr !important;
   }
 
@@ -4553,6 +4648,16 @@ body:has(#app > .home-shell) {
   }
 }
 
+@media (max-width: 360px) {
+  .home-shell .archive-hero-actions {
+    grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr) !important;
+  }
+
+  .home-shell .prisma-login-cta {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 760px) {
   .admin-shell .settings-intro-panel,
   .admin-shell .settings-panel {
@@ -4670,12 +4775,12 @@ html {
 }
 
 @media (max-width: 760px) {
-  .home-shell .archive-analysis-grid {
+  :is(.home-shell, .route-analysis-overview) .archive-analysis-grid {
     grid-template-columns: minmax(0, 1fr) !important;
     width: 100% !important;
   }
 
-  .home-shell .archive-analysis-grid > .analysis-panel:nth-child(n) {
+  :is(.home-shell, .route-analysis-overview) .archive-analysis-grid > .analysis-panel:nth-child(n) {
     grid-column: 1 !important;
     width: 100% !important;
     max-width: none !important;
@@ -5092,25 +5197,25 @@ html {
 }
 
 /* Recent updates are individual records, so keep their borders and content visually separate. */
-.home-shell .compact-recent-list {
+:is(.home-shell, .route-analysis-overview) .compact-recent-list {
   gap: 12px !important;
 }
 
-.home-shell .compact-recent-list .list-row {
+:is(.home-shell, .route-analysis-overview) .compact-recent-list .list-row {
   grid-template-columns: minmax(0, 1fr) !important;
   align-content: start !important;
   gap: 12px !important;
   padding: 18px 20px !important;
 }
 
-.home-shell .compact-recent-list .list-row > div {
+:is(.home-shell, .route-analysis-overview) .compact-recent-list .list-row > div {
   display: grid !important;
   min-width: 0 !important;
   gap: 8px !important;
 }
 
-.home-shell .compact-recent-list .list-row :is(.caption, strong),
-.home-shell .compact-recent-list .list-row > .muted {
+:is(.home-shell, .route-analysis-overview) .compact-recent-list .list-row :is(.caption, strong),
+:is(.home-shell, .route-analysis-overview) .compact-recent-list .list-row > .muted {
   margin: 0 !important;
 }
 
@@ -5152,11 +5257,11 @@ html {
     text-wrap: balance !important;
   }
 
-  .home-shell .compact-recent-list {
+  :is(.home-shell, .route-analysis-overview) .compact-recent-list {
     gap: 10px !important;
   }
 
-  .home-shell .compact-recent-list .list-row {
+  :is(.home-shell, .route-analysis-overview) .compact-recent-list .list-row {
     gap: 10px !important;
     padding: 15px 16px !important;
   }
@@ -5282,8 +5387,8 @@ html {
   background: var(--prisma-surface) !important;
 }
 
-.home-shell .public-visit-bars,
-.home-shell .archive-analysis-grid .trend-chart svg,
+:is(.home-shell, .route-analysis-overview) .public-visit-bars,
+:is(.home-shell, .route-analysis-overview) .archive-analysis-grid .trend-chart svg,
 .admin-shell .admin-trend-chart svg {
   border: 0 !important;
   border-radius: 0 !important;
@@ -5295,6 +5400,46 @@ html {
 .home-shell .home-contact-methods {
   width: 100% !important;
   max-width: none !important;
+}
+
+/* Standalone public analysis page reuses the homepage analytics composition. */
+.route-analysis-overview .analysis-overview-page {
+  gap: 0;
+  padding-bottom: 48px;
+}
+
+.route-analysis-overview .analysis-overview-heading {
+  max-width: none;
+  margin: 0 0 36px;
+  padding-bottom: 30px;
+  border-bottom: 1px solid #d0d4cf;
+}
+
+.route-analysis-overview .analysis-overview-heading h2,
+.route-analysis-overview .analysis-overview-heading > .words-pull-up {
+  font-size: clamp(2rem, 3.2vw, 3rem);
+  line-height: 1.12;
+}
+
+.route-analysis-overview .analysis-state {
+  max-width: none;
+  margin: 0 0 20px;
+}
+
+.route-analysis-overview .archive-analysis-grid {
+  max-width: none;
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .route-analysis-overview .analysis-overview-page {
+    padding-bottom: 28px;
+  }
+
+  .route-analysis-overview .analysis-overview-heading {
+    margin-bottom: 24px;
+    padding-bottom: 22px;
+  }
 }
 
 .home-shell .home-contact-method {

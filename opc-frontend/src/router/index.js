@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import MainLayout from '@/layouts/MainLayout.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import HomeView from '@/views/HomeView.vue'
+import AnalysisOverviewView from '@/views/AnalysisOverviewView.vue'
 import LoginView from '@/views/LoginView.vue'
 import UserAccountView from '@/views/UserAccountView.vue'
 import AdminLoginView from '@/views/AdminLoginView.vue'
@@ -29,6 +30,11 @@ const routes = [
         path: '',
         name: 'home',
         component: HomeView,
+      },
+      {
+        path: 'analysis',
+        name: 'analysis-overview',
+        component: AnalysisOverviewView,
       },
       {
         path: 'regions',
@@ -180,6 +186,13 @@ function buildVisitPayload(route) {
     }
   }
 
+  if (route.name === 'analysis-overview') {
+    return {
+      ...basePayload,
+      targetType: 'site',
+    }
+  }
+
   if (route.name === 'policy-detail') {
     return {
       ...basePayload,
@@ -216,6 +229,7 @@ function buildVisitPayload(route) {
 function getPageTitle(route) {
   const titleMap = {
     home: 'OPC 信息平台首页',
+    'analysis-overview': '资料分析',
     'region-directory': '地区目录',
     'policy-list': '政策索引',
     'policy-detail': `政策详情 #${route.params.id}`,

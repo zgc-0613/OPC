@@ -1,54 +1,7 @@
+# Workspace and local tooling
 .history/
 .agents/
-.vscode/
-.idea/
-target/
-*.log
-*.err
-__pycache__/
-*.pyc
-outputs/
-node_modules/
-opc-site-promo-video/node_modules/
-.env
-.env.*
-!.env.example
-!.env.*.example
-.codex-ssh-runtime-current/
-
-application-local.properties
-application-local.yml
-application-local.yaml
-application-secret.properties
-application-secret.yml
-application-secret.yaml
-
-node_modules/
-opc-frontend/node_modules/
-opc-frontend/dist/
-opc-frontend/.vite/
-opc-frontend/coverage/
-*.tsbuildinfo
-
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-target/
-opc-backend/target/
-.gradle/
-build/
-opc-backend/build/
-*.class
-
-pom.xml.tag
-pom.xml.releaseBackup
-pom.xml.versionsBackup
-pom.xml.next
-release.properties
-dependency-reduced-pom.xml
-
+.codegraph/
 .codex-ssh-runtime/
 .codex-ssh-runtime-current/
 .codex-ssh-runtime-*/
@@ -66,8 +19,42 @@ dependency-reduced-pom.xml
 *.codex-backup
 *.codex-launch-backup
 
-.codegraph/
+# Editors and IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
 
+# JavaScript dependencies and generated frontend files
+node_modules/
+opc-frontend/dist/
+opc-frontend/.vite/
+opc-frontend/coverage/
+opc-frontend/output/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Java and JVM build output
+target/
+build/
+.gradle/
+*.class
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+
+# Python environments and caches
 __pycache__/
 *.py[cod]
 *$py.class
@@ -82,19 +69,38 @@ ENV/
 coverage.xml
 htmlcov/
 
+# Browser and test artifacts
 playwright-report/
 test-results/
 blob-report/
+.playwright-cli/
 cypress/screenshots/
 cypress/videos/
+outputs/
+output/
 
+# Local environment and application secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+application-local.properties
+application-local.yml
+application-local.yaml
+application-secret.properties
+application-secret.yml
+application-secret.yaml
+
+# Logs and runtime state
 *.log
+*.err
 logs/
 log/
 *.pid
 *.pid.lock
 *.seed
 
+# Temporary and backup files
 *.tmp
 *.temp
 *.bak
@@ -107,18 +113,11 @@ log/
 tmp/
 temp/
 .cache/
+*.zip.tmp
+*.tar.tmp
+*.tar.gz.tmp
 
-.idea/
-*.iml
-*.ipr
-*.iws
-
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-
+# Operating-system metadata
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -127,7 +126,3 @@ Thumbs.db:encryptable
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
-
-*.zip.tmp
-*.tar.tmp
-*.tar.gz.tmp

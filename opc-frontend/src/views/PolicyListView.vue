@@ -90,6 +90,26 @@
             </div>
           </div>
         </label>
+        <label>
+          <span>排序方式</span>
+          <div class="custom-select" :class="{ open: sortMenuOpen }">
+            <button class="custom-select-trigger" type="button" @click="toggleSortMenu">
+              <span>{{ selectedSortLabel }}</span>
+              <b></b>
+            </button>
+            <div v-if="sortMenuOpen" class="custom-select-menu">
+              <button
+                v-for="item in sortOptions"
+                :key="item.value"
+                type="button"
+                :class="{ active: sortMode === item.value }"
+                @click="selectSort(item.value)"
+              >
+                {{ item.label }}
+              </button>
+            </div>
+          </div>
+        </label>
       </div>
     </section>
 
@@ -182,6 +202,8 @@ const policyVisitRankings = ref([])
 const currentPage = ref(1)
 const regionMenuOpen = ref(false)
 const policyTypeMenuOpen = ref(false)
+const sortMenuOpen = ref(false)
+const sortMode = ref('latest')
 const pageSize = 10
 let revealObserver
 let searchLogTimer = null
@@ -190,6 +212,13 @@ const query = reactive({
   regionId: '',
   policyType: '',
 })
+
+const sortOptions = [
+  { label: '最新发布', value: 'latest' },
+  { label: '最早发布', value: 'oldest' },
+  { label: '浏览最多', value: 'popular' },
+  { label: '标题顺序', value: 'title' },
+]
 
 const policyTypeOptions = [
   { label: '全部类型', value: '' },
@@ -236,6 +265,8 @@ const selectedRegionLabel = computed(() => {
 
 const selectedPolicyTypeLabel = computed(() => policyTypeLabels[query.policyType] || '全部类型')
 
+const selectedSortLabel = computed(() => sortOptions.find((item) => item.value === sortMode.value)?.label || '最新发布')
+
 const hasActiveFilter = computed(() => Boolean(query.keyword || query.regionId || query.policyType))
 
 const coveredRegionCount = computed(() => new Set(allPolicies.value.map((item) => item.regionId).filter(Boolean)).size)
@@ -246,9 +277,32 @@ const usedPolicyTypeCount = computed(() =>
 
 const totalPages = computed(() => Math.max(1, Math.ceil(policies.value.length / pageSize)))
 
+const sortedPolicies = computed(() => {
+  const items = [...policies.value]
+  if (sortMode.value === 'oldest') {
+    return items.sort((left, right) => comparePolicyDate(left, right, 'asc'))
+  }
+  if (sortMode.value === 'popular') {
+    return items.sort((left, right) => {
+      const visitDifference = getPolicyPv(right.id) - getPolicyPv(left.id)
+      return visitDifference || comparePolicyDate(left, right, 'desc')
+    })
+  }
+  if (sortMode.value === 'title') {
+    return items.sort((left, right) => {
+      const titleDifference = String(left.title || '').localeCompare(String(right.title || ''), 'zh-CN', {
+        numeric: true,
+        sensitivity: 'base',
+      })
+      return titleDifference || comparePolicyDate(left, right, 'desc')
+    })
+  }
+  return items.sort((left, right) => comparePolicyDate(left, right, 'desc'))
+})
+
 const paginatedPolicies = computed(() => {
   const start = (currentPage.value - 1) * pageSize
-  return policies.value.slice(start, start + pageSize)
+  return sortedPolicies.value.slice(start, start + pageSize)
 })
 
 const paginationPages = computed(() => {
@@ -347,6 +401,7 @@ function resetFilters() {
   query.policyType = ''
   regionMenuOpen.value = false
   policyTypeMenuOpen.value = false
+  sortMenuOpen.value = false
   currentPage.value = 1
 }
 
@@ -354,6 +409,7 @@ function toggleRegionMenu() {
   regionMenuOpen.value = !regionMenuOpen.value
   if (regionMenuOpen.value) {
     policyTypeMenuOpen.value = false
+    sortMenuOpen.value = false
   }
 }
 
@@ -361,6 +417,15 @@ function togglePolicyTypeMenu() {
   policyTypeMenuOpen.value = !policyTypeMenuOpen.value
   if (policyTypeMenuOpen.value) {
     regionMenuOpen.value = false
+    sortMenuOpen.value = false
+  }
+}
+
+function toggleSortMenu() {
+  sortMenuOpen.value = !sortMenuOpen.value
+  if (sortMenuOpen.value) {
+    regionMenuOpen.value = false
+    policyTypeMenuOpen.value = false
   }
 }
 
@@ -372,6 +437,13 @@ function selectRegion(regionId) {
 function selectPolicyType(policyType) {
   query.policyType = policyType
   policyTypeMenuOpen.value = false
+}
+
+function selectSort(value) {
+  sortMode.value = value
+  sortMenuOpen.value = false
+  currentPage.value = 1
+  nextTick(setupScrollReveal)
 }
 
 function goToPage(page) {
@@ -392,6 +464,36 @@ function formatTags(tags) {
 
 function getPolicyPv(id) {
   return policyVisitMap.value.get(Number(id)) || 0
+}
+
+function comparePolicyDate(left, right, direction) {
+  const leftTime = parsePolicyDate(left.publishDate)
+  const rightTime = parsePolicyDate(right.publishDate)
+  if (leftTime === null && rightTime === null) {
+    return comparePolicyId(left, right, direction)
+  }
+  if (leftTime === null) {
+    return 1
+  }
+  if (rightTime === null) {
+    return -1
+  }
+  const dateDifference = direction === 'asc' ? leftTime - rightTime : rightTime - leftTime
+  return dateDifference || comparePolicyId(left, right, direction)
+}
+
+function comparePolicyId(left, right, direction) {
+  const leftId = Number(left.id || 0)
+  const rightId = Number(right.id || 0)
+  return direction === 'asc' ? leftId - rightId : rightId - leftId
+}
+
+function parsePolicyDate(value) {
+  if (!value) {
+    return null
+  }
+  const timestamp = Date.parse(String(value))
+  return Number.isNaN(timestamp) ? null : timestamp
 }
 
 function handlePolicySpotlight(event) {

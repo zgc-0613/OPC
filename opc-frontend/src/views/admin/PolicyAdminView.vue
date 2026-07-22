@@ -30,10 +30,13 @@
         </label>
         <label>
           <span>来源 *</span>
-          <select v-model.number="form.sourceId" required>
-            <option value="">请选择来源</option>
-            <option v-for="source in sources" :key="source.id" :value="source.id">{{ source.title }}</option>
-          </select>
+          <input
+            v-model.trim="form.sourceTitle"
+            required
+            autocomplete="off"
+            placeholder="输入来源名称"
+            @input="form.sourceId = ''"
+          />
         </label>
         <div class="quick-source-toggle">
           <button class="button button-ghost" type="button" @click="showQuickSource = !showQuickSource">
@@ -230,6 +233,7 @@ const defaultForm = () => ({
   effectiveDate: '',
   validPeriod: '',
   sourceId: '',
+  sourceTitle: '',
   policyLevel: 'provincial',
   policyType: 'comprehensive',
   summary: '',
@@ -288,6 +292,7 @@ async function createSourceInline() {
     const created = await createSource({ ...quickSource })
     sources.value = await getSources()
     form.sourceId = Number(created.id)
+    form.sourceTitle = created.title
     Object.assign(quickSource, defaultQuickSource())
     showQuickSource.value = false
   } finally {
@@ -301,24 +306,54 @@ async function startEdit(policy) {
   Object.assign(form, {
     ...defaultForm(),
     ...detail,
+    sourceTitle: detail.sourceTitle || '',
     publishDate: detail.publishDate || '',
     effectiveDate: detail.effectiveDate || '',
     accessedAt: detail.accessedAt || today,
   })
 }
 
-function toPayload() {
+function toPayload(sourceId) {
+  const { sourceTitle, ...policyFields } = form
   return {
-    ...form,
+    ...policyFields,
     regionId: Number(form.regionId),
-    sourceId: Number(form.sourceId),
+    sourceId,
     publishDate: form.publishDate || null,
     effectiveDate: form.effectiveDate || null,
   }
 }
 
+async function resolveSourceId() {
+  const sourceTitle = form.sourceTitle.trim()
+  const currentSource = sources.value.find((source) => Number(source.id) === Number(form.sourceId))
+  if (currentSource?.title.trim() === sourceTitle) {
+    return Number(currentSource.id)
+  }
+
+  const existingSource = sources.value.find((source) => source.title.trim() === sourceTitle)
+  if (existingSource) {
+    return Number(existingSource.id)
+  }
+
+  const created = await createSource({
+    title: sourceTitle,
+    sourceType: 'web',
+    publisher: form.issuingBody,
+    url: form.originalUrl,
+    localFile: form.localFile,
+    accessedAt: form.accessedAt || today,
+    notes: '由政策表单录入',
+    status: 'active',
+  })
+  sources.value.push(created)
+  form.sourceId = Number(created.id)
+  return Number(created.id)
+}
+
 async function submitForm() {
-  const payload = toPayload()
+  const sourceId = await resolveSourceId()
+  const payload = toPayload(sourceId)
   if (editingId.value) {
     await updatePolicy(editingId.value, payload)
   } else {

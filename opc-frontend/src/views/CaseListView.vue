@@ -81,6 +81,26 @@
             </div>
           </div>
         </label>
+        <label>
+          <span>排序方式</span>
+          <div class="custom-select" :class="{ open: sortMenuOpen }">
+            <button class="custom-select-trigger" type="button" @click="toggleSortMenu">
+              <span>{{ selectedSortLabel }}</span>
+              <b></b>
+            </button>
+            <div v-if="sortMenuOpen" class="custom-select-menu">
+              <button
+                v-for="item in sortOptions"
+                :key="item.value"
+                type="button"
+                :class="{ active: sortMode === item.value }"
+                @click="selectSort(item.value)"
+              >
+                {{ item.label }}
+              </button>
+            </div>
+          </div>
+        </label>
       </div>
     </section>
 
@@ -114,6 +134,7 @@
               <span>{{ item.regionName || '未标注地区' }}</span>
               <span>{{ item.category || '未标注类型' }}</span>
               <span>{{ item.actorName || '未标注主体' }}</span>
+              <span>{{ formatCaseDate(item.accessedAt) }}</span>
             </div>
             <strong>{{ item.title }}</strong>
             <p>{{ item.summary || '暂无摘要' }}</p>
@@ -161,6 +182,8 @@ const caseVisitRankings = ref([])
 const currentPage = ref(1)
 const regionMenuOpen = ref(false)
 const categoryMenuOpen = ref(false)
+const sortMenuOpen = ref(false)
+const sortMode = ref('latest')
 const pageSize = 10
 let revealObserver
 let searchLogTimer = null
@@ -169,6 +192,13 @@ const query = reactive({
   regionId: '',
   category: '',
 })
+
+const sortOptions = [
+  { label: '最新收录', value: 'latest' },
+  { label: '最早收录', value: 'oldest' },
+  { label: '浏览最多', value: 'popular' },
+  { label: '标题顺序', value: 'title' },
+]
 
 const categoryOptions = computed(() => {
   const names = Array.from(new Set(allCases.value.map((item) => item.category).filter(Boolean)))
@@ -195,15 +225,40 @@ const selectedRegionLabel = computed(() => {
 
 const selectedCategoryLabel = computed(() => query.category || '全部类型')
 
+const selectedSortLabel = computed(() => sortOptions.find((item) => item.value === sortMode.value)?.label || '最新收录')
+
 const coveredRegionCount = computed(() => new Set(allCases.value.map((item) => item.regionId).filter(Boolean)).size)
 
 const usedCategoryCount = computed(() => new Set(allCases.value.map((item) => item.category).filter(Boolean)).size)
 
 const totalPages = computed(() => Math.max(1, Math.ceil(cases.value.length / pageSize)))
 
+const sortedCases = computed(() => {
+  const items = [...cases.value]
+  if (sortMode.value === 'oldest') {
+    return items.sort((left, right) => compareCaseDate(left, right, 'asc'))
+  }
+  if (sortMode.value === 'popular') {
+    return items.sort((left, right) => {
+      const visitDifference = getCasePv(right.id) - getCasePv(left.id)
+      return visitDifference || compareCaseDate(left, right, 'desc')
+    })
+  }
+  if (sortMode.value === 'title') {
+    return items.sort((left, right) => {
+      const titleDifference = String(left.title || '').localeCompare(String(right.title || ''), 'zh-CN', {
+        numeric: true,
+        sensitivity: 'base',
+      })
+      return titleDifference || compareCaseDate(left, right, 'desc')
+    })
+  }
+  return items.sort((left, right) => compareCaseDate(left, right, 'desc'))
+})
+
 const paginatedCases = computed(() => {
   const start = (currentPage.value - 1) * pageSize
-  return cases.value.slice(start, start + pageSize)
+  return sortedCases.value.slice(start, start + pageSize)
 })
 
 const paginationPages = computed(() => {
@@ -260,6 +315,7 @@ function resetFilters() {
   query.category = ''
   regionMenuOpen.value = false
   categoryMenuOpen.value = false
+  sortMenuOpen.value = false
   currentPage.value = 1
 }
 
@@ -288,6 +344,7 @@ function toggleRegionMenu() {
   regionMenuOpen.value = !regionMenuOpen.value
   if (regionMenuOpen.value) {
     categoryMenuOpen.value = false
+    sortMenuOpen.value = false
   }
 }
 
@@ -295,6 +352,15 @@ function toggleCategoryMenu() {
   categoryMenuOpen.value = !categoryMenuOpen.value
   if (categoryMenuOpen.value) {
     regionMenuOpen.value = false
+    sortMenuOpen.value = false
+  }
+}
+
+function toggleSortMenu() {
+  sortMenuOpen.value = !sortMenuOpen.value
+  if (sortMenuOpen.value) {
+    regionMenuOpen.value = false
+    categoryMenuOpen.value = false
   }
 }
 
@@ -306,6 +372,13 @@ function selectRegion(regionId) {
 function selectCategory(category) {
   query.category = category
   categoryMenuOpen.value = false
+}
+
+function selectSort(value) {
+  sortMode.value = value
+  sortMenuOpen.value = false
+  currentPage.value = 1
+  nextTick(setupScrollReveal)
 }
 
 function goToPage(page) {
@@ -326,6 +399,42 @@ function formatTags(tags) {
 
 function getCasePv(id) {
   return caseVisitMap.value.get(Number(id)) || 0
+}
+
+function compareCaseDate(left, right, direction) {
+  const leftTime = parseCaseDate(left.accessedAt)
+  const rightTime = parseCaseDate(right.accessedAt)
+  if (leftTime === null && rightTime === null) {
+    return compareCaseId(left, right, direction)
+  }
+  if (leftTime === null) {
+    return 1
+  }
+  if (rightTime === null) {
+    return -1
+  }
+  const dateDifference = direction === 'asc' ? leftTime - rightTime : rightTime - leftTime
+  return dateDifference || compareCaseId(left, right, direction)
+}
+
+function compareCaseId(left, right, direction) {
+  const leftId = Number(left.id || 0)
+  const rightId = Number(right.id || 0)
+  return direction === 'asc' ? leftId - rightId : rightId - leftId
+}
+
+function parseCaseDate(value) {
+  if (!value) {
+    return null
+  }
+  const timestamp = Date.parse(String(value))
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function formatCaseDate(value) {
+  const date = String(value || '').slice(0, 10)
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  return match ? `收录 ${match[1]}.${match[2]}.${match[3]}` : '收录日期待补'
 }
 
 function handleCaseSpotlight(event) {

@@ -55,6 +55,16 @@
           <small>Index overview</small>
         </RouterLink>
         <RouterLink
+          to="/analysis"
+          aria-label="资料分析"
+          active-class="route-link-active"
+          exact-active-class="route-link-exact-active"
+          :class="{ 'nav-active': isNavActive('analysis') }"
+        >
+          <span>资料分析</span>
+          <small>Data analysis</small>
+        </RouterLink>
+        <RouterLink
           to="/regions"
           aria-label="地区目录"
           active-class="route-link-active"
@@ -151,6 +161,7 @@ watch(
 const routeTitle = computed(() => {
   const titles = {
     home: '首页概览',
+    'analysis-overview': '资料分析',
     'region-directory': '地区目录',
     'policy-list': '政策索引',
     'policy-detail': '政策详情',
@@ -165,6 +176,7 @@ const routeTitle = computed(() => {
 const routeSubtitle = computed(() => {
   const subtitles = {
     home: '汇总全国 AI + OPC 相关政策、案例、来源与地区覆盖情况。',
+    'analysis-overview': '汇总访问热度、地区排行、政策趋势、来源完整度与案例分布。',
     'region-directory': '按省份查看政策与案例资料覆盖情况，方便判断重点地区。',
     'policy-list': '按地区、政策类型和关键词快速定位可引用资料。',
     'policy-detail': '查看政策摘要、支持措施、来源链接和关键字段。',
@@ -179,6 +191,7 @@ const routeSubtitle = computed(() => {
 function isNavActive(section) {
   const sectionMap = {
     home: ['home'],
+    analysis: ['analysis-overview'],
     regions: ['region-directory'],
     policies: ['policy-list', 'policy-detail'],
     cases: ['case-list', 'case-detail'],
