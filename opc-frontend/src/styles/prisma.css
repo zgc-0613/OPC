@@ -3236,10 +3236,14 @@ body:has(#app > .home-shell) {
   color: #4b514c !important;
 }
 
+.admin-shell .admin-form {
+  align-items: start;
+}
+
 .admin-shell .admin-source-field {
   display: grid;
   min-width: 0;
-  align-self: end;
+  align-self: start;
   gap: 8px;
 }
 
@@ -3256,6 +3260,7 @@ body:has(#app > .home-shell) {
   color: #626862 !important;
   font-size: 0.7rem;
   line-height: 1.35;
+  white-space: nowrap;
 }
 
 .admin-shell .admin-source-guidance.has-error small {
@@ -3410,6 +3415,15 @@ body:has(#app > .home-shell) {
 @media (max-width: 1024px) {
   .admin-shell .admin-visit-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .admin-shell .admin-source-guidance {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .admin-shell .admin-source-guidance small {
+    white-space: normal;
   }
 }
 

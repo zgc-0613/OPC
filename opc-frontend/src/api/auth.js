@@ -7,8 +7,8 @@ const USER_TOKEN_KEY = 'opc_user_token'
 const USER_PROFILE_KEY = 'opc_user_profile'
 
 export function isAdminAuthenticated() {
-  const token = sessionStorage.getItem(ADMIN_TOKEN_KEY)
-  const expiresAt = sessionStorage.getItem(ADMIN_EXPIRY_KEY)
+  const token = getAdminSessionValue(ADMIN_TOKEN_KEY)
+  const expiresAt = getAdminSessionValue(ADMIN_EXPIRY_KEY)
   if (!token || !expiresAt || new Date(expiresAt).getTime() <= Date.now()) {
     clearAdminSession()
     return false
@@ -17,14 +17,14 @@ export function isAdminAuthenticated() {
 }
 
 export function getAdminUsername() {
-  return sessionStorage.getItem(ADMIN_USERNAME_KEY) || ''
+  return getAdminSessionValue(ADMIN_USERNAME_KEY)
 }
 
 export async function loginAdmin(username, password) {
   const session = await request.post('/admin/auth/login', { username, password })
-  sessionStorage.setItem(ADMIN_TOKEN_KEY, session.token)
-  sessionStorage.setItem(ADMIN_EXPIRY_KEY, session.expiresAt)
-  sessionStorage.setItem(ADMIN_USERNAME_KEY, session.username)
+  localStorage.setItem(ADMIN_TOKEN_KEY, session.token)
+  localStorage.setItem(ADMIN_EXPIRY_KEY, session.expiresAt)
+  localStorage.setItem(ADMIN_USERNAME_KEY, session.username)
   return session
 }
 
@@ -34,7 +34,7 @@ export function submitAdminRegistrationRequest(username, password) {
 
 export async function logoutAdmin() {
   try {
-    if (sessionStorage.getItem(ADMIN_TOKEN_KEY)) {
+    if (getAdminSessionValue(ADMIN_TOKEN_KEY)) {
       await request.post('/admin/auth/logout')
     }
   } finally {
@@ -117,7 +117,22 @@ function clearUserSession() {
 }
 
 function clearAdminSession() {
-  sessionStorage.removeItem(ADMIN_TOKEN_KEY)
-  sessionStorage.removeItem(ADMIN_EXPIRY_KEY)
-  sessionStorage.removeItem(ADMIN_USERNAME_KEY)
+  for (const key of [ADMIN_TOKEN_KEY, ADMIN_EXPIRY_KEY, ADMIN_USERNAME_KEY]) {
+    localStorage.removeItem(key)
+    sessionStorage.removeItem(key)
+  }
+}
+
+function getAdminSessionValue(key) {
+  const persistentValue = localStorage.getItem(key)
+  if (persistentValue) {
+    return persistentValue
+  }
+
+  const legacyValue = sessionStorage.getItem(key) || ''
+  if (legacyValue) {
+    localStorage.setItem(key, legacyValue)
+    sessionStorage.removeItem(key)
+  }
+  return legacyValue
 }
