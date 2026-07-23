@@ -4,7 +4,7 @@
       <div>
         <span class="caption">CONTROL CENTER</span>
         <h2>账号、会话与注册安全</h2>
-        <p>集中管理注册账号、验证码策略、ALTCHA 与 SMTP 投递配置。敏感密码只写入后端加密存储，不会返回浏览器。</p>
+        <p>集中管理注册账号、验证码策略、ALTCHA、SMTP 与智能体模型。敏感密钥只写入后端加密存储，不会返回浏览器。</p>
       </div>
       <div class="settings-health-strip" aria-label="设置状态概览">
         <div>
@@ -61,6 +61,15 @@
         @click="activeTab = 'approvals'"
       >
         <UserCheck :size="17" />管理员审批
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'ai'"
+        :class="{ active: activeTab === 'ai' }"
+        @click="activeTab = 'ai'"
+      >
+        <BrainCircuit :size="17" />智能体模型
       </button>
     </nav>
 
@@ -344,6 +353,196 @@
       <p v-if="captchaError" class="error settings-notice" role="alert">{{ captchaError }}</p>
     </section>
 
+    <section v-else-if="activeTab === 'ai'" class="admin-panel settings-panel ai-settings-panel" role="tabpanel">
+      <form @submit.prevent="saveAiSettings">
+        <div class="admin-section-head settings-section-head">
+          <div>
+            <span class="caption">AGENT MODEL</span>
+            <h2>智能体模型</h2>
+            <p>案例分析由后端调用模型。API Key 使用 AES-GCM 加密，保存后只显示配置状态。</p>
+          </div>
+          <span class="status-pill" :class="ai.enabled ? 'status-pill--active' : 'status-pill--pending'">
+            {{ ai.enabled ? '已启用' : '未启用' }}
+          </span>
+        </div>
+
+        <div v-if="aiLoading" class="settings-state muted" role="status">正在读取模型配置...</div>
+        <template v-else>
+          <label class="settings-toggle-row">
+            <input v-model="ai.enabled" type="checkbox" />
+            <span>
+              <strong>启用案例分析模型</strong>
+              <small>只有配置完整且连接可用时再启用；生产环境不会回退到测试模型。</small>
+            </span>
+          </label>
+
+          <div class="settings-form-grid ai-settings-grid">
+            <label>
+              <span>供应商预设</span>
+              <select v-model="ai.provider" @change="applyAiProviderPreset({ forceBaseUrl: true })">
+                <option value="deepseek">DeepSeek</option>
+              </select>
+            </label>
+            <label>
+              <span>接口格式</span>
+              <select v-model="ai.apiFormat">
+                <option value="openai_responses">OpenAI Responses</option>
+                <option value="openai_compatible">OpenAI Compatible</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="amazon_bedrock">Amazon Bedrock</option>
+                <option value="google_gemini">Google (Gemini)</option>
+              </select>
+              <small v-if="ai.apiFormat !== 'openai_compatible'">第一阶段仅支持保存该格式；启用和连接测试需要 OpenAI Compatible。</small>
+            </label>
+            <label class="ai-field-wide">
+              <span>API Base URL</span>
+              <input v-model.trim="ai.apiBaseUrl" :required="ai.enabled" placeholder="https://your-provider.example/v1" />
+            </label>
+            <label class="ai-field-wide">
+              <span>API Key</span>
+              <input v-model="ai.apiKey" type="password" autocomplete="new-password" placeholder="留空保留当前密钥" />
+              <small>{{ ai.apiKeyConfigured ? '密钥已加密配置。留空时获取模型会使用已保存密钥，保存时不会覆盖。' : '先填写密钥即可获取模型，只有点击保存配置后才会加密入库。' }}</small>
+            </label>
+          </div>
+
+          <div class="ai-model-catalog">
+            <div class="ai-model-catalog-head">
+              <div>
+                <span class="caption">MODEL CATALOG</span>
+                <h3>模型配置</h3>
+                <p>从供应商读取可用模型，或手工添加官方 Model ID。默认模型用于连接测试和后续智能体请求。</p>
+              </div>
+              <div class="ai-model-catalog-actions">
+                <button
+                  class="button button-ghost icon-text-button"
+                  type="button"
+                  :disabled="!canDiscoverAiModels || aiModelDiscovering"
+                  @click="loadAiModels"
+                >
+                  <Download :size="16" />{{ aiModelDiscovering ? '获取中...' : '获取模型列表' }}
+                </button>
+                <button class="button button-ghost icon-text-button" type="button" @click="addAiModel">
+                  <Plus :size="16" />添加模型
+                </button>
+              </div>
+            </div>
+
+            <div v-if="ai.models.length" class="ai-model-list" aria-label="已配置模型">
+              <div class="ai-model-list-head" aria-hidden="true">
+                <span>默认</span>
+                <span>Model ID</span>
+                <span>显示名称</span>
+                <span>操作</span>
+              </div>
+              <div v-for="model in ai.models" :key="model.clientId" class="ai-model-row">
+                <label class="ai-model-default">
+                  <input
+                    v-model="ai.modelId"
+                    type="radio"
+                    name="default-ai-model"
+                    :value="model.modelId"
+                    :disabled="!model.modelId.trim()"
+                    :aria-label="`将 ${model.displayName || model.modelId || '该模型'} 设为默认模型`"
+                  />
+                  <span>默认</span>
+                </label>
+                <label class="ai-model-field ai-model-id-field">
+                  <span>Model ID</span>
+                  <input
+                    :value="model.modelId"
+                    autocomplete="off"
+                    placeholder="例如供应商返回的模型 ID"
+                    @input="updateAiModelId(model, $event.target.value)"
+                  />
+                </label>
+                <label class="ai-model-field ai-model-name-field">
+                  <span>显示名称</span>
+                  <input v-model.trim="model.displayName" autocomplete="off" placeholder="用于管理界面识别" />
+                </label>
+                <button
+                  class="ai-model-delete"
+                  type="button"
+                  :aria-label="`删除模型 ${model.displayName || model.modelId || ''}`"
+                  title="删除模型"
+                  @click="removeAiModel(model.clientId)"
+                >
+                  <Trash2 :size="17" />
+                </button>
+              </div>
+            </div>
+            <div v-else class="ai-model-empty">
+              尚未配置模型。填写 API Key 后获取供应商模型列表，或手工添加准确的 Model ID。
+            </div>
+          </div>
+
+          <div class="ai-runtime-band" aria-label="模型运行参数">
+            <label class="ai-temperature-field">
+              <span>Temperature <output>{{ Number(ai.temperature).toFixed(1) }}</output></span>
+              <div class="ai-range-control">
+                <input v-model.number="ai.temperature" type="range" min="0" max="2" step="0.1" aria-label="Temperature" />
+                <div class="ai-range-scale" aria-hidden="true">
+                  <span>0</span>
+                  <span>1</span>
+                  <span>2</span>
+                </div>
+              </div>
+              <small>案例分析建议 0.2，结果更稳定且便于复核。</small>
+            </label>
+            <label>
+              <span>最大输出词元数</span>
+              <input v-model.number="ai.maxOutputTokens" type="number" min="1" max="65536" />
+            </label>
+            <label>
+              <span>请求超时（秒）</span>
+              <input v-model.number="ai.timeoutSeconds" type="number" min="1" max="180" />
+            </label>
+            <label>
+              <span>失败重试次数</span>
+              <input v-model.number="ai.retryCount" type="number" min="0" max="5" />
+            </label>
+            <label class="ai-daily-quota-field">
+              <span>单用户每日词元额度</span>
+              <input v-model.number="ai.dailyTokenQuota" type="number" min="1" step="1000" />
+            </label>
+          </div>
+
+          <div class="ai-connection-state" :class="`is-${ai.lastTestStatus || 'not_tested'}`">
+            <Activity :size="18" />
+            <div>
+              <strong>{{ aiTestLabel }}</strong>
+              <small>{{ ai.lastTestMessage || '保存配置后可发起一个低成本连接请求。' }}</small>
+            </div>
+            <time>{{ formatDate(ai.lastTestedAt) }}</time>
+          </div>
+
+          <p v-if="!ai.encryptionReady" class="error settings-notice" role="alert">
+            服务器尚未配置 OPC_AI_SETTINGS_MASTER_KEY，当前只能查看设置，不能安全写入或启用 API Key。
+          </p>
+
+          <div class="settings-action-bar">
+            <button
+              class="button icon-text-button"
+              type="submit"
+              :disabled="aiSaving || (ai.enabled && !ai.modelId) || (!ai.encryptionReady && Boolean(ai.apiKey))"
+            >
+              <Save :size="16" />{{ aiSaving ? '保存中...' : '保存模型配置' }}
+            </button>
+            <button
+              class="button button-ghost icon-text-button"
+              type="button"
+              :disabled="aiTesting || !ai.apiKeyConfigured || !ai.apiBaseUrl || !ai.modelId"
+              @click="testAiConnection"
+            >
+              <PlugZap :size="16" />{{ aiTesting ? '测试中...' : '测试连接' }}
+            </button>
+          </div>
+        </template>
+      </form>
+
+      <p v-if="aiNotice" class="success settings-notice" role="status">{{ aiNotice }}</p>
+      <p v-if="aiError" class="error settings-notice" role="alert">{{ aiError }}</p>
+    </section>
+
     <section v-else class="admin-panel settings-panel admin-approval-panel" role="tabpanel">
       <div class="admin-section-head settings-section-head">
         <div>
@@ -557,10 +756,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import {
+  Activity,
   Ban,
+  BrainCircuit,
   CheckCircle,
+  Download,
   LogOut,
   Mail,
+  Plus,
   PlugZap,
   RefreshCw,
   Save,
@@ -576,17 +779,21 @@ import {
   deleteAdminAccount,
   deleteAdminRegistrationRecord,
   deleteAdminUser,
+  discoverAiModels,
   getAdminAccounts,
   getAdminRegistrationRequests,
   getAdminUsers,
   getCaptchaSettings,
+  getAiSettings,
   getMailSettings,
   rejectAdminRegistration,
   revokeAdminUserSessions,
   sendMailTest,
   testMailConnection,
+  testAiConnection as testAiConnectionApi,
   updateAdminUserStatus,
   updateCaptchaSettings,
+  updateAiSettings,
   updateMailSettings,
 } from '@/api/adminSettings'
 import { getAdminUsername } from '@/api/auth'
@@ -606,6 +813,12 @@ const testRecipient = ref('')
 const captchaSaving = ref(false)
 const captchaError = ref('')
 const captchaNotice = ref('')
+const aiLoading = ref(false)
+const aiSaving = ref(false)
+const aiTesting = ref(false)
+const aiModelDiscovering = ref(false)
+const aiError = ref('')
+const aiNotice = ref('')
 const adminRequests = ref([])
 const adminAccounts = ref([])
 const approvalLoading = ref(false)
@@ -683,6 +896,33 @@ const captcha = reactive({
   secretConfigured: false,
 })
 
+const AI_PROVIDER_PRESETS = Object.freeze({
+  deepseek: {
+    apiFormat: 'openai_compatible',
+    apiBaseUrl: 'https://api.deepseek.com/v1',
+  },
+})
+
+const ai = reactive({
+  provider: 'deepseek',
+  apiFormat: 'openai_compatible',
+  apiBaseUrl: AI_PROVIDER_PRESETS.deepseek.apiBaseUrl,
+  modelId: '',
+  models: [],
+  apiKey: '',
+  apiKeyConfigured: false,
+  encryptionReady: false,
+  temperature: 0.2,
+  maxOutputTokens: 1200,
+  timeoutSeconds: 30,
+  retryCount: 1,
+  dailyTokenQuota: 100000,
+  enabled: false,
+  lastTestStatus: 'not_tested',
+  lastTestedAt: null,
+  lastTestMessage: '',
+})
+
 const userStats = computed(() => ({
   total: users.value.length,
   active: users.value.filter((user) => user.status === 'active').length,
@@ -695,13 +935,195 @@ const reviewedAdminRequests = computed(() => adminRequests.value
 
 const previewSubject = computed(() => renderTemplate(mail.verificationSubject || ''))
 const previewHtml = computed(() => renderTemplate(mail.verificationHtml || '').replaceAll('cid:solofirm-logo', `${window.location.origin}/favicon.svg`))
+const aiTestLabel = computed(() => {
+  if (ai.lastTestStatus === 'success') return '最近连接成功'
+  if (ai.lastTestStatus === 'failed') return '最近连接失败'
+  return '尚未测试连接'
+})
+const canDiscoverAiModels = computed(() => (
+  Boolean(ai.apiBaseUrl)
+  && ai.apiFormat === 'openai_compatible'
+  && (Boolean(ai.apiKey.trim()) || ai.apiKeyConfigured)
+))
+
+let aiModelRowSequence = 0
 
 onMounted(() => {
   loadUsers()
   loadMailSettings()
   loadCaptchaSettings()
+  loadAiSettings()
   loadAdminApprovals()
 })
+
+async function loadAiSettings() {
+  aiLoading.value = true
+  aiError.value = ''
+  try {
+    applyAiSettingsState(await getAiSettings())
+    applyAiProviderPreset()
+  } catch (err) {
+    aiError.value = err.message || '智能体模型配置暂时无法读取。'
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+function applyAiSettingsState(settings) {
+  const modelId = settings?.modelId || ''
+  const sourceModels = Array.isArray(settings?.models) ? settings.models : []
+  const models = sourceModels.length
+    ? sourceModels
+    : (modelId ? [{ modelId, displayName: modelId }] : [])
+  Object.assign(ai, settings, {
+    apiKey: '',
+    modelId,
+    models: models.map(createAiModelRow),
+  })
+}
+
+function createAiModelRow(model = {}) {
+  aiModelRowSequence += 1
+  return {
+    clientId: `ai-model-${aiModelRowSequence}`,
+    modelId: String(model.modelId || ''),
+    displayName: String(model.displayName || model.modelId || ''),
+  }
+}
+
+function serializeAiModels() {
+  const unique = new Map()
+  ai.models.forEach((model) => {
+    const modelId = String(model.modelId || '').trim()
+    if (!modelId || unique.has(modelId)) return
+    unique.set(modelId, {
+      modelId,
+      displayName: String(model.displayName || '').trim() || modelId,
+    })
+  })
+  return [...unique.values()]
+}
+
+function applyAiProviderPreset({ forceBaseUrl = false } = {}) {
+  const preset = AI_PROVIDER_PRESETS[ai.provider]
+  if (!preset) return
+  ai.apiFormat = preset.apiFormat
+  if (forceBaseUrl || !ai.apiBaseUrl) {
+    ai.apiBaseUrl = preset.apiBaseUrl
+  }
+}
+
+async function loadAiModels() {
+  if (!canDiscoverAiModels.value) return
+  aiModelDiscovering.value = true
+  aiNotice.value = ''
+  aiError.value = ''
+  try {
+    const payload = {
+      provider: ai.provider,
+      apiFormat: ai.apiFormat,
+      apiBaseUrl: ai.apiBaseUrl,
+      timeoutSeconds: ai.timeoutSeconds,
+    }
+    if (ai.apiKey.trim()) payload.apiKey = ai.apiKey
+    const discoveredModels = await discoverAiModels(payload)
+    const merged = new Map(serializeAiModels().map((model) => [model.modelId, model]))
+    ;(discoveredModels || []).forEach((model) => {
+      const modelId = String(model?.modelId || '').trim()
+      if (!modelId) return
+      const existing = merged.get(modelId)
+      merged.set(modelId, {
+        modelId,
+        displayName: existing?.displayName || String(model.displayName || '').trim() || modelId,
+      })
+    })
+    ai.models = [...merged.values()].map(createAiModelRow)
+    if (!ai.models.some((model) => model.modelId === ai.modelId)) {
+      ai.modelId = ai.models[0]?.modelId || ''
+    }
+    aiNotice.value = discoveredModels?.length
+      ? `已从供应商读取 ${discoveredModels.length} 个模型。选择默认模型后保存配置。`
+      : '供应商未返回可用模型，可手工添加准确的 Model ID。'
+  } catch (err) {
+    aiError.value = err.message || '模型列表获取失败。'
+  } finally {
+    aiModelDiscovering.value = false
+  }
+}
+
+function addAiModel() {
+  ai.models.push(createAiModelRow())
+}
+
+function updateAiModelId(model, value) {
+  const previousModelId = model.modelId
+  model.modelId = value
+  if (!model.displayName || model.displayName === previousModelId) {
+    model.displayName = value
+  }
+  if (ai.modelId === previousModelId) {
+    ai.modelId = value
+  }
+}
+
+function removeAiModel(clientId) {
+  const removed = ai.models.find((model) => model.clientId === clientId)
+  ai.models = ai.models.filter((model) => model.clientId !== clientId)
+  if (removed && ai.modelId === removed.modelId) {
+    ai.modelId = ai.models.find((model) => model.modelId.trim())?.modelId || ''
+  }
+}
+
+async function saveAiSettings() {
+  aiSaving.value = true
+  aiNotice.value = ''
+  aiError.value = ''
+  try {
+    const models = serializeAiModels()
+    if (ai.enabled && !ai.modelId) {
+      aiError.value = '启用智能体模型前，请先获取或添加模型并选择默认模型。'
+      return
+    }
+    const payload = {
+      provider: ai.provider,
+      apiFormat: ai.apiFormat,
+      apiBaseUrl: ai.apiBaseUrl,
+      modelId: ai.modelId,
+      models,
+      temperature: ai.temperature,
+      maxOutputTokens: ai.maxOutputTokens,
+      timeoutSeconds: ai.timeoutSeconds,
+      retryCount: ai.retryCount,
+      dailyTokenQuota: ai.dailyTokenQuota,
+      enabled: ai.enabled,
+    }
+    if (ai.apiKey) payload.apiKey = ai.apiKey
+    applyAiSettingsState(await updateAiSettings(payload))
+    aiNotice.value = '智能体模型配置已保存。'
+  } catch (err) {
+    aiError.value = err.message || '智能体模型配置保存失败。'
+  } finally {
+    aiSaving.value = false
+  }
+}
+
+async function testAiConnection() {
+  aiTesting.value = true
+  aiNotice.value = ''
+  aiError.value = ''
+  try {
+    const result = await testAiConnectionApi()
+    ai.lastTestStatus = result.success ? 'success' : 'failed'
+    ai.lastTestMessage = result.message
+    ai.lastTestedAt = result.testedAt
+    aiNotice.value = result.message
+  } catch (err) {
+    aiError.value = err.message || '模型连接测试失败。'
+    await loadAiSettings()
+  } finally {
+    aiTesting.value = false
+  }
+}
 
 async function loadAdminApprovals() {
   approvalLoading.value = true
@@ -1032,7 +1454,358 @@ function resetCaptchaNotice() {
 }
 
 .admin-settings-page .settings-tabs {
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+}
+
+.ai-settings-panel {
+  overflow: hidden;
+}
+
+.ai-settings-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ai-settings-grid > label {
+  align-self: start;
+  align-content: start !important;
+  grid-auto-rows: max-content;
+}
+
+.ai-settings-grid > label > :is(input, select) {
+  height: 56px;
+  min-height: 56px !important;
+}
+
+.ai-field-wide {
+  grid-column: 1 / -1;
+}
+
+.ai-model-catalog {
+  margin-top: 30px;
+  padding: 28px 0 30px;
+  border-top: 1px solid #d0d4cf;
+  border-bottom: 1px solid #d0d4cf;
+}
+
+.ai-model-catalog-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.ai-model-catalog-head > div:first-child {
+  max-width: 680px;
+}
+
+.ai-model-catalog-head h3 {
+  margin: 7px 0 8px;
+  color: #181a18;
+  font-size: 1.22rem;
+  line-height: 1.2;
+}
+
+.ai-model-catalog-head p {
+  margin: 0;
+  color: #59605a;
+  line-height: 1.65;
+}
+
+.ai-model-catalog-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.ai-model-catalog-actions .button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.ai-model-list {
+  margin-top: 24px;
+  border-top: 1px solid #c9cec9;
+}
+
+.ai-model-list-head,
+.ai-model-row {
+  display: grid;
+  grid-template-columns: 58px minmax(220px, 1.15fr) minmax(190px, 0.85fr) 48px;
+  gap: 14px;
+}
+
+.ai-model-list-head {
+  align-items: center;
+  padding: 12px 8px 10px;
+  color: #686f69;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ai-model-list-head span:first-child,
+.ai-model-list-head span:last-child {
+  text-align: center;
+}
+
+.ai-model-row {
+  align-items: end;
+  padding: 16px 8px;
+  border-top: 1px solid #dde0dc;
+}
+
+.ai-model-default {
+  display: grid;
+  min-width: 44px;
+  min-height: 50px;
+  place-items: center;
+  margin: 0;
+  cursor: pointer;
+}
+
+.ai-model-default input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #222522;
+}
+
+.ai-model-default span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.ai-model-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+}
+
+.ai-model-field > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.ai-model-field input {
+  width: 100%;
+  height: 50px;
+  min-height: 50px !important;
+  margin: 0;
+}
+
+.ai-model-delete {
+  display: inline-grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  align-self: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #666c67;
+  cursor: pointer;
+}
+
+.ai-model-delete:hover {
+  border-color: #d8c7c3;
+  background: #f4eae7;
+  color: #742e26;
+}
+
+.ai-model-delete:focus-visible {
+  outline: 2px solid #333733;
+  outline-offset: 2px;
+}
+
+.ai-model-empty {
+  margin-top: 24px;
+  padding: 22px 0 4px;
+  border-top: 1px solid #c9cec9;
+  color: #656c66;
+  line-height: 1.65;
+}
+
+.ai-runtime-band {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.25fr) repeat(2, minmax(190px, 1fr));
+  gap: 24px 28px;
+  margin-top: 26px;
+  padding: 24px 0;
+  border-top: 1px solid #d0d4cf;
+  border-bottom: 1px solid #d0d4cf;
+}
+
+.ai-runtime-band label,
+.ai-temperature-field {
+  display: grid;
+  grid-template-rows: 44px 60px auto;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-runtime-band > label > span {
+  display: flex;
+  min-height: 44px;
+  align-items: flex-end;
+  line-height: 1.28;
+}
+
+.ai-runtime-band > label > input[type='number'] {
+  width: 100%;
+  height: 56px;
+  min-height: 56px !important;
+  margin: 0;
+}
+
+.ai-daily-quota-field {
+  grid-column: span 2;
+}
+
+.ai-temperature-field > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-temperature-field output {
+  color: #181a18;
+  font-family: 'Bookman Old Style', Georgia, serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-temperature-field input[type='range'] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 100% !important;
+  height: 20px !important;
+  min-height: 20px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.ai-range-control {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+  height: 60px;
+  padding: 7px 3px 4px;
+  border-radius: 6px;
+}
+
+.ai-range-control:focus-within {
+  outline: 2px solid rgba(24, 26, 24, 0.22);
+  outline-offset: 2px;
+}
+
+.ai-temperature-field input[type='range']::-webkit-slider-runnable-track {
+  height: 5px;
+  border: 1px solid #b7bcb7;
+  border-radius: 999px;
+  background: #dfe2de;
+}
+
+.ai-temperature-field input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 19px;
+  height: 19px;
+  margin-top: -8px;
+  border: 2px solid #f7f7f4;
+  border-radius: 50%;
+  background: #252825;
+  box-shadow: 0 0 0 1px #252825;
+}
+
+.ai-temperature-field input[type='range']::-moz-range-track {
+  height: 4px;
+  border: 1px solid #b7bcb7;
+  border-radius: 999px;
+  background: #dfe2de;
+}
+
+.ai-temperature-field input[type='range']::-moz-range-thumb {
+  width: 17px;
+  height: 17px;
+  border: 2px solid #f7f7f4;
+  border-radius: 50%;
+  background: #252825;
+  box-shadow: 0 0 0 1px #252825;
+}
+
+.ai-range-scale {
+  display: flex;
+  justify-content: space-between;
+  color: #747a75;
+  font-family: 'Bookman Old Style', Georgia, serif;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ai-connection-state {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-top: 24px;
+  padding: 18px 0;
+  color: #4f5650;
+  transition: color 180ms ease, opacity 180ms ease;
+}
+
+.ai-connection-state div {
+  display: grid;
+  gap: 3px;
+}
+
+.ai-connection-state strong {
+  color: #181a18;
+}
+
+.ai-connection-state small,
+.ai-connection-state time {
+  color: #686f69;
+}
+
+.ai-connection-state.is-success > svg {
+  color: #3f6949;
+}
+
+.ai-connection-state.is-failed > svg {
+  color: #742e26;
+}
+
+@media (max-width: 1120px) {
+  .ai-runtime-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ai-temperature-field {
+    grid-column: 1 / -1;
+  }
+
+  .ai-daily-quota-field {
+    grid-column: auto;
+  }
 }
 
 .admin-approval-panel {
@@ -1215,6 +1988,106 @@ function resetCaptchaNotice() {
 
   .approval-section-head {
     align-items: center;
+  }
+
+  .ai-settings-grid,
+  .ai-runtime-band {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-model-catalog-head {
+    display: grid;
+    align-items: start;
+    gap: 18px;
+  }
+
+  .ai-model-catalog-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+
+  .ai-model-catalog-actions .button {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+  }
+
+  .ai-model-list-head {
+    display: none;
+  }
+
+  .ai-model-row {
+    grid-template-columns: 36px minmax(0, 1fr) 44px;
+    gap: 12px;
+    padding: 18px 0;
+  }
+
+  .ai-model-default {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .ai-model-id-field {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .ai-model-name-field {
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+
+  .ai-model-field > span {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    color: #626863;
+    font-size: 0.76rem;
+    white-space: normal;
+  }
+
+  .ai-model-delete {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+  }
+
+  .ai-temperature-field {
+    grid-column: auto;
+  }
+
+  .ai-daily-quota-field {
+    grid-column: auto;
+  }
+
+  .ai-runtime-band label,
+  .ai-temperature-field {
+    grid-template-rows: auto 60px auto;
+  }
+
+  .ai-runtime-band > label > span {
+    min-height: 0;
+  }
+
+  .ai-connection-state {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .ai-connection-state time {
+    grid-column: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-connection-state {
+    transition: none;
+  }
+
+  .ai-model-delete {
+    transition: none;
   }
 }
 

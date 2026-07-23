@@ -101,6 +101,14 @@
           <span>校对人</span>
           <input v-model.trim="form.reviewer" />
         </label>
+        <label>
+          <span>AI 证据资格</span>
+          <select v-model="form.aiEvidenceStatus">
+            <option value="legacy_unverified">待 AI 证据核验</option>
+            <option value="verified">已核验，可用于智能体</option>
+            <option value="excluded">排除，不用于智能体</option>
+          </select>
+        </label>
         <label class="span-3">
           <span>摘要 *</span>
           <textarea v-model.trim="form.summary" required rows="4" placeholder="100-300 字摘要"></textarea>
@@ -145,23 +153,66 @@
         <button class="button button-ghost" type="button" @click="loadPolicies">刷新</button>
       </div>
 
+      <AdminBulkStatusToolbar
+        v-if="policies.length"
+        v-model="bulkStatus"
+        :busy="bulkUpdating"
+        :options="policyStatusOptions"
+        :selected-count="selectedPolicyCount"
+        @apply="applyBulkStatus"
+        @clear="clearPolicySelection"
+      />
+      <p v-if="bulkMessage" class="success admin-bulk-notice" role="status">{{ bulkMessage }}</p>
+      <p v-if="bulkError" class="error admin-bulk-notice" role="alert">{{ bulkError }}</p>
+
       <div v-if="loading" class="muted">正在加载政策...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="table-wrap">
-        <table>
+        <table class="admin-resizable-table">
+          <colgroup>
+            <col
+              v-for="column in policyTableColumns"
+              :key="column.key"
+              :style="{ width: `${policyColumnPercentages[column.key]}%` }"
+            />
+          </colgroup>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>标题</th>
-              <th>地区</th>
-              <th>发文单位</th>
-              <th>发布日期</th>
-              <th>状态</th>
+              <th class="admin-select-column">
+                <input
+                  class="admin-table-checkbox"
+                  type="checkbox"
+                  :checked="allPoliciesSelected"
+                  :indeterminate.prop="somePoliciesSelected"
+                  aria-label="选择全部政策"
+                  @change="toggleAllPolicies($event.target.checked)"
+                />
+              </th>
+              <SortableTableHeader
+                v-for="column in policySortableColumns"
+                :key="column.key"
+                :label="column.label"
+                :column="column.key"
+                :active-column="policySortColumn"
+                :direction="policySortDirection"
+                @toggle="togglePolicySort"
+                @resize-start="startPolicyColumnResize"
+                @resize-by="resizePolicyColumn"
+              />
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="policy in policies" :key="policy.id">
+            <tr v-for="policy in sortedPolicies" :key="policy.id" :class="{ 'is-selected': selectedPolicyIds.has(policy.id) }">
+              <td class="admin-select-column">
+                <input
+                  class="admin-table-checkbox"
+                  type="checkbox"
+                  :checked="selectedPolicyIds.has(policy.id)"
+                  :aria-label="`选择政策 ${policy.title}`"
+                  @change="togglePolicyRow(policy.id, $event.target.checked)"
+                />
+              </td>
               <td>{{ policy.id }}</td>
               <td>{{ policy.title }}</td>
               <td>{{ policy.regionName || '-' }}</td>
@@ -185,9 +236,13 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ArrowUpRight } from 'lucide-vue-next'
-import { createPolicy, deletePolicy, getPolicies, getPolicyDetail, updatePolicy } from '@/api/policy'
+import AdminBulkStatusToolbar from '@/components/AdminBulkStatusToolbar.vue'
+import SortableTableHeader from '@/components/SortableTableHeader.vue'
+import { createPolicy, deletePolicy, getAdminPolicies, getAdminPolicyDetail, updatePolicy } from '@/api/policy'
 import { getRegions } from '@/api/region'
-import { getSources, resolveSourcePlaceholder } from '@/api/source'
+import { getAdminSources, resolveSourcePlaceholder } from '@/api/source'
+import { useAdminTableControls } from '@/composables/useAdminTableControls'
+import { useResizableColumns } from '@/composables/useResizableColumns'
 
 const today = new Date().toISOString().slice(0, 10)
 const loading = ref(false)
@@ -197,6 +252,30 @@ const regions = ref([])
 const sources = ref([])
 const editingId = ref(null)
 const sourceValidationError = ref('')
+const bulkStatus = ref('')
+const bulkUpdating = ref(false)
+const bulkMessage = ref('')
+const bulkError = ref('')
+
+const policyStatusOptions = [
+  { value: 'published', label: '已发布' },
+  { value: 'draft', label: '草稿' },
+  { value: 'pending', label: '待校对' },
+  { value: 'archived', label: '归档' },
+]
+const policySortableColumns = [
+  { key: 'id', label: 'ID', width: 72, minWidth: 58, maxWidth: 150 },
+  { key: 'title', label: '标题', width: 340, minWidth: 180, maxWidth: 620 },
+  { key: 'regionName', label: '地区', width: 120, minWidth: 90, maxWidth: 260 },
+  { key: 'issuingBody', label: '发文单位', width: 280, minWidth: 160, maxWidth: 520 },
+  { key: 'publishDate', label: '发布日期', width: 132, minWidth: 110, maxWidth: 220 },
+  { key: 'status', label: '状态', width: 112, minWidth: 90, maxWidth: 220 },
+]
+const policyTableColumns = [
+  { key: 'selection', width: 46, minWidth: 46, maxWidth: 46, resizable: false },
+  ...policySortableColumns,
+  { key: 'actions', width: 112, minWidth: 90, maxWidth: 180, resizable: false },
+]
 
 const defaultForm = () => ({
   title: '',
@@ -220,15 +299,35 @@ const defaultForm = () => ({
   accessedAt: today,
   status: 'published',
   reviewer: '',
+  aiEvidenceStatus: 'legacy_unverified',
 })
 
 const form = reactive(defaultForm())
+const {
+  allSelected: allPoliciesSelected,
+  clearSelection: clearPolicySelection,
+  replaceSelection: replacePolicySelection,
+  selectedCount: selectedPolicyCount,
+  selectedIds: selectedPolicyIds,
+  someSelected: somePoliciesSelected,
+  sortColumn: policySortColumn,
+  sortDirection: policySortDirection,
+  sortedItems: sortedPolicies,
+  toggleAll: toggleAllPolicies,
+  toggleRow: togglePolicyRow,
+  toggleSort: togglePolicySort,
+} = useAdminTableControls(policies)
+const {
+  columnPercentages: policyColumnPercentages,
+  resizeBy: resizePolicyColumn,
+  startResize: startPolicyColumnResize,
+} = useResizableColumns('opc-admin-policy-column-widths-v2', policyTableColumns)
 
 async function loadPolicies() {
   loading.value = true
   error.value = ''
   try {
-    policies.value = await getPolicies()
+    policies.value = await getAdminPolicies()
   } catch (err) {
     error.value = err.message || '政策加载失败'
   } finally {
@@ -243,7 +342,7 @@ function resetForm() {
 }
 
 async function startEdit(policy) {
-  const detail = await getPolicyDetail(policy.id)
+  const detail = await getAdminPolicyDetail(policy.id)
   editingId.value = detail.id
   Object.assign(form, {
     ...defaultForm(),
@@ -267,7 +366,7 @@ function toPayload(sourceId) {
 }
 
 async function resolveSourceId() {
-  sources.value = await getSources()
+  sources.value = await getAdminSources()
   const resolution = await resolveSourcePlaceholder(sources.value, form.sourceTitle, {
     publisher: form.issuingBody,
     url: form.originalUrl,
@@ -320,11 +419,65 @@ async function removePolicy(policy) {
   await loadPolicies()
 }
 
+function policyDetailPayload(detail, status) {
+  return {
+    title: detail.title,
+    regionId: Number(detail.regionId),
+    issuingBody: detail.issuingBody,
+    documentNo: detail.documentNo || '',
+    publishDate: detail.publishDate || null,
+    effectiveDate: detail.effectiveDate || null,
+    validPeriod: detail.validPeriod || '',
+    sourceId: Number(detail.sourceId),
+    policyLevel: detail.policyLevel,
+    policyType: detail.policyType,
+    summary: detail.summary,
+    keyPoints: detail.keyPoints || '',
+    supportMeasures: detail.supportMeasures || '',
+    tags: detail.tags || '',
+    originalUrl: detail.originalUrl || '',
+    evidenceUrl: detail.evidenceUrl || '',
+    localFile: detail.localFile || '',
+    accessedAt: detail.accessedAt || today,
+    status,
+    reviewer: detail.reviewer || '',
+    aiEvidenceStatus: detail.aiEvidenceStatus || 'legacy_unverified',
+  }
+}
+
+async function applyBulkStatus() {
+  const ids = [...selectedPolicyIds.value]
+  if (!ids.length || !bulkStatus.value || bulkUpdating.value) {
+    return
+  }
+
+  bulkUpdating.value = true
+  bulkMessage.value = ''
+  bulkError.value = ''
+  const results = await Promise.allSettled(ids.map(async (id) => {
+    const detail = await getAdminPolicyDetail(id)
+    await updatePolicy(id, policyDetailPayload(detail, bulkStatus.value))
+    return id
+  }))
+  const failedIds = results.flatMap((result, index) => (result.status === 'rejected' ? [ids[index]] : []))
+  const updatedCount = ids.length - failedIds.length
+
+  await loadPolicies()
+  replacePolicySelection(failedIds)
+  bulkStatus.value = ''
+  bulkUpdating.value = false
+  if (failedIds.length) {
+    bulkError.value = `已更新 ${updatedCount} 项，另有 ${failedIds.length} 项失败；失败项已保留选择，可重试。`
+  } else {
+    bulkMessage.value = `已更新 ${updatedCount} 项政策状态。`
+  }
+}
+
 onMounted(async () => {
   loading.value = true
   error.value = ''
   try {
-    const [regionList, sourceList, policyList] = await Promise.all([getRegions(), getSources(), getPolicies()])
+    const [regionList, sourceList, policyList] = await Promise.all([getRegions(), getAdminSources(), getAdminPolicies()])
     regions.value = regionList
     sources.value = sourceList
     policies.value = policyList

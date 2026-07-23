@@ -52,4 +52,6 @@ public class PolicyDetailVO {
     private String status;
 
     private String reviewer;
+
+    private String aiEvidenceStatus;
 }

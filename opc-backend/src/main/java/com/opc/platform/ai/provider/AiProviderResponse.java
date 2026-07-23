@@ -1,0 +1,14 @@
+package com.opc.platform.ai.provider;
+
+public record AiProviderResponse(
+        String content,
+        int promptTokens,
+        int completionTokens,
+        int totalTokens,
+        long latencyMs,
+        String requestId
+) {
+    public AiProviderResponse(String content) {
+        this(content, 0, 0, 0, 0, null);
+    }
+}

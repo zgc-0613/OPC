@@ -4,6 +4,10 @@ export function getSources() {
   return request.get('/public/sources')
 }
 
+export function getAdminSources() {
+  return request.get('/admin/sources')
+}
+
 export function createSource(data) {
   return request.post('/admin/sources', data)
 }

@@ -1,4 +1,5 @@
 server:
+  address: ${SERVER_ADDRESS:0.0.0.0}
   port: 8082
 
 spring:
@@ -23,6 +24,8 @@ spring:
             enable: true
 
 opc:
+  ai:
+    settings-master-key: ${OPC_AI_SETTINGS_MASTER_KEY:}
   admin:
     session-hours: 12
   settings:

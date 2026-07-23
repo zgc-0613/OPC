@@ -13,6 +13,14 @@
         ></video>
         <div class="noise-overlay" aria-hidden="true"></div>
         <div class="prisma-hero-gradient" aria-hidden="true"></div>
+        <div class="prisma-hero-film-index" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+          <i></i>
+        </div>
 
         <header class="home-landing-nav prisma-hero-nav">
           <nav class="home-landing-links prisma-hanging-nav" aria-label="首页导航">
@@ -65,7 +73,8 @@
           </div>
           <div class="prisma-hero-aside">
             <p>
-              汇聚 AI + OPC 相关政策、案例与来源资料，帮助创业者快速定位地区机会、政策支持与可参考案例。
+              汇聚 AI + OPC 相关政策、案例与可信资料。<br />
+              帮助创业者快速发现地区机遇、政策支持与可参考的案例。
             </p>
             <div class="archive-hero-actions">
               <RouterLink class="button prisma-primary-cta" to="/policies">
@@ -108,7 +117,7 @@
         </div>
       </div>
 
-      <a class="home-scroll-cue" href="#home-data-view" aria-label="跳转到资料工作流"></a>
+      <a class="home-scroll-cue" href="#home-data-view" aria-label="跳转到资料工作台"></a>
     </section>
 
     <section class="prisma-about" aria-labelledby="prisma-about-title">
@@ -117,11 +126,6 @@
           <WordsPullUpMultiStyle :segments="aboutSegments" />
         </h2>
         <AnimatedLetters :text="aboutBody" />
-        <div class="archive-hero-proof prisma-about-proof" aria-label="平台核心能力">
-          <span>地区分类检索</span>
-          <span>来源出处追溯</span>
-          <span>摘要标签分析</span>
-        </div>
       </div>
     </section>
 
@@ -155,10 +159,10 @@
             ></video>
           </div>
           <div class="prisma-feature-video-gradient" aria-hidden="true"></div>
-          <strong>你的智能创业研究画布。</strong>
+          <strong>您的智能创业研究画布。</strong>
         </article>
 
-        <article class="prisma-feature-card scroll-reveal" style="--feature-index: 1">
+        <RouterLink class="prisma-feature-card prisma-feature-card--link scroll-reveal" style="--feature-index: 1" to="/policies">
           <img
             class="prisma-feature-icon"
             src="/media/solofirm-policy-index-icon.webp"
@@ -170,16 +174,16 @@
           </div>
           <ul>
             <li><Check :size="16" />按地区与政策类型筛选</li>
-            <li><Check :size="16" />标题、摘要与标签检索</li>
-            <li><Check :size="16" />政策原文与辅证链接</li>
-            <li><Check :size="16" />Excel 导出与点击热度</li>
+            <li><Check :size="16" />标题、摘要及标签检索</li>
+            <li><Check :size="16" />政策原文与佐证链接</li>
+            <li><Check :size="16" />数据导出与热度排行</li>
           </ul>
-          <RouterLink class="prisma-learn-link" to="/policies">
+          <span class="prisma-learn-link" aria-hidden="true">
             <span>进入政策库</span><ArrowRight :size="17" />
-          </RouterLink>
-        </article>
+          </span>
+        </RouterLink>
 
-        <article class="prisma-feature-card scroll-reveal" style="--feature-index: 2">
+        <RouterLink class="prisma-feature-card prisma-feature-card--link scroll-reveal" style="--feature-index: 2" to="/cases">
           <img
             class="prisma-feature-icon"
             src="/media/solofirm-case-insight-icon.webp"
@@ -191,15 +195,15 @@
           </div>
           <ul>
             <li><Check :size="16" />按地区、类型与关键词定位</li>
-            <li><Check :size="16" />商业模式与 AI 工具拆解</li>
-            <li><Check :size="16" />成果、主体与来源追溯</li>
+            <li><Check :size="16" />商业模式与 AI 智能体解析</li>
+            <li><Check :size="16" />成果归属与来源追溯</li>
           </ul>
-          <RouterLink class="prisma-learn-link" to="/cases">
+          <span class="prisma-learn-link" aria-hidden="true">
             <span>查看案例库</span><ArrowRight :size="17" />
-          </RouterLink>
-        </article>
+          </span>
+        </RouterLink>
 
-        <article class="prisma-feature-card scroll-reveal" style="--feature-index: 3">
+        <RouterLink class="prisma-feature-card prisma-feature-card--link scroll-reveal" style="--feature-index: 3" to="/sources">
           <img
             class="prisma-feature-icon"
             src="/media/solofirm-evidence-ledger-icon.webp"
@@ -210,25 +214,30 @@
             <span>03</span>
           </div>
           <ul>
-            <li><Check :size="16" />来源链接与访问日期留痕</li>
+            <li><Check :size="16" />来源链接与访问日期记录</li>
             <li><Check :size="16" />地区资料覆盖实时汇总</li>
-            <li><Check :size="16" />状态、文件与发布单位复核</li>
+            <li><Check :size="16" />状态、文件与发布单位一览</li>
           </ul>
-          <RouterLink class="prisma-learn-link" to="/sources">
-            <span>打开来源台账</span><ArrowRight :size="17" />
-          </RouterLink>
-        </article>
+          <span class="prisma-learn-link" aria-hidden="true">
+            <span>查看来源台账</span><ArrowRight :size="17" />
+          </span>
+        </RouterLink>
       </div>
 
     </section>
 
     <footer class="home-contact-footer scroll-reveal">
       <section class="home-contact-card" aria-labelledby="home-contact-title">
+        <div class="home-contact-folio" aria-hidden="true">
+          <span><i></i></span>
+          <span><i></i></span>
+          <span><i></i></span>
+        </div>
         <div>
           <span class="home-contact-kicker">CONTACT</span>
-          <h2 id="home-contact-title">联系我们，<span>共建 OPC 智能创业索引</span></h2>
+          <h2 id="home-contact-title">联系我们，<span>共建 AI + OPC 创业索引</span></h2>
           <p>
-            如果你关注一人公司、AI 创业、政策资料整理或案例共建，欢迎通过以下方式与我们联系。
+            如您关注一人公司、AI 创业、政策信息索引或案例共建，欢迎通过以下方式与我们联系。
           </p>
 
           <div class="home-contact-methods" aria-label="联系方式">
@@ -260,7 +269,12 @@
             <BrandMark />
             <strong>SoloFirm</strong>
           </div>
-          <p>聚合 AI + OPC 相关政策、案例与来源资料，帮助创业者和研究者更快理解一人公司的机会结构。</p>
+          <p class="home-footer-summary">汇聚 AI + OPC 相关政策、案例与来源资料，助力创业者发现区域机遇与可溯源的创业方向。</p>
+          <p class="home-footer-legal">
+            Copyright © 2026
+            <a href="https://findopc.online/">SoloFirm®</a>
+            - All rights reserved
+          </p>
         </div>
 
         <div class="home-footer-contact">
@@ -314,15 +328,15 @@ const featureVideoFadeLead = 1.7
 const aboutSegments = [
   { text: 'SoloFirm，', className: 'prisma-about-normal' },
   { text: '一人公司的智能创业索引。', className: 'prisma-about-serif' },
-  { text: '汇聚政策、案例、来源与地区数据。', className: 'prisma-about-normal prisma-about-subtitle' },
+  { text: '汇聚政策、案例、数据来源与区域信息。', className: 'prisma-about-normal prisma-about-subtitle' },
 ]
 
 const aboutBody =
-  '围绕 AI + OPC 与一人公司创业，我们把分散的政策、案例和来源资料整理为可检索、可比较、可回到原始出处复核的公开索引。新增记录会随接口数据同步进入分析视图。'
+  '围绕 AI + OPC 及一人公司创业场景，我们构建了全国政策、案例与来源资料的公开索引。支持快速检索、横向比较，并可一键回查原始文件。'
 
 const featureHeadingSegments = [
-  { text: '面向创业者与研究者的资料工作流。', className: 'prisma-feature-heading-primary' },
-  { text: '从地区机会出发，沿证据回到原始出处。', className: 'prisma-feature-heading-muted' },
+  { text: '面向创业者与研究者的资料工作台。', className: 'prisma-feature-heading-primary' },
+  { text: '从地区机遇出发，结合案例与政策，发现可溯源的创业方向。', className: 'prisma-feature-heading-muted' },
 ]
 
 async function handleAccountButtonClick(event) {

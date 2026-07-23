@@ -8,6 +8,14 @@ export function getCaseDetail(id) {
   return request.get(`/public/cases/${id}`)
 }
 
+export function getAdminCases(params = {}) {
+  return request.get('/admin/cases', { params })
+}
+
+export function getAdminCaseDetail(id) {
+  return request.get(`/admin/cases/${id}`)
+}
+
 export function createCase(data) {
   return request.post('/admin/cases', data)
 }

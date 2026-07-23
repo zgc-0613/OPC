@@ -18,8 +18,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .addPathPatterns("/api/admin/**")
                 .excludePathPatterns(
                         "/api/admin/auth/login",
-                        "/api/admin/auth/register-request",
-                        "/api/admin/export/policies.xlsx"
+                        "/api/admin/auth/register-request"
                 );
     }
 }

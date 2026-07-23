@@ -28,6 +28,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CaseItemService {
 
+    private static final String PUBLISHED_STATUS = "published";
+
     private final CaseItemMapper caseItemMapper;
 
     private final RegionMapper regionMapper;
@@ -76,9 +78,31 @@ public class CaseItemService {
                 .toList();
     }
 
+    public List<CaseItemListVO> listPublicCaseItems(CaseItemQueryDTO query) {
+        CaseItemQueryDTO publicQuery = new CaseItemQueryDTO();
+        if (query != null) {
+            publicQuery.setKeyword(query.getKeyword());
+            publicQuery.setRegionId(query.getRegionId());
+            publicQuery.setCategory(query.getCategory());
+        }
+        publicQuery.setStatus(PUBLISHED_STATUS);
+        return listCaseItems(publicQuery);
+    }
+
     public CaseItemDetailVO getCaseItemDetail(Long id) {
         CaseItem caseItem = caseItemMapper.selectById(id);
         if (caseItem == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
+        }
+
+        Region region = regionMapper.selectById(caseItem.getRegionId());
+        Source source = sourceMapper.selectById(caseItem.getSourceId());
+        return toDetailVO(caseItem, region, source);
+    }
+
+    public CaseItemDetailVO getPublicCaseItemDetail(Long id) {
+        CaseItem caseItem = caseItemMapper.selectById(id);
+        if (caseItem == null || !PUBLISHED_STATUS.equals(caseItem.getStatus())) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
         }
 
@@ -112,6 +136,7 @@ public class CaseItemService {
         caseItem.setAccessedAt(dto.getAccessedAt());
         caseItem.setStatus(dto.getStatus());
         caseItem.setReviewer(dto.getReviewer());
+        caseItem.setAiEvidenceStatus(normalizeEvidenceStatus(dto.getAiEvidenceStatus(), "legacy_unverified"));
     }
 
     private void copyUpdateFields(CaseItemUpdateDTO dto, CaseItem caseItem) {
@@ -130,6 +155,7 @@ public class CaseItemService {
         caseItem.setAccessedAt(dto.getAccessedAt());
         caseItem.setStatus(dto.getStatus());
         caseItem.setReviewer(dto.getReviewer());
+        caseItem.setAiEvidenceStatus(normalizeEvidenceStatus(dto.getAiEvidenceStatus(), caseItem.getAiEvidenceStatus()));
     }
 
     private LambdaQueryWrapper<CaseItem> buildQueryWrapper(CaseItemQueryDTO query) {
@@ -201,6 +227,7 @@ public class CaseItemService {
         vo.setTags(caseItem.getTags());
         vo.setAccessedAt(caseItem.getAccessedAt());
         vo.setStatus(caseItem.getStatus());
+        vo.setAiEvidenceStatus(caseItem.getAiEvidenceStatus());
         return vo;
     }
 
@@ -224,6 +251,11 @@ public class CaseItemService {
         vo.setAccessedAt(caseItem.getAccessedAt());
         vo.setStatus(caseItem.getStatus());
         vo.setReviewer(caseItem.getReviewer());
+        vo.setAiEvidenceStatus(caseItem.getAiEvidenceStatus());
         return vo;
+    }
+
+    private String normalizeEvidenceStatus(String requested, String fallback) {
+        return StringUtils.hasText(requested) ? requested.trim() : fallback;
     }
 }

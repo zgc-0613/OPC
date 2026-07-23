@@ -42,4 +42,6 @@ public class PolicyListVO {
     private LocalDate accessedAt;
 
     private String status;
+
+    private String aiEvidenceStatus;
 }

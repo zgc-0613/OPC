@@ -1,5 +1,5 @@
 export function exportPolicies() {
-  window.open('/api/admin/export/policies.xlsx', '_blank')
+  window.open('/api/public/export/policies.xlsx', '_blank')
 }
 
 export function exportCases() {

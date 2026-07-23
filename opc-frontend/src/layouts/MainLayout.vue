@@ -105,6 +105,23 @@
           <small>Source ledger</small>
         </RouterLink>
       </nav>
+
+      <div class="archive-sidebar-foot">
+        <RouterLink
+          class="archive-account-entry"
+          :class="{ 'is-authenticated': userLoggedIn }"
+          :to="accountEntryTarget"
+          :aria-label="userLoggedIn ? '进入个人主页' : '登录后进入个人主页'"
+          :title="userLoggedIn ? '进入个人主页' : '登录后进入个人主页'"
+          @click="mobileSidebarOpen = false"
+        >
+          <UserRound :size="20" :stroke-width="1.7" aria-hidden="true" />
+          <span class="archive-account-copy">
+            <strong>个人主页</strong>
+            <small>{{ userLoggedIn ? 'Personal account' : 'Login required' }}</small>
+          </span>
+        </RouterLink>
+      </div>
     </aside>
 
     <main class="main archive-main">
@@ -113,7 +130,7 @@
           <h1>{{ routeTitle }}</h1>
           <p>{{ routeSubtitle }}</p>
         </div>
-        <div class="topbar-status">
+        <div v-if="route.name !== 'analysis-overview'" class="topbar-status">
           <span></span>
           公开索引模式
         </div>
@@ -140,8 +157,9 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowUp } from 'lucide-vue-next'
+import { ArrowUp, UserRound } from 'lucide-vue-next'
 import BrandMark from '@/components/BrandMark.vue'
+import { isUserAuthenticated } from '@/api/auth'
 
 const route = useRoute()
 
@@ -150,6 +168,8 @@ const sidebarCollapsed = ref(false)
 const mobileSidebarOpen = ref(false)
 const showBackToTop = ref(false)
 const routeClass = computed(() => (route.name ? `route-${route.name}` : ''))
+const userLoggedIn = computed(() => Boolean(route.fullPath) && isUserAuthenticated())
+const accountEntryTarget = computed(() => (userLoggedIn.value ? '/account' : '/login'))
 
 watch(
   () => route.fullPath,

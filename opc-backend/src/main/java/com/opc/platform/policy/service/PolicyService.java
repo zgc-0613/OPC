@@ -38,6 +38,8 @@ public class PolicyService {
 
     private static final String POLICY_TAG_TYPE = "policy";
 
+    private static final String PUBLISHED_STATUS = "published";
+
     private final PolicyMapper policyMapper;
 
     private final RegionMapper regionMapper;
@@ -97,9 +99,31 @@ public class PolicyService {
                 .toList();
     }
 
+    public List<PolicyListVO> listPublicPolicies(PolicyQueryDTO query) {
+        PolicyQueryDTO publicQuery = new PolicyQueryDTO();
+        if (query != null) {
+            publicQuery.setKeyword(query.getKeyword());
+            publicQuery.setRegionId(query.getRegionId());
+            publicQuery.setPolicyType(query.getPolicyType());
+        }
+        publicQuery.setStatus(PUBLISHED_STATUS);
+        return listPolicies(publicQuery);
+    }
+
     public PolicyDetailVO getPolicyDetail(Long id) {
         Policy policy = policyMapper.selectById(id);
         if (policy == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
+        }
+
+        Region region = regionMapper.selectById(policy.getRegionId());
+        Source source = sourceMapper.selectById(policy.getSourceId());
+        return toDetailVO(policy, region, source);
+    }
+
+    public PolicyDetailVO getPublicPolicyDetail(Long id) {
+        Policy policy = policyMapper.selectById(id);
+        if (policy == null || !PUBLISHED_STATUS.equals(policy.getStatus())) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
         }
 
@@ -138,6 +162,7 @@ public class PolicyService {
         policy.setAccessedAt(dto.getAccessedAt());
         policy.setStatus(dto.getStatus());
         policy.setReviewer(dto.getReviewer());
+        policy.setAiEvidenceStatus(normalizeEvidenceStatus(dto.getAiEvidenceStatus(), "legacy_unverified"));
     }
 
     private void copyUpdateFields(PolicyUpdateDTO dto, Policy policy) {
@@ -161,6 +186,7 @@ public class PolicyService {
         policy.setAccessedAt(dto.getAccessedAt());
         policy.setStatus(dto.getStatus());
         policy.setReviewer(dto.getReviewer());
+        policy.setAiEvidenceStatus(normalizeEvidenceStatus(dto.getAiEvidenceStatus(), policy.getAiEvidenceStatus()));
     }
 
     private LambdaQueryWrapper<Policy> buildQueryWrapper(PolicyQueryDTO query) {
@@ -236,6 +262,7 @@ public class PolicyService {
         vo.setEvidenceUrl(policy.getEvidenceUrl());
         vo.setAccessedAt(policy.getAccessedAt());
         vo.setStatus(policy.getStatus());
+        vo.setAiEvidenceStatus(policy.getAiEvidenceStatus());
         return vo;
     }
 
@@ -264,7 +291,12 @@ public class PolicyService {
         vo.setAccessedAt(policy.getAccessedAt());
         vo.setStatus(policy.getStatus());
         vo.setReviewer(policy.getReviewer());
+        vo.setAiEvidenceStatus(policy.getAiEvidenceStatus());
         return vo;
+    }
+
+    private String normalizeEvidenceStatus(String requested, String fallback) {
+        return StringUtils.hasText(requested) ? requested.trim() : fallback;
     }
 
     private void syncPolicyTags(Long policyId, String tagsText) {

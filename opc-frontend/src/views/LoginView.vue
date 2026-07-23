@@ -26,6 +26,8 @@
         <p>{{ modeDescription }}</p>
       </div>
 
+      <p v-if="accessNotice" class="login-access-notice" role="status">{{ accessNotice }}</p>
+
       <div v-if="currentUser" class="login-status-card">
         <strong>{{ currentUser.username }}</strong>
         <span>{{ currentUser.email }}</span>
@@ -147,9 +149,10 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { CheckCircle, Eye, EyeOff, RotateCcw } from 'lucide-vue-next'
 import BrandMark from '@/components/BrandMark.vue'
+import { showAuthSuccessTransition } from '@/utils/authTransition'
 import {
   getUserProfile,
   getAltchaConfig,
@@ -161,7 +164,10 @@ import {
 } from '@/api/auth'
 
 const route = useRoute()
-const router = useRouter()
+const accessNotice = computed(() => route.query.reason === 'ai-login-required'
+  ? '请先登录后使用智能体案例分析。登录完成后将返回原页面。'
+  : '')
+
 const form = ref({
   identifier: '',
   username: '',
@@ -319,9 +325,9 @@ async function submitAuth() {
         email: form.value.email,
         password: form.value.password,
         code: form.value.code,
-      })
+    })
     currentUser.value = getUserProfile() || user
-    router.replace(route.query.redirect || '/')
+    showAuthSuccessTransition(authMode.value, '/')
   } catch (err) {
     error.value = err.message || (authMode.value === 'login' ? '登录失败，请检查账号和密码' : '注册失败，请检查填写内容')
   } finally {

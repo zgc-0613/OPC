@@ -63,3 +63,22 @@ export function getAdminAccounts() {
 export function deleteAdminAccount(id) {
   return request.delete(`/admin/accounts/${id}`)
 }
+
+export function getAiSettings() {
+  return request.get('/admin/ai-settings')
+}
+
+export function updateAiSettings(payload) {
+  return request.put('/admin/ai-settings', payload)
+}
+
+export function discoverAiModels(payload) {
+  const timeoutSeconds = Number(payload?.timeoutSeconds) || 30
+  return request.post('/admin/ai-settings/models/discover', payload, {
+    timeout: Math.max(15000, timeoutSeconds * 1000 + 5000),
+  })
+}
+
+export function testAiConnection() {
+  return request.post('/admin/ai-settings/test-connection')
+}

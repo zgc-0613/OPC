@@ -19,6 +19,6 @@ public class SourceController {
 
     @GetMapping
     public Result<List<SourceVO>> listSources() {
-        return Result.success(sourceService.listSources());
+        return Result.success(sourceService.listPublicSources());
     }
 }

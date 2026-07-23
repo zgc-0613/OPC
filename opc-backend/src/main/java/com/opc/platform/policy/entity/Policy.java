@@ -55,6 +55,8 @@ public class Policy {
 
     private String reviewer;
 
+    private String aiEvidenceStatus;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

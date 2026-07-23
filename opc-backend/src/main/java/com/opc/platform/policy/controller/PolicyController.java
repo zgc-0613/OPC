@@ -23,11 +23,11 @@ public class PolicyController {
 
     @GetMapping
     public Result<List<PolicyListVO>> listPolicies(@ModelAttribute PolicyQueryDTO query) {
-        return Result.success(policyService.listPolicies(query));
+        return Result.success(policyService.listPublicPolicies(query));
     }
 
     @GetMapping("/{id}")
     public Result<PolicyDetailVO> getPolicyDetail(@PathVariable Long id) {
-        return Result.success(policyService.getPolicyDetail(id));
+        return Result.success(policyService.getPublicPolicyDetail(id));
     }
 }

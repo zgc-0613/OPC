@@ -264,3 +264,51 @@
 - Backend `clean package` passed 22 tests; frontend production build passed with 1,671 transformed modules.
 - Full release deployed at `/opt/opc/releases/20260719-033330`; final frontend follow-up deployed at `/opt/opc/releases/20260719-034543/frontend`.
 - Per user preference, subsequent releases should be uploaded immediately after a successful build; browser acceptance is user-operated unless explicitly requested.
+
+## Trusted Data And AI Platform Foundation (2026-07-23)
+- **Status:** in_progress
+- Initialized `.codegraph/` with `codegraph init -i` in the canonical OPC workspace.
+- Indexed 182 files into 3,423 structural nodes and 7,045 edges.
+- Confirmed `.gitignore` already excludes `.codegraph/`; no generated index file is tracked or listed by Git.
+- Reviewed the revised dual-agent execution proposal against the actual Vue/Spring repository and `AI_READINESS.md`.
+- Confirmed the first regression seams: authenticated policy export and authenticated, evidence-limited AI APIs.
+- Began Phase 13 with one visible research assistant, provider-neutral server adapters, deterministic analytics, and governed ingestion as the architectural boundaries.
+- Used CodeGraph to trace the complete policy export and user-session validation paths before editing.
+- Added focused red/green coverage for administrator export authorization, public export routing, and published-only Excel content.
+- Targeted export suite passes: 4 tests, 0 failures, 0 errors.
+- Added `docs/baseline-audit.md` with the actual repository/deployment baseline, API matrix, data gaps, AI boundary, and verification gates.
+- Added `AiClient`, immutable provider request/response/descriptor contracts, disabled and deterministic fake providers, and `SERVICE_UNAVAILABLE` handling.
+- Added authenticated `GET /api/ai/capabilities`; anonymous requests return the existing 401 result and authenticated responses expose only safe readiness metadata.
+- Focused AI tests pass: 6 tests, 0 failures, 0 errors.
+- Full backend test suite passes: 48 tests, 0 failures, 0 errors.
+- Frontend production build passes with 1,684 transformed modules.
+- CodeGraph sync completed after the AI additions; the `AiClient` impact query reports only the expected provider, controller, configuration, and test symbols.
+- The first production AI probe found a Spring Security ordering gap (HTTP 403 before the user-session interceptor). Added `/api/ai/**` to the permit list, extended the capabilities test with the real security filter chain, and confirmed the test is green.
+- Rebuilt the backend after the security fix: full package and all 48 tests passed.
+- Deployed release `20260723-233915` with timestamped database/config/frontend/backend backups and verified SHA-256 uploads.
+- Production smoke checks passed for public routes and APIs; anonymous `/api/ai/capabilities` returns application code 401 instead of HTTP 403.
+- **Deployment status:** complete at `https://findopc.online` and `https://admin.findopc.online`.
+
+## AI Case Analysis Phase One (2026-07-24)
+- **Status:** complete and deployed in disabled-provider mode.
+- Added administrator `/api/admin/ai-settings` read/update/test endpoints with administrator identity audit records.
+- Provider API Keys use versioned AES-256-GCM ciphertext; the server master key is stored only in `/etc/opc-backend.env` as `OPC_AI_SETTINGS_MASTER_KEY`.
+- Added database-backed runtime provider switching, OpenAI-compatible chat-completions mapping, low-cost connection tests, timeout/retry controls, safe upstream errors, token usage, latency, and request-ID capture.
+- Production cannot activate `FakeAiClient`; fake mode requires the explicit test-only `opc.ai.allow-fake=true` gate.
+- Added `ai_evidence_status` to cases, policies, and sources. Historical rows remain `legacy_unverified`; administrators can explicitly mark reviewed records `verified` or `excluded`.
+- Added `POST /api/ai/case-analysis` with backend-owned evidence loading, published/verified gating, quota and concurrent-run protection, strict JSON/citation validation, persisted results, and explicit evidence-insufficient responses.
+- Added a standalone protected `/cases/:id/analysis` page without adding a homepage or case-detail entry, plus the administrator `智能体模型` Prisma settings surface.
+- Verification: 64 backend tests passed; frontend Vite build passed with 1,687 modules; `git diff --check` and deployment-script syntax passed; CodeGraph is current at 240 files / 4,511 nodes / 8,800 edges.
+- Production release: `/opt/opc/releases/20260724-024039`; backup: `/opt/opc/backups/20260724-024039`; rollback frontend: `/var/www/opc.rollback.20260724-024039`; rollback backend: `/opt/opc-backend.rollback.20260724-024039`.
+- Production checks: public/admin routes and health return 200; anonymous AI/admin settings calls return 401; administrator AI settings are readable, secret-free, `encryptionReady=true`, `enabled=false`, and `apiKeyConfigured=false`.
+- Remaining operator input: exact official API Base URL, exact DeepSeek V4 Flash Model ID, and a real provider API Key.
+
+## Production Reverse Proxy And Service Hardening (2026-07-24)
+- **Status:** complete and deployed.
+- Added environment-controlled Spring binding, exact Nginx AI endpoint limits, and a hardened non-root systemd unit.
+- Added five deployment regression tests, including the production server's `[::ffff:127.0.0.1]:8082` mapped-loopback representation.
+- Backend package passed 64 tests; frontend Vite build passed with 1,687 modules; deployment tests and `git diff --check` passed.
+- Deployed release `/opt/opc/releases/20260724-030722` with backup `/opt/opc/backups/20260724-030722`.
+- Production uses the `opc` process user, loopback-only port 8082, `root:opc 0640` runtime configuration, and one Java process.
+- Public/admin routes return 200; anonymous AI/admin settings requests return business 401; provider remains disabled and API Key data is not exposed.
+- Direct-origin rate-limit verification returned six application responses followed by two Nginx 429 responses.

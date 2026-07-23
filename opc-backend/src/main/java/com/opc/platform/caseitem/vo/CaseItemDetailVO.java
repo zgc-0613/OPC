@@ -42,4 +42,6 @@ public class CaseItemDetailVO {
     private String status;
 
     private String reviewer;
+
+    private String aiEvidenceStatus;
 }

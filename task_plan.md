@@ -4,7 +4,7 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 11 (complete)
+Phase 13 (in progress)
 
 ## Phases
 
@@ -158,6 +158,14 @@ Phase 11 (complete)
 | A combined username-slot patch included task-plan context in a CSS hunk, then a planning update used stale multi-file context | 1 | Neither failed patch changed files; reapplied the Vue/CSS fix and planning updates using smaller file-local hunks. |
 | Paramiko hash comparison treated remote SHA-256 output as bytes and local hashes as strings | 1 | Confirmed every digest was textually identical, decoded remote output explicitly, and kept production unchanged until verification passed. |
 | The first frontend cutover gate required anonymous `/api/policies`, which returns the same 403 on the old deployment | 1 | Automatic rollback restored the old frontend; verified the 403 was pre-existing, then used static routes/assets plus backend service health as the frontend-only gate and redeployed successfully. |
+| Phase 13 planning update used a stale findings heading in a multi-file patch | 1 | No file changed; inspected each current file tail and reapplied exact file-local additions. |
+| Initial export-auth `@WebMvcTest` loaded the application's global MyBatis mapper scan and failed before reaching the HTTP assertion | 1 | Replaced the polluted Boot slice with a minimal `@EnableWebMvc` test context containing only the controller, interceptor, MVC config, exception handler, and mocked services. |
+| The first public-export test matcher could not infer MyBatis `Wrapper<Policy>` as `AbstractWrapper` | 1 | Kept the production-facing assertion and moved the concrete wrapper cast inside the typed Mockito predicate. |
+| The public-export wrapper predicate inspected MyBatis parameters before lazy SQL-segment rendering | 2 | Reused the repository's established `Wrapper<Policy>` helper pattern and called `getSqlSegment()` before checking bound values. |
+| The isolated export service test had no MyBatis-Plus Lambda metadata cache for `Policy` | 3 | Initialized `Policy` table metadata with `TableInfoHelper` in the test, matching what the Spring/MyBatis runtime normally provides. |
+| Mock servlet response appended `charset=UTF-8` to the Excel MIME type | 1 | Asserted the authoritative Excel MIME prefix while retaining workbook content and row-count assertions. |
+| PowerShell parsed the comma-separated Maven `-Dtest` selector as an expression | 1 | Quoted the complete `-Dtest=...` argument before rerunning the targeted test set. |
+| `@RequestAttribute` rejected a runtime-computed interceptor attribute name | 1 | Replaced `Class.getName()` concatenation with the stable compile-time key `opc.authenticatedUser`. |
 
 ## Login Alignment Follow-up (2026-07-18)
 - [x] Remove `SOLOFIRM ACCOUNT`, `Policy / Case / Insight`, and `USER ACCESS` from the user login page.
@@ -184,4 +192,48 @@ Phase 11 (complete)
 - [x] Remove the About frame and unify the contact typography/information layout.
 - [x] Fix ALTCHA width, checkbox geometry, proof-reset semantics, and final registration submission.
 - [x] Build, package, deploy, preserve rollback artifacts, and remove temporary production QA data.
+- **Status:** complete
+
+### Phase 13: Trusted Data And AI Platform Foundation
+- [x] Initialize the repository CodeGraph structural index
+- [x] Confirm the generated `.codegraph/` directory is ignored by Git
+- [x] Freeze the actual deployed baseline and current API/status matrix
+- [x] Close the anonymous policy-export authorization gap with a regression test
+- [x] Define the provider-neutral AI boundary, evidence contract, user-auth seam, and failure modes
+- [x] Add the first disabled/fake provider foundation without exposing provider secrets to Vue
+- [x] Add the authenticated `/api/ai/capabilities` readiness endpoint
+- [x] Run the full backend tests and frontend production build
+- [x] Deploy the completed foundation with timestamped backup and rollback artifacts
+- **Status:** complete
+
+## Phase 13 Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Deliver one visible `SoloFirm 研究助手` with capability modes | The product should feel like one coherent research tool, not several unrelated bots. |
+| Make evidence-aware case analysis the first AI vertical slice | Current published case/source data can support a manually verified golden set; broad chat and revenue analytics cannot yet make trustworthy claims. |
+| Keep deterministic analytics and scoring outside the model | Counts, rankings, coverage, and technical scores must be reproducible and testable. |
+| Put all model access behind a backend `AiClient`/provider adapter | Vue must never contain provider keys, Bot IDs, or provider-specific request contracts. |
+| Treat ingestion as a governed pipeline rather than a public chat agent | Raw artifacts, extraction candidates, human review, revisions, and publication require explicit state and auditability. |
+
+### Phase 14: Real Case Analysis Vertical Slice
+- [x] Add database-backed, audited AI model settings with AES-GCM provider-key encryption.
+- [x] Add a managed OpenAI-compatible provider with timeout, bounded retries, usage metadata, request IDs, and safe failures.
+- [x] Keep fake provider behind an explicit test-only gate and preserve the disabled provider.
+- [x] Add published-and-verified evidence eligibility for cases, policies, and sources.
+- [x] Add authenticated, quota-limited, concurrency-protected `POST /api/ai/case-analysis`.
+- [x] Validate structured model output and citations against backend-loaded source records.
+- [x] Add the Prisma administrator model-settings tab and standalone protected case-analysis page.
+- [x] Pass 64 backend tests, frontend production build, CodeGraph sync, and `git diff --check`.
+- [x] Deploy with timestamped backup/rollback artifacts and verify the disabled production state.
+- **Status:** complete
+
+### Phase 15: Production Reverse Proxy And Service Hardening
+- [x] Make the Spring listener address environment-configurable and bind production to loopback.
+- [x] Add a bounded, rate-limited exact Nginx proxy for `POST /api/ai/case-analysis` on both hosts.
+- [x] Run the backend under the no-login `opc` system account with systemd sandbox restrictions.
+- [x] Protect runtime configuration with `root:opc` ownership and mode `0640`.
+- [x] Extend deployment backups, checksum checks, unit installation, rollback, and runtime audits.
+- [x] Add deployment regression coverage for wildcard, native loopback, and IPv4-mapped IPv6 listeners.
+- [x] Pass backend tests, frontend production build, deployment tests, and `git diff --check`.
+- [x] Deploy release `20260724-030722` and independently verify Nginx, auth, rate limiting, and external port closure.
 - **Status:** complete

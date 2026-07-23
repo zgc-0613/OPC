@@ -67,6 +67,14 @@
           <span>校对人</span>
           <input v-model.trim="form.reviewer" />
         </label>
+        <label>
+          <span>AI 证据资格</span>
+          <select v-model="form.aiEvidenceStatus">
+            <option value="legacy_unverified">待 AI 证据核验</option>
+            <option value="verified">已核验，可用于智能体</option>
+            <option value="excluded">排除，不用于智能体</option>
+          </select>
+        </label>
         <label class="span-3">
           <span>摘要 *</span>
           <textarea v-model.trim="form.summary" required rows="4"></textarea>
@@ -111,23 +119,66 @@
         <button class="button button-ghost" type="button" @click="loadCases">刷新</button>
       </div>
 
+      <AdminBulkStatusToolbar
+        v-if="cases.length"
+        v-model="bulkStatus"
+        :busy="bulkUpdating"
+        :options="caseStatusOptions"
+        :selected-count="selectedCaseCount"
+        @apply="applyBulkStatus"
+        @clear="clearCaseSelection"
+      />
+      <p v-if="bulkMessage" class="success admin-bulk-notice" role="status">{{ bulkMessage }}</p>
+      <p v-if="bulkError" class="error admin-bulk-notice" role="alert">{{ bulkError }}</p>
+
       <div v-if="loading" class="muted">正在加载案例...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="table-wrap">
-        <table>
+        <table class="admin-resizable-table">
+          <colgroup>
+            <col
+              v-for="column in caseTableColumns"
+              :key="column.key"
+              :style="{ width: `${caseColumnPercentages[column.key]}%` }"
+            />
+          </colgroup>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>标题</th>
-              <th>地区</th>
-              <th>领域</th>
-              <th>主体</th>
-              <th>状态</th>
+              <th class="admin-select-column">
+                <input
+                  class="admin-table-checkbox"
+                  type="checkbox"
+                  :checked="allCasesSelected"
+                  :indeterminate.prop="someCasesSelected"
+                  aria-label="选择全部案例"
+                  @change="toggleAllCases($event.target.checked)"
+                />
+              </th>
+              <SortableTableHeader
+                v-for="column in caseSortableColumns"
+                :key="column.key"
+                :label="column.label"
+                :column="column.key"
+                :active-column="caseSortColumn"
+                :direction="caseSortDirection"
+                @toggle="toggleCaseSort"
+                @resize-start="startCaseColumnResize"
+                @resize-by="resizeCaseColumn"
+              />
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in cases" :key="item.id">
+            <tr v-for="item in sortedCases" :key="item.id" :class="{ 'is-selected': selectedCaseIds.has(item.id) }">
+              <td class="admin-select-column">
+                <input
+                  class="admin-table-checkbox"
+                  type="checkbox"
+                  :checked="selectedCaseIds.has(item.id)"
+                  :aria-label="`选择案例 ${item.title}`"
+                  @change="toggleCaseRow(item.id, $event.target.checked)"
+                />
+              </td>
               <td>{{ item.id }}</td>
               <td>{{ item.title }}</td>
               <td>{{ item.regionName || '-' }}</td>
@@ -151,9 +202,13 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ArrowUpRight } from 'lucide-vue-next'
-import { createCase, deleteCase, getCaseDetail, getCases, updateCase } from '@/api/case'
+import AdminBulkStatusToolbar from '@/components/AdminBulkStatusToolbar.vue'
+import SortableTableHeader from '@/components/SortableTableHeader.vue'
+import { createCase, deleteCase, getAdminCaseDetail, getAdminCases, updateCase } from '@/api/case'
 import { getRegions } from '@/api/region'
-import { getSources, resolveSourcePlaceholder } from '@/api/source'
+import { getAdminSources, resolveSourcePlaceholder } from '@/api/source'
+import { useAdminTableControls } from '@/composables/useAdminTableControls'
+import { useResizableColumns } from '@/composables/useResizableColumns'
 
 const today = new Date().toISOString().slice(0, 10)
 const loading = ref(false)
@@ -163,6 +218,30 @@ const regions = ref([])
 const sources = ref([])
 const editingId = ref(null)
 const sourceValidationError = ref('')
+const bulkStatus = ref('')
+const bulkUpdating = ref(false)
+const bulkMessage = ref('')
+const bulkError = ref('')
+
+const caseStatusOptions = [
+  { value: 'published', label: '已发布' },
+  { value: 'draft', label: '草稿' },
+  { value: 'pending', label: '待校对' },
+  { value: 'archived', label: '归档' },
+]
+const caseSortableColumns = [
+  { key: 'id', label: 'ID', width: 72, minWidth: 58, maxWidth: 150 },
+  { key: 'title', label: '标题', width: 340, minWidth: 180, maxWidth: 620 },
+  { key: 'regionName', label: '地区', width: 120, minWidth: 90, maxWidth: 260 },
+  { key: 'category', label: '领域', width: 190, minWidth: 120, maxWidth: 360 },
+  { key: 'actorName', label: '主体', width: 240, minWidth: 140, maxWidth: 460 },
+  { key: 'status', label: '状态', width: 112, minWidth: 90, maxWidth: 220 },
+]
+const caseTableColumns = [
+  { key: 'selection', width: 46, minWidth: 46, maxWidth: 46, resizable: false },
+  ...caseSortableColumns,
+  { key: 'actions', width: 112, minWidth: 90, maxWidth: 180, resizable: false },
+]
 
 const defaultForm = () => ({
   title: '',
@@ -181,15 +260,35 @@ const defaultForm = () => ({
   accessedAt: today,
   status: 'published',
   reviewer: '',
+  aiEvidenceStatus: 'legacy_unverified',
 })
 
 const form = reactive(defaultForm())
+const {
+  allSelected: allCasesSelected,
+  clearSelection: clearCaseSelection,
+  replaceSelection: replaceCaseSelection,
+  selectedCount: selectedCaseCount,
+  selectedIds: selectedCaseIds,
+  someSelected: someCasesSelected,
+  sortColumn: caseSortColumn,
+  sortDirection: caseSortDirection,
+  sortedItems: sortedCases,
+  toggleAll: toggleAllCases,
+  toggleRow: toggleCaseRow,
+  toggleSort: toggleCaseSort,
+} = useAdminTableControls(cases)
+const {
+  columnPercentages: caseColumnPercentages,
+  resizeBy: resizeCaseColumn,
+  startResize: startCaseColumnResize,
+} = useResizableColumns('opc-admin-case-column-widths-v2', caseTableColumns)
 
 async function loadCases() {
   loading.value = true
   error.value = ''
   try {
-    cases.value = await getCases()
+    cases.value = await getAdminCases()
   } catch (err) {
     error.value = err.message || '案例加载失败'
   } finally {
@@ -204,7 +303,7 @@ function resetForm() {
 }
 
 async function startEdit(item) {
-  const detail = await getCaseDetail(item.id)
+  const detail = await getAdminCaseDetail(item.id)
   editingId.value = detail.id
   Object.assign(form, {
     ...defaultForm(),
@@ -224,7 +323,7 @@ function toPayload(sourceId) {
 }
 
 async function resolveSourceId() {
-  sources.value = await getSources()
+  sources.value = await getAdminSources()
   const resolution = await resolveSourcePlaceholder(sources.value, form.sourceTitle, {
     publisher: form.actorName,
     url: form.originalUrl,
@@ -277,11 +376,60 @@ async function removeCase(item) {
   await loadCases()
 }
 
+function caseDetailPayload(detail, status) {
+  return {
+    title: detail.title,
+    regionId: Number(detail.regionId),
+    category: detail.category,
+    actorName: detail.actorName || '',
+    sourceId: Number(detail.sourceId),
+    summary: detail.summary,
+    businessModel: detail.businessModel || '',
+    aiTools: detail.aiTools || '',
+    outcome: detail.outcome || '',
+    tags: detail.tags || '',
+    originalUrl: detail.originalUrl || '',
+    localFile: detail.localFile || '',
+    accessedAt: detail.accessedAt || today,
+    status,
+    reviewer: detail.reviewer || '',
+    aiEvidenceStatus: detail.aiEvidenceStatus || 'legacy_unverified',
+  }
+}
+
+async function applyBulkStatus() {
+  const ids = [...selectedCaseIds.value]
+  if (!ids.length || !bulkStatus.value || bulkUpdating.value) {
+    return
+  }
+
+  bulkUpdating.value = true
+  bulkMessage.value = ''
+  bulkError.value = ''
+  const results = await Promise.allSettled(ids.map(async (id) => {
+    const detail = await getAdminCaseDetail(id)
+    await updateCase(id, caseDetailPayload(detail, bulkStatus.value))
+    return id
+  }))
+  const failedIds = results.flatMap((result, index) => (result.status === 'rejected' ? [ids[index]] : []))
+  const updatedCount = ids.length - failedIds.length
+
+  await loadCases()
+  replaceCaseSelection(failedIds)
+  bulkStatus.value = ''
+  bulkUpdating.value = false
+  if (failedIds.length) {
+    bulkError.value = `已更新 ${updatedCount} 项，另有 ${failedIds.length} 项失败；失败项已保留选择，可重试。`
+  } else {
+    bulkMessage.value = `已更新 ${updatedCount} 项案例状态。`
+  }
+}
+
 onMounted(async () => {
   loading.value = true
   error.value = ''
   try {
-    const [regionList, sourceList, caseList] = await Promise.all([getRegions(), getSources(), getCases()])
+    const [regionList, sourceList, caseList] = await Promise.all([getRegions(), getAdminSources(), getAdminCases()])
     regions.value = regionList
     sources.value = sourceList
     cases.value = caseList

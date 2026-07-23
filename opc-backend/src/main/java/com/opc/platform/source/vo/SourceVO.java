@@ -24,4 +24,6 @@ public class SourceVO {
     private String notes;
 
     private String status;
+
+    private String aiEvidenceStatus;
 }

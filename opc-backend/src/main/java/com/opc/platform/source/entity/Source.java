@@ -31,6 +31,8 @@ public class Source {
 
     private String status;
 
+    private String aiEvidenceStatus;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

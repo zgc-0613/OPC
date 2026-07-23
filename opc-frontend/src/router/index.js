@@ -11,6 +11,7 @@ import PolicyListView from '@/views/PolicyListView.vue'
 import PolicyDetailView from '@/views/PolicyDetailView.vue'
 import CaseListView from '@/views/CaseListView.vue'
 import CaseDetailView from '@/views/CaseDetailView.vue'
+import CaseAnalysisView from '@/views/CaseAnalysisView.vue'
 import SourceLedgerView from '@/views/SourceLedgerView.vue'
 import AdminHomeView from '@/views/admin/AdminHomeView.vue'
 import PolicyAdminView from '@/views/admin/PolicyAdminView.vue'
@@ -62,6 +63,15 @@ const routes = [
         name: 'case-detail',
         component: CaseDetailView,
         props: true,
+      },
+      {
+        path: 'cases/:id/analysis',
+        name: 'case-analysis',
+        component: CaseAnalysisView,
+        props: true,
+        meta: {
+          requiresUser: true,
+        },
       },
       {
         path: 'sources',
@@ -140,6 +150,7 @@ router.beforeEach((to) => {
       path: '/login',
       query: {
         redirect: to.fullPath,
+        reason: to.name === 'case-analysis' ? 'ai-login-required' : undefined,
       },
     }
   }

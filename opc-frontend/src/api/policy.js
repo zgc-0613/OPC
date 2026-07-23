@@ -8,6 +8,14 @@ export function getPolicyDetail(id) {
   return request.get(`/public/policies/${id}`)
 }
 
+export function getAdminPolicies(params = {}) {
+  return request.get('/admin/policies', { params })
+}
+
+export function getAdminPolicyDetail(id) {
+  return request.get(`/admin/policies/${id}`)
+}
+
 export function createPolicy(data) {
   return request.post('/admin/policies', data)
 }

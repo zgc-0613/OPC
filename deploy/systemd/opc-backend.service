@@ -1,0 +1,36 @@
+[Unit]
+Description=SoloFirm OPC Backend Service
+Wants=network-online.target
+After=network-online.target mysqld.service
+Requires=mysqld.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=/opt/opc
+EnvironmentFile=/etc/opc-backend.env
+ExecStart=/usr/bin/java -Xms128m -Xmx512m -jar /opt/opc-backend.jar --spring.config.location=file:/opt/opc/application.yaml
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=30
+UMask=0027
+LimitNOFILE=65535
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

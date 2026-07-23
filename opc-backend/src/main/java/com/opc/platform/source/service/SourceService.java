@@ -12,10 +12,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
 public class SourceService {
+
+    private static final String PUBLISHED_STATUS = "published";
 
     private final SourceMapper sourceMapper;
 
@@ -58,6 +61,19 @@ public class SourceService {
                 .toList();
     }
 
+    public List<SourceVO> listPublicSources() {
+        List<Source> sources = sourceMapper.selectList(
+                new LambdaQueryWrapper<Source>()
+                        .eq(Source::getStatus, PUBLISHED_STATUS)
+                        .orderByDesc(Source::getAccessedAt)
+                        .orderByDesc(Source::getId)
+        );
+
+        return sources.stream()
+                .map(this::toVO)
+                .toList();
+    }
+
     private void copyCreateFields(SourceCreateDTO dto, Source source) {
         source.setTitle(dto.getTitle().trim());
         source.setSourceType(dto.getSourceType());
@@ -67,6 +83,7 @@ public class SourceService {
         source.setAccessedAt(dto.getAccessedAt());
         source.setNotes(dto.getNotes());
         source.setStatus(dto.getStatus());
+        source.setAiEvidenceStatus(normalizeEvidenceStatus(dto.getAiEvidenceStatus(), "legacy_unverified"));
     }
 
     private void copyUpdateFields(SourceUpdateDTO dto, Source source) {
@@ -78,6 +95,7 @@ public class SourceService {
         source.setAccessedAt(dto.getAccessedAt());
         source.setNotes(dto.getNotes());
         source.setStatus(dto.getStatus());
+        source.setAiEvidenceStatus(normalizeEvidenceStatus(dto.getAiEvidenceStatus(), source.getAiEvidenceStatus()));
     }
 
     private void validateUniqueTitle(String title, Long excludedId) {
@@ -106,6 +124,11 @@ public class SourceService {
         vo.setAccessedAt(source.getAccessedAt());
         vo.setNotes(source.getNotes());
         vo.setStatus(source.getStatus());
+        vo.setAiEvidenceStatus(source.getAiEvidenceStatus());
         return vo;
+    }
+
+    private String normalizeEvidenceStatus(String requested, String fallback) {
+        return StringUtils.hasText(requested) ? requested.trim() : fallback;
     }
 }

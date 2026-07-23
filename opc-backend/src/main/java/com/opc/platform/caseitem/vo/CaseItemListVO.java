@@ -30,4 +30,6 @@ public class CaseItemListVO {
     private LocalDate accessedAt;
 
     private String status;
+
+    private String aiEvidenceStatus;
 }

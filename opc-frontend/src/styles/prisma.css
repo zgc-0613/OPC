@@ -654,6 +654,16 @@ body {
   }
 }
 
+.user-login-shell .login-access-notice {
+  margin: 0 0 18px;
+  padding: 12px 0;
+  border-top: 1px solid #cfd3ce;
+  border-bottom: 1px solid #cfd3ce;
+  color: #3f4640;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
 .prisma-feature-icon {
   width: 48px;
   height: 48px;
@@ -986,6 +996,75 @@ body {
   border-color: var(--prisma-border);
   background: var(--prisma-card);
   color: var(--prisma-text);
+}
+
+.archive-shell:not(.home-shell) .archive-sidebar-foot {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--prisma-border);
+}
+
+.archive-shell:not(.home-shell) .archive-account-entry {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  min-height: 58px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--prisma-muted);
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.archive-shell:not(.home-shell) .archive-account-entry > svg {
+  justify-self: center;
+}
+
+.archive-shell:not(.home-shell) .archive-account-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  color: inherit;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  text-transform: none;
+}
+
+.archive-shell:not(.home-shell) .archive-account-copy strong {
+  color: inherit;
+  font-size: 0.86rem;
+  line-height: 1.2;
+}
+
+.archive-shell:not(.home-shell) .archive-account-copy small {
+  overflow: hidden;
+  color: var(--prisma-quiet);
+  font-family: 'Bookman Old Style', Georgia, 'Times New Roman', serif;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-shell:not(.home-shell) .archive-account-entry:hover,
+.archive-shell:not(.home-shell) .archive-account-entry.router-link-active {
+  border-color: var(--prisma-border);
+  background: var(--prisma-card);
+  color: var(--prisma-text);
+}
+
+.archive-shell:not(.home-shell).sidebar-collapsed .archive-account-entry {
+  grid-template-columns: 1fr;
+  min-height: 52px;
+  justify-items: center;
+  padding: 8px 6px;
+}
+
+.archive-shell:not(.home-shell).sidebar-collapsed .archive-account-copy {
+  display: none;
 }
 
 .archive-shell:not(.home-shell) .archive-nav a.nav-active,
@@ -3236,6 +3315,199 @@ body:has(#app > .home-shell) {
   color: #4b514c !important;
 }
 
+.admin-shell .admin-bulk-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(170px, 220px) auto auto;
+  align-items: end;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 14px 0;
+  border-top: 1px solid #d0d4cf;
+  border-bottom: 1px solid #d0d4cf;
+}
+
+.admin-shell .admin-bulk-summary {
+  display: grid;
+  align-self: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.admin-shell .admin-bulk-summary strong {
+  color: #181a18;
+  font-size: 0.88rem;
+}
+
+.admin-shell .admin-bulk-summary span {
+  color: #626862;
+  font-size: 0.72rem;
+}
+
+.admin-shell .admin-bulk-toolbar label {
+  display: grid;
+  gap: 5px;
+}
+
+.admin-shell .admin-bulk-toolbar label > span {
+  color: #4b514c;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.admin-shell .admin-bulk-toolbar select,
+.admin-shell .admin-bulk-toolbar .button {
+  min-height: 42px !important;
+}
+
+.admin-shell .admin-bulk-toolbar .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.admin-shell .admin-bulk-notice {
+  margin: -6px 0 16px;
+}
+
+.admin-shell .admin-sort-button {
+  display: inline-flex;
+  width: 100%;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 3px 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #4b514c !important;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+
+.admin-shell .admin-sort-button svg {
+  flex: 0 0 auto;
+  color: #626862;
+}
+
+.admin-shell .admin-sort-button:hover,
+.admin-shell .admin-sort-button.is-active {
+  color: #111310 !important;
+}
+
+.admin-shell .admin-sort-button:hover svg,
+.admin-shell .admin-sort-button.is-active svg {
+  color: #111310;
+}
+
+.admin-shell .admin-select-column {
+  width: 46px;
+  min-width: 46px;
+  text-align: center;
+}
+
+.admin-shell .admin-resizable-table {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 840px;
+  table-layout: fixed;
+}
+
+.admin-shell .table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.admin-shell .admin-resizable-table :is(th, td) {
+  border-right: 1px solid #d0d4cf !important;
+  overflow-wrap: anywhere;
+}
+
+.admin-shell .admin-resizable-table td {
+  overflow: hidden;
+}
+
+.admin-shell .admin-resizable-table td :is(.chip, .status-pill) {
+  display: inline-flex;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-shell .admin-resizable-table :is(th, td):last-child {
+  border-right: 0 !important;
+}
+
+.admin-shell .admin-resizable-table th {
+  position: relative;
+}
+
+.admin-shell .admin-column-resizer {
+  position: absolute;
+  top: 0;
+  right: -6px;
+  bottom: 0;
+  z-index: 2;
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.admin-shell .admin-column-resizer::after {
+  position: absolute;
+  top: 18%;
+  right: 5px;
+  bottom: 18%;
+  width: 1px;
+  background: #aeb4ae;
+  content: '';
+  transition:
+    width 120ms ease,
+    background-color 120ms ease;
+}
+
+.admin-shell .admin-column-resizer:hover::after,
+.admin-shell .admin-column-resizer:focus-visible::after {
+  width: 2px;
+  background: #181a18;
+}
+
+.admin-shell .admin-column-resizer:focus-visible {
+  outline: 2px solid #181a18;
+  outline-offset: -2px;
+}
+
+body.is-resizing-admin-column,
+body.is-resizing-admin-column * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+.admin-shell .admin-table-checkbox {
+  width: 18px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 3px !important;
+  accent-color: #181a18;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+
+.admin-shell tbody tr.is-selected > td {
+  background: #eceeeb !important;
+}
+
 .admin-shell .admin-form {
   align-items: start;
 }
@@ -3500,6 +3772,15 @@ body:has(#app > .home-shell) {
   .admin-shell .admin-form :is(.span-2, .span-3) {
     grid-column: auto !important;
   }
+
+  .admin-shell .admin-bulk-toolbar {
+    grid-template-columns: 1fr !important;
+    align-items: stretch;
+  }
+
+  .admin-shell .admin-bulk-toolbar .button {
+    width: 100%;
+  }
 }
 
 /* Home navigation and brand lockup: one top boundary, one lower-left identity. */
@@ -3702,14 +3983,23 @@ body:has(#app > .home-shell) {
 
 .home-shell .prisma-account-label {
   display: inline-flex;
+  width: 100%;
   min-width: 0;
   align-items: baseline;
   white-space: nowrap;
 }
 
+.home-shell .prisma-account-label > span {
+  flex: 0 0 auto;
+}
+
 .home-shell .prisma-account-username {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
   color: inherit !important;
   font: inherit;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -3729,14 +4019,9 @@ body:has(#app > .home-shell) {
   font-size: 0.74rem !important;
 }
 
-.home-shell .prisma-login-cta.is-extra-long-account .prisma-account-username {
-  max-width: 12ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .home-shell .prisma-account-copy {
   display: inline-grid;
+  flex: 1 1 auto;
   min-width: 0;
   height: 1.35em;
   overflow: hidden;
@@ -3854,6 +4139,123 @@ body:has(#app > .home-shell) {
 
   .home-shell .prisma-account-login-notice::after {
     animation: none;
+  }
+}
+
+/* Authentication success remains mounted across the route change, then reveals the home page. */
+.auth-success-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: hidden;
+  background: rgba(241, 243, 239, 0.58);
+  color: #111310;
+  backdrop-filter: blur(18px) saturate(88%);
+  -webkit-backdrop-filter: blur(18px) saturate(88%);
+}
+
+.auth-success-overlay::before,
+.auth-success-overlay::after {
+  position: absolute;
+  left: 50%;
+  width: min(520px, calc(100% - 48px));
+  height: 1px;
+  background: rgba(17, 19, 16, 0.22);
+  content: '';
+  transform: translateX(-50%);
+}
+
+.auth-success-overlay::before {
+  top: 32px;
+}
+
+.auth-success-overlay::after {
+  bottom: 32px;
+}
+
+.auth-success-content {
+  position: relative;
+  display: grid;
+  width: min(100%, 520px);
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+  will-change: transform, opacity;
+}
+
+.auth-success-icon {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(17, 19, 16, 0.48);
+  border-radius: 50%;
+  background: rgba(251, 251, 248, 0.62);
+  place-items: center;
+}
+
+.auth-success-content p,
+.auth-success-content h2,
+.auth-success-content > span:last-child {
+  margin: 0;
+}
+
+.auth-success-content p {
+  color: #515752;
+  font-family: 'Bookman Old Style', Georgia, 'Times New Roman', serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.auth-success-content h2 {
+  color: #111310;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.1;
+}
+
+.auth-success-content > span:last-child {
+  color: #555b56;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font-size: 0.9rem;
+}
+
+.auth-success-overlay-enter-active,
+.auth-success-overlay-leave-active,
+.auth-success-overlay-enter-active .auth-success-content,
+.auth-success-overlay-leave-active .auth-success-content {
+  transition:
+    opacity 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.auth-success-overlay-enter-from,
+.auth-success-overlay-leave-to,
+.auth-success-overlay-enter-from .auth-success-content,
+.auth-success-overlay-leave-to .auth-success-content {
+  opacity: 0;
+}
+
+.auth-success-overlay-enter-from .auth-success-content {
+  transform: translateY(12px) scale(0.985);
+}
+
+.auth-success-overlay-leave-to .auth-success-content {
+  transform: translateY(-8px) scale(0.99);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-success-overlay-enter-active,
+  .auth-success-overlay-leave-active,
+  .auth-success-overlay-enter-active .auth-success-content,
+  .auth-success-overlay-leave-active .auth-success-content {
+    transition: none;
   }
 }
 
@@ -4157,7 +4559,7 @@ body:has(#app > .home-shell) {
 
   .home-shell .archive-hero-actions {
     display: grid !important;
-    grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr) minmax(82px, 0.95fr) !important;
+    grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr) minmax(126px, 1.08fr) !important;
     width: 100% !important;
     gap: 7px !important;
   }
@@ -4243,6 +4645,16 @@ body:has(#app > .home-shell) {
 
   .archive-shell:not(.home-shell) .archive-workspace-page > :is(.region-directory-panel, .policy-index-panel, .case-index-panel, .source-ledger-panel) {
     padding: 20px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .home-shell .archive-hero-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .home-shell .prisma-login-cta {
+    grid-column: 1 / -1;
   }
 }
 
@@ -5166,8 +5578,8 @@ html {
   --altcha-color-base-content: #181a18;
   --altcha-color-primary: #181a18;
   --altcha-color-primary-content: #fbfbf8;
-  --altcha-color-success: #4f6f58;
-  --altcha-color-success-content: #fbfbf8;
+  --altcha-color-success: #d8dcd6;
+  --altcha-color-success-content: #111310;
   --altcha-input-background-color: #fbfbf8;
 }
 
@@ -5710,6 +6122,10 @@ html {
   .archive-shell:not(.home-shell).sidebar-collapsed {
     grid-template-columns: 1fr !important;
   }
+
+  .archive-shell:not(.home-shell) .archive-sidebar-foot {
+    display: block !important;
+  }
 }
 
 /* Login is compact; registration uses width instead of forcing both modes tall. */
@@ -5812,4 +6228,403 @@ html {
   .user-login-shell.is-login-view .login-form-side {
     padding: 26px 22px !important;
   }
+}
+
+/* Homepage index accent and legal line. Scoped to avoid affecting working routes. */
+.home-shell .prisma-hero-film-index {
+  position: absolute;
+  top: clamp(104px, 15vh, 154px);
+  left: clamp(28px, 3vw, 52px);
+  z-index: 2;
+  display: grid;
+  width: 34px;
+  height: 148px;
+  align-content: space-between;
+  pointer-events: none;
+}
+
+.home-shell .prisma-hero-film-index::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  width: 1px;
+  background: rgba(225, 224, 204, 0.32);
+  content: '';
+}
+
+.home-shell .prisma-hero-film-index span {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 14px;
+  height: 1px;
+  background: rgba(225, 224, 204, 0.5) !important;
+}
+
+.home-shell .prisma-hero-film-index span:nth-child(even) {
+  width: 9px;
+}
+
+.home-shell .prisma-hero-film-index i {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 28px;
+  height: 1px;
+  background: #e1e0cc;
+  animation: prisma-hero-film-scan 5.4s cubic-bezier(0.645, 0.045, 0.355, 1) infinite alternate;
+  will-change: transform, opacity;
+}
+
+.home-shell .prisma-features-heading {
+  display: block;
+}
+
+.home-shell .home-contact-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.home-shell .home-contact-folio {
+  position: absolute;
+  top: clamp(38px, 5vw, 70px);
+  right: clamp(38px, 5vw, 70px);
+  width: 94px;
+  height: 74px;
+  pointer-events: none;
+}
+
+.home-shell .home-contact-folio > span {
+  --folio-x: 0px;
+  --folio-y: 0px;
+  --folio-rotate: 0deg;
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: block;
+  width: 44px;
+  height: 58px;
+  border: 1px solid rgba(24, 26, 24, 0.34);
+  background: rgba(251, 251, 248, 0.9);
+  opacity: 0.72;
+  transform: translate(var(--folio-x), var(--folio-y)) rotate(var(--folio-rotate));
+  animation: prisma-contact-folio 6.2s cubic-bezier(0.645, 0.045, 0.355, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.home-shell .home-contact-folio > span:nth-child(1) {
+  --folio-x: -34px;
+  --folio-y: 8px;
+  --folio-rotate: -5deg;
+  animation-delay: -4.1s;
+}
+
+.home-shell .home-contact-folio > span:nth-child(2) {
+  --folio-x: -17px;
+  --folio-y: 4px;
+  --folio-rotate: -2deg;
+  animation-delay: -2.05s;
+}
+
+.home-shell .home-contact-folio > span i,
+.home-shell .home-contact-folio > span i::after {
+  position: absolute;
+  left: 9px;
+  height: 1px;
+  background: rgba(24, 26, 24, 0.42);
+  content: '';
+}
+
+.home-shell .home-contact-folio > span i {
+  top: 16px;
+  width: 25px;
+}
+
+.home-shell .home-contact-folio > span i::after {
+  top: 8px;
+  left: 0;
+  width: 17px;
+}
+
+.home-shell .home-footer-summary {
+  max-width: none;
+  white-space: nowrap;
+  font-size: clamp(0.78rem, 1.15vw, 0.95rem);
+}
+
+.home-shell .home-footer-legal {
+  margin: 16px 0 0;
+  color: var(--prisma-quiet) !important;
+  font-family: 'Bookman Old Style', 'URW Bookman', Georgia, serif;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.home-shell .home-footer-legal a {
+  color: var(--prisma-text) !important;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* The full workbench cards are the navigation targets. */
+.home-shell .prisma-feature-card--link {
+  display: flex;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  outline: none;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    transform 240ms cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.home-shell .prisma-feature-card--link .prisma-feature-icon {
+  transition: transform 240ms cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.home-shell .prisma-feature-card--link .prisma-feature-title,
+.home-shell .prisma-feature-card--link ul,
+.home-shell .prisma-feature-card--link .prisma-learn-link {
+  position: relative;
+  z-index: 1;
+}
+
+.home-shell .prisma-feature-card--link ul {
+  font-size: clamp(1rem, 1.15vw, 1.16rem);
+  line-height: 1.58;
+}
+
+.home-shell .prisma-feature-card--link .prisma-learn-link {
+  font-size: clamp(1rem, 1.15vw, 1.16rem);
+}
+
+.home-shell .prisma-feature-card--link:focus-visible {
+  outline: 2px solid var(--prisma-text);
+  outline-offset: 4px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .home-shell .prisma-feature-card--link.is-visible:hover {
+    border-color: #aeb5ad !important;
+    background: #f2f3ef !important;
+    transform: translateY(-6px) !important;
+  }
+
+  .home-shell .prisma-feature-card--link.is-visible:hover .prisma-feature-icon {
+    transform: translateY(-3px);
+  }
+
+  .home-shell .prisma-feature-card--link.is-visible:hover .prisma-learn-link svg {
+    transform: translate(3px, -3px);
+  }
+}
+
+/* Keep the two editorial statements on one desktop line, with a clear type hierarchy. */
+.home-shell .prisma-features-heading {
+  width: 100%;
+  max-width: none;
+}
+
+.home-shell .prisma-features-heading > .words-pull-up {
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: clamp(16px, 2vw, 36px);
+  white-space: nowrap;
+}
+
+.home-shell .prisma-features-heading .prisma-feature-heading-primary {
+  display: block;
+  font-size: clamp(1.1rem, 1.75vw, 2rem) !important;
+  line-height: 1.08;
+  white-space: nowrap;
+}
+
+.home-shell .prisma-features-heading .prisma-feature-heading-muted {
+  display: block;
+  font-size: clamp(1.1rem, 1.75vw, 2rem) !important;
+  line-height: 1.08;
+  white-space: nowrap;
+}
+
+/* Two local glass icon surfaces only, with the Hero still visible inside the circles. */
+.home-shell .home-contact-icon {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  width: 72px !important;
+  height: 72px !important;
+  flex-basis: 72px !important;
+  overflow: hidden;
+  border: 1px solid rgba(225, 228, 222, 0.8) !important;
+  background-color: rgba(251, 251, 248, 0.25) !important;
+  background-image: url('/media/solofirm-hero-frame-sunrise.webp') !important;
+  background-position: center !important;
+  background-size: cover !important;
+  color: #f4f1df !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(8px) saturate(85%);
+  -webkit-backdrop-filter: blur(8px) saturate(85%);
+}
+
+.home-shell .home-contact-icon::before,
+.home-shell .home-contact-icon::after {
+  position: absolute;
+  z-index: -1;
+  content: '';
+  pointer-events: none;
+}
+
+.home-shell .home-contact-icon::before {
+  inset: 0;
+  background: rgba(18, 21, 18, 0.26);
+}
+
+.home-shell .home-contact-icon::after {
+  top: -28%;
+  left: 50%;
+  width: 18%;
+  height: 160%;
+  background: rgba(255, 255, 255, 0.48);
+  opacity: 0;
+  transform: translateX(-50%) rotate(24deg);
+  transition: opacity 180ms ease;
+}
+
+.home-shell .home-contact-icon > svg {
+  position: relative;
+  z-index: 1;
+  width: 30px !important;
+  height: 30px !important;
+  color: #f4f1df !important;
+  filter: drop-shadow(0 1px 1px rgba(18, 21, 18, 0.45));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .home-shell .home-contact-icon:hover::after {
+    opacity: 0.9;
+    animation: prisma-contact-icon-glint 760ms cubic-bezier(0.19, 1, 0.22, 1) both;
+  }
+}
+
+@keyframes prisma-contact-icon-glint {
+  from {
+    transform: translateX(-280%) rotate(24deg);
+  }
+  to {
+    transform: translateX(280%) rotate(24deg);
+  }
+}
+
+@media (max-width: 760px) {
+  .home-shell .prisma-features-heading > .words-pull-up {
+    flex-wrap: wrap;
+    align-items: baseline;
+    white-space: normal;
+  }
+
+  .home-shell .prisma-features-heading .prisma-feature-heading-primary,
+  .home-shell .prisma-features-heading .prisma-feature-heading-muted {
+    white-space: normal;
+  }
+
+  .home-shell .prisma-features-heading .prisma-feature-heading-primary {
+    font-size: clamp(1.1rem, 5.4vw, 1.6rem) !important;
+  }
+
+  .home-shell .prisma-features-heading .prisma-feature-heading-muted {
+    font-size: clamp(1.1rem, 5.4vw, 1.6rem) !important;
+  }
+
+  .home-shell .home-contact-icon {
+    width: 64px !important;
+    height: 64px !important;
+    flex-basis: 64px !important;
+  }
+
+  .home-shell .home-contact-icon > svg {
+    width: 27px !important;
+    height: 27px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-shell .prisma-feature-card--link,
+  .home-shell .prisma-feature-card--link .prisma-feature-icon,
+  .home-shell .prisma-feature-card--link .prisma-learn-link svg,
+  .home-shell .home-contact-icon::after {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* Give the enlarged contact circles a deliberate text gutter. */
+.home-shell .home-contact-method {
+  grid-template-columns: 72px minmax(0, 1fr) !important;
+  column-gap: clamp(28px, 2.4vw, 38px) !important;
+  row-gap: 18px !important;
+}
+
+@media (max-width: 600px) {
+  .home-shell .home-contact-method {
+    grid-template-columns: minmax(0, 1fr) !important;
+    column-gap: 0 !important;
+    row-gap: 18px !important;
+  }
+}
+
+@keyframes prisma-hero-film-scan {
+  0%,
+  12% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+  88%,
+  100% {
+    opacity: 1;
+    transform: translateY(147px);
+  }
+}
+
+@keyframes prisma-contact-folio {
+  0%,
+  100% {
+    opacity: 0.56;
+    transform: translate(var(--folio-x), var(--folio-y)) rotate(var(--folio-rotate));
+  }
+  50% {
+    opacity: 0.88;
+    transform: translate(calc(var(--folio-x) - 3px), calc(var(--folio-y) - 4px)) rotate(var(--folio-rotate));
+  }
+}
+
+@media (max-width: 760px) {
+  .home-shell .prisma-hero-film-index,
+  .home-shell .home-contact-folio {
+    display: none;
+  }
+
+  .home-shell .home-footer-summary {
+    font-size: clamp(0.48rem, 2.45vw, 0.78rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-shell .prisma-hero-film-index i,
+  .home-shell .home-contact-folio > span {
+    animation: none;
+  }
+
+  .home-shell .prisma-hero-film-index i {
+    opacity: 0.72;
+    transform: translateY(74px);
+  }
+
+  .home-shell .home-contact-folio > span {
+    opacity: 0.72;
+    transform: translate(var(--folio-x), var(--folio-y)) rotate(var(--folio-rotate));
+  }
+
 }

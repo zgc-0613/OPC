@@ -276,3 +276,48 @@ Update this file after every two repository or browser inspection operations.
 - After a successful email-code request, the proof has already been consumed and must not gate final account creation. The UI now replaces the widget with a completed state; only an explicit resend requires a fresh proof.
 - The administrator notice collision came from the later `.admin-shell .settings-notice { margin: 0 !important; }` rule. A dedicated wrapper with bottom padding makes spacing independent of paragraph-margin precedence.
 - Production release `20260719-033330` contains the account-deletion backend and all six requested page fixes. Frontend hotfix `20260719-034543` contains the ALTCHA geometry/workflow correction and robust administrator-notice spacing.
+
+## Trusted Data And AI Foundation (2026-07-23)
+- The revised proposal is viable as a platform roadmap, but its first visible release should be narrowed to evidence-aware case analysis.
+- Public case, policy, source, detail, and dashboard reads are already isolated to `published`; administrator reads now use `/api/admin/**`.
+- The remaining P0 isolation gap is `/api/admin/export/policies.xlsx`: it is excluded from `AdminAuthInterceptor`, and its service query currently exports every policy status.
+- The current public analytics route is `/analysis`; future analytics work should extend it or redirect `/analytics` to it instead of creating two competing dashboards.
+- Current records have publication status but no independent verification state, revision, source snapshot, or claim-level evidence. Historical published rows must bootstrap as `legacy_unverified`; only a manually reviewed golden set should enter AI context.
+- CodeGraph was initialized in the requested repository on 2026-07-23: 182 indexed files, 3,423 nodes, and 7,045 edges.
+- The generated `.codegraph/` directory was already covered by the repository root `.gitignore` and does not appear in Git status.
+- The first implementation seams are the authenticated administrator export boundary and, subsequently, authenticated `/api/ai/**` requests backed by published and verified evidence only.
+- CodeGraph traced the policy export from the Vue `PolicyListView` click handler through `src/api/export.js` to `ExcelExportController.exportPolicies` and `ExcelExportService.exportPolicies`.
+- The frontend currently uses `window.open`, which cannot attach the existing `X-Admin-Token`; the correct fix requires an authenticated Axios Blob request plus removal of the backend interceptor exclusion.
+- `UserAuthService.getCurrentUser(token)` already validates session expiry and active account status. A future `/api/ai/**` interceptor or argument resolver can reuse this service instead of creating a second user-session implementation.
+- `SecurityConfig` does not implement bearer-token authentication; it only permits known public/auth/admin paths and requires framework authentication elsewhere. AI routes therefore need an explicit user-session interceptor backed by `UserAuthService`, not reliance on the current Spring Security default.
+- The public policy export is now separated from the managed export: `/api/public/export/policies.xlsx` is published-only, while `/api/admin/export/policies.xlsx` is protected and can retain administrator dataset semantics.
+- The provider-neutral AI boundary is implemented as `AiClient` with immutable request, response, and descriptor records. The default provider is disabled; only the explicit `opc.ai.provider=fake` setting enables deterministic test output.
+- Disabled generation returns `SERVICE_UNAVAILABLE` (503) instead of fabricating an answer. Provider descriptors expose only provider, model, and availability; no API key or vendor credential is serialized.
+- `GET /api/ai/capabilities` is protected by the existing `UserAuthInterceptor` and returns the current provider readiness plus the versioned `case-analysis-v1` capability. Anonymous access is rejected with the existing 401 result contract.
+- The focused AI suite now covers provider selection, disabled failure behavior, minimal authenticated identity handling, and the capabilities response. All 6 focused tests pass.
+- Full backend verification passes with 48 tests and the frontend Vite production build passes with 1,684 transformed modules. Production deployment remains intentionally pending while concurrent homepage edits are being stabilized.
+- The first production probe exposed a Spring Security integration gap: `/api/ai/**` was not in the permit list and returned HTTP 403 before the user-session interceptor. The security-filter-chain regression test now covers this path, and `/api/ai/**` is explicitly permitted for interceptor-level session validation.
+- After the security fix, the full backend package passed all 48 tests again. Production release `20260723-233915` is live with frontend SHA-256 `6db5afaa98e0ba06e6446836f6980cb801a4d746b1ede4844fbfe021c8b64f05` and backend SHA-256 `8d8f0dd66d58bef4182ade6ea194c35e20875945ab1eda5da983d2ab601334c2`.
+- Release backups and rollback artifacts are preserved at `/opt/opc/backups/20260723-233915`, `/var/www/opc.rollback.20260723-233915`, and `/opt/opc-backend.rollback.20260723-233915`.
+- Production smoke checks returned 200 for the public root, user login, administrator login, health, policies, cases, and sources. Anonymous `/api/ai/capabilities` now reaches the application and returns business code 401 as intended.
+
+## AI Case Analysis Phase One Findings (2026-07-24)
+- The official DeepSeek documentation domain was blocked by the browser security policy, so no DeepSeek V4 Flash model identifier was guessed or compiled into production.
+- A persisted provider configuration must be read per request; otherwise administrators would need to restart the backend after every enable/disable or model change. `ManagedAiClient` now provides this runtime seam.
+- Publication state alone is not sufficient AI evidence governance. The independent `legacy_unverified/verified/excluded` field preserves historical data while allowing a small manually reviewed golden set.
+- Model-provided citation titles and URLs are not trusted. The backend accepts only known verified source IDs and replaces display metadata with database values.
+- The generated `active_guard` column and unique key provide cross-process one-running-analysis-per-user protection; an in-memory lock would not protect multiple backend instances.
+- Connection tests should work while the provider is disabled. They use stored credentials with a one-token, no-retry request and do not enable the production provider.
+- Production contains no real model credential. The correct current state is encrypted-key infrastructure ready, provider disabled, and capabilities unavailable until an administrator supplies official values.
+
+## Production Reverse Proxy And Service Hardening (2026-07-24)
+- Nginx was already the public API boundary, but Spring listened on `*:8082` and relied on the cloud security group to prevent direct access.
+- Production now sets `SERVER_ADDRESS=127.0.0.1`; this JVM/Linux combination reports the socket as `[::ffff:127.0.0.1]:8082`, an IPv4-mapped IPv6 representation of the loopback address.
+- Listener validation now parses IP semantics and rejects wildcard, unspecified, wrong-port, and external addresses instead of comparing only display strings.
+- `opc-backend.service` runs as the no-login `opc` user with no ambient capabilities, `NoNewPrivileges`, private temporary files, protected home/devices/system paths, SUID/SGID restrictions, and limited address families.
+- `/etc/opc-backend.env` and `/opt/opc/application.yaml` are `root:opc 0640`; the executable JAR remains `root:root 0644`.
+- The case-analysis endpoint has an exact Nginx location with a 64 KiB request limit, 5-second connect timeout, 15-second send timeout, 190-second response timeout, cache disabled, and an IP rate of 20 requests/minute with burst 5.
+- JSON proxy buffering remains enabled because the endpoint is not SSE. Application login, daily token quota, and concurrency checks remain authoritative behind Nginx.
+- Two deployment attempts were automatically rolled back because the original health assertion did not accept the mapped-loopback display form. The service itself had started successfully as `opc`; the regression is now covered by tests.
+- Final release: `/opt/opc/releases/20260724-030722`; backup: `/opt/opc/backups/20260724-030722`; frontend rollback: `/var/www/opc.rollback.20260724-030722`; backend rollback: `/opt/opc-backend.rollback.20260724-030722`.
+- Independent verification found one Java process, no post-release error journal entries, external port 8082 closed, both exact Nginx locations loaded, and direct-origin rate-limit responses `200,200,200,200,200,200,429,429`.

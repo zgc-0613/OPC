@@ -23,11 +23,11 @@ public class CaseItemController {
 
     @GetMapping
     public Result<List<CaseItemListVO>> listCaseItems(@ModelAttribute CaseItemQueryDTO query) {
-        return Result.success(caseItemService.listCaseItems(query));
+        return Result.success(caseItemService.listPublicCaseItems(query));
     }
 
     @GetMapping("/{id}")
     public Result<CaseItemDetailVO> getCaseItemDetail(@PathVariable Long id) {
-        return Result.success(caseItemService.getCaseItemDetail(id));
+        return Result.success(caseItemService.getPublicCaseItemDetail(id));
     }
 }

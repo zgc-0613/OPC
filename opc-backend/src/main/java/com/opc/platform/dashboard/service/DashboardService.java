@@ -31,6 +31,8 @@ public class DashboardService {
 
     private static final int RECENT_LIMIT = 10;
 
+    private static final String PUBLISHED_STATUS = "published";
+
     private final PolicyMapper policyMapper;
 
     private final CaseItemMapper caseItemMapper;
@@ -41,9 +43,12 @@ public class DashboardService {
 
     public DashboardSummaryVO getSummary() {
         DashboardSummaryVO summary = new DashboardSummaryVO();
-        summary.setPolicyCount(policyMapper.selectCount(null));
-        summary.setCaseCount(caseItemMapper.selectCount(null));
-        summary.setSourceCount(sourceMapper.selectCount(null));
+        summary.setPolicyCount(policyMapper.selectCount(new LambdaQueryWrapper<Policy>()
+                .eq(Policy::getStatus, PUBLISHED_STATUS)));
+        summary.setCaseCount(caseItemMapper.selectCount(new LambdaQueryWrapper<CaseItem>()
+                .eq(CaseItem::getStatus, PUBLISHED_STATUS)));
+        summary.setSourceCount(sourceMapper.selectCount(new LambdaQueryWrapper<Source>()
+                .eq(Source::getStatus, PUBLISHED_STATUS)));
         summary.setCoveredRegionCount(countCoveredRegions());
         summary.setRecentUpdates(listRecentUpdates());
         return summary;
@@ -51,23 +56,30 @@ public class DashboardService {
 
     private Integer countCoveredRegions() {
         Set<Long> regionIds = new HashSet<>();
-        policyMapper.selectObjs(new QueryWrapper<Policy>().select("DISTINCT region_id"))
+        policyMapper.selectObjs(new QueryWrapper<Policy>()
+                        .select("DISTINCT region_id")
+                        .eq("status", PUBLISHED_STATUS))
                 .forEach(regionId -> regionIds.add(((Number) regionId).longValue()));
-        caseItemMapper.selectObjs(new QueryWrapper<CaseItem>().select("DISTINCT region_id"))
+        caseItemMapper.selectObjs(new QueryWrapper<CaseItem>()
+                        .select("DISTINCT region_id")
+                        .eq("status", PUBLISHED_STATUS))
                 .forEach(regionId -> regionIds.add(((Number) regionId).longValue()));
         return regionIds.size();
     }
 
     private List<RecentUpdateVO> listRecentUpdates() {
         List<Policy> policies = policyMapper.selectList(new LambdaQueryWrapper<Policy>()
+                .eq(Policy::getStatus, PUBLISHED_STATUS)
                 .orderByDesc(Policy::getAccessedAt)
                 .orderByDesc(Policy::getId)
                 .last("LIMIT " + RECENT_LIMIT));
         List<CaseItem> caseItems = caseItemMapper.selectList(new LambdaQueryWrapper<CaseItem>()
+                .eq(CaseItem::getStatus, PUBLISHED_STATUS)
                 .orderByDesc(CaseItem::getAccessedAt)
                 .orderByDesc(CaseItem::getId)
                 .last("LIMIT " + RECENT_LIMIT));
         List<Source> sources = sourceMapper.selectList(new LambdaQueryWrapper<Source>()
+                .eq(Source::getStatus, PUBLISHED_STATUS)
                 .orderByDesc(Source::getAccessedAt)
                 .orderByDesc(Source::getId)
                 .last("LIMIT " + RECENT_LIMIT));

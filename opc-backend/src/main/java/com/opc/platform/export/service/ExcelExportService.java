@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
 public class ExcelExportService {
 
     private static final String EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    private static final String PUBLISHED_STATUS = "published";
 
     private final SourceMapper sourceMapper;
 
@@ -81,9 +82,22 @@ public class ExcelExportService {
     }
 
     public void exportPolicies(HttpServletResponse response) throws IOException {
-        List<Policy> policies = policyMapper.selectList(new LambdaQueryWrapper<Policy>()
-                .orderByDesc(Policy::getPublishDate)
-                .orderByDesc(Policy::getId));
+        exportPolicies(response, false);
+    }
+
+    public void exportPublishedPolicies(HttpServletResponse response) throws IOException {
+        exportPolicies(response, true);
+    }
+
+    private void exportPolicies(HttpServletResponse response, boolean publishedOnly) throws IOException {
+        LambdaQueryWrapper<Policy> query = new LambdaQueryWrapper<>();
+        if (publishedOnly) {
+            query.eq(Policy::getStatus, PUBLISHED_STATUS);
+        }
+        query.orderByDesc(Policy::getPublishDate)
+                .orderByDesc(Policy::getId);
+
+        List<Policy> policies = policyMapper.selectList(query);
         Map<Long, Region> regionMap = loadRegionMap(policies.stream().map(Policy::getRegionId).collect(Collectors.toSet()));
         Map<Long, Source> sourceMap = loadSourceMap(policies.stream().map(Policy::getSourceId).collect(Collectors.toSet()));
 

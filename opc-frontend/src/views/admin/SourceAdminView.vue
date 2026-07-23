@@ -48,9 +48,19 @@
         <label>
           <span>状态 *</span>
           <select v-model="form.status" required>
-            <option value="active">可用</option>
+            <option value="published">已发布</option>
+            <option value="draft">草稿</option>
             <option value="pending">待补充</option>
             <option value="archived">归档</option>
+            <option value="active">可用（旧状态）</option>
+          </select>
+        </label>
+        <label>
+          <span>AI 证据资格</span>
+          <select v-model="form.aiEvidenceStatus">
+            <option value="legacy_unverified">待 AI 证据核验</option>
+            <option value="verified">已核验，可用于智能体</option>
+            <option value="excluded">排除，不用于智能体</option>
           </select>
         </label>
         <label class="span-3">
@@ -72,26 +82,69 @@
         </div>
       </div>
 
+      <AdminBulkStatusToolbar
+        v-if="sources.length"
+        v-model="bulkStatus"
+        :busy="bulkUpdating"
+        :options="sourceStatusOptions"
+        :selected-count="selectedSourceCount"
+        @apply="applyBulkStatus"
+        @clear="clearSourceSelection"
+      />
+      <p v-if="bulkMessage" class="success admin-bulk-notice" role="status">{{ bulkMessage }}</p>
+      <p v-if="bulkError" class="error admin-bulk-notice" role="alert">{{ bulkError }}</p>
+
       <div v-if="loading" class="muted">正在加载来源...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="table-wrap">
-        <table>
+        <table class="admin-resizable-table">
+          <colgroup>
+            <col
+              v-for="column in sourceTableColumns"
+              :key="column.key"
+              :style="{ width: `${sourceColumnPercentages[column.key]}%` }"
+            />
+          </colgroup>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>标题</th>
-              <th>类型</th>
-              <th>发布机构</th>
-              <th>访问日期</th>
-              <th>状态</th>
+              <th class="admin-select-column">
+                <input
+                  class="admin-table-checkbox"
+                  type="checkbox"
+                  :checked="allSourcesSelected"
+                  :indeterminate.prop="someSourcesSelected"
+                  aria-label="选择全部来源"
+                  @change="toggleAllSources($event.target.checked)"
+                />
+              </th>
+              <SortableTableHeader
+                v-for="column in sourceSortableColumns"
+                :key="column.key"
+                :label="column.label"
+                :column="column.key"
+                :active-column="sourceSortColumn"
+                :direction="sourceSortDirection"
+                @toggle="toggleSourceSort"
+                @resize-start="startSourceColumnResize"
+                @resize-by="resizeSourceColumn"
+              />
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="source in sources" :key="source.id">
+            <tr v-for="source in sortedSources" :key="source.id" :class="{ 'is-selected': selectedSourceIds.has(source.id) }">
+              <td class="admin-select-column">
+                <input
+                  class="admin-table-checkbox"
+                  type="checkbox"
+                  :checked="selectedSourceIds.has(source.id)"
+                  :aria-label="`选择来源 ${source.title}`"
+                  @change="toggleSourceRow(source.id, $event.target.checked)"
+                />
+              </td>
               <td>{{ source.id }}</td>
               <td>{{ source.title }}</td>
-              <td><span class="chip">{{ source.sourceType }}</span></td>
+              <td><span class="chip" :title="source.sourceType">{{ sourceTypeLabel(source.sourceType) }}</span></td>
               <td>{{ source.publisher || '-' }}</td>
               <td>{{ source.accessedAt || '-' }}</td>
               <td><span class="status-pill">{{ sourceStatusLabel(source.status) }}</span></td>
@@ -111,7 +164,11 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
-import { createSource, deleteSource, getSources, updateSource } from '@/api/source'
+import AdminBulkStatusToolbar from '@/components/AdminBulkStatusToolbar.vue'
+import SortableTableHeader from '@/components/SortableTableHeader.vue'
+import { createSource, deleteSource, getAdminSources, updateSource } from '@/api/source'
+import { useAdminTableControls } from '@/composables/useAdminTableControls'
+import { useResizableColumns } from '@/composables/useResizableColumns'
 
 const today = new Date().toISOString().slice(0, 10)
 const loading = ref(false)
@@ -119,6 +176,28 @@ const error = ref('')
 const formError = ref('')
 const sources = ref([])
 const editingId = ref(null)
+const bulkStatus = ref('')
+const bulkUpdating = ref(false)
+const bulkMessage = ref('')
+const bulkError = ref('')
+const sourceStatusOptions = [
+  { value: 'active', label: '可用' },
+  { value: 'pending', label: '待补充' },
+  { value: 'archived', label: '归档' },
+]
+const sourceSortableColumns = [
+  { key: 'id', label: 'ID', width: 72, minWidth: 58, maxWidth: 150 },
+  { key: 'title', label: '标题', width: 340, minWidth: 180, maxWidth: 620 },
+  { key: 'sourceType', label: '类型', width: 132, minWidth: 100, maxWidth: 260 },
+  { key: 'publisher', label: '发布机构', width: 280, minWidth: 160, maxWidth: 520 },
+  { key: 'accessedAt', label: '访问日期', width: 132, minWidth: 110, maxWidth: 220 },
+  { key: 'status', label: '状态', width: 112, minWidth: 90, maxWidth: 220 },
+]
+const sourceTableColumns = [
+  { key: 'selection', width: 46, minWidth: 46, maxWidth: 46, resizable: false },
+  ...sourceSortableColumns,
+  { key: 'actions', width: 112, minWidth: 90, maxWidth: 180, resizable: false },
+]
 const form = reactive({
   title: '',
   sourceType: 'web',
@@ -127,14 +206,34 @@ const form = reactive({
   localFile: '',
   accessedAt: today,
   notes: '',
-  status: 'active',
+  status: 'published',
+  aiEvidenceStatus: 'legacy_unverified',
 })
+const {
+  allSelected: allSourcesSelected,
+  clearSelection: clearSourceSelection,
+  replaceSelection: replaceSourceSelection,
+  selectedCount: selectedSourceCount,
+  selectedIds: selectedSourceIds,
+  someSelected: someSourcesSelected,
+  sortColumn: sourceSortColumn,
+  sortDirection: sourceSortDirection,
+  sortedItems: sortedSources,
+  toggleAll: toggleAllSources,
+  toggleRow: toggleSourceRow,
+  toggleSort: toggleSourceSort,
+} = useAdminTableControls(sources)
+const {
+  columnPercentages: sourceColumnPercentages,
+  resizeBy: resizeSourceColumn,
+  startResize: startSourceColumnResize,
+} = useResizableColumns('opc-admin-source-column-widths-v2', sourceTableColumns)
 
 async function loadSources() {
   loading.value = true
   error.value = ''
   try {
-    sources.value = await getSources()
+    sources.value = await getAdminSources()
   } catch (err) {
     error.value = err.message || '来源加载失败'
   } finally {
@@ -153,7 +252,8 @@ function resetForm() {
     localFile: '',
     accessedAt: today,
     notes: '',
-    status: 'active',
+    status: 'published',
+    aiEvidenceStatus: 'legacy_unverified',
   })
 }
 
@@ -168,7 +268,8 @@ function startEdit(source) {
     localFile: source.localFile || '',
     accessedAt: source.accessedAt || today,
     notes: source.notes || '',
-    status: source.status || 'active',
+    status: source.status || 'published',
+    aiEvidenceStatus: source.aiEvidenceStatus || 'legacy_unverified',
   })
 }
 
@@ -192,9 +293,25 @@ async function submitForm() {
 function sourceStatusLabel(status) {
   return {
     active: '可用',
+    published: '已发布',
+    draft: '草稿',
     pending: '待补充',
     archived: '归档',
   }[status] || status || '-'
+}
+
+function sourceTypeLabel(sourceType) {
+  return {
+    government_site: '政府网站',
+    cnki_journal: '知网期刊',
+    cnki_newspaper: '知网报纸',
+    news: '新闻',
+    report: '报告',
+    file: '文件',
+    web: '网页',
+    paper: '文献',
+    other: '其他',
+  }[sourceType] || sourceType || '-'
 }
 
 async function removeSource(source) {
@@ -203,6 +320,47 @@ async function removeSource(source) {
   }
   await deleteSource(source.id)
   await loadSources()
+}
+
+async function applyBulkStatus() {
+  const ids = [...selectedSourceIds.value]
+  if (!ids.length || !bulkStatus.value || bulkUpdating.value) {
+    return
+  }
+
+  bulkUpdating.value = true
+  bulkMessage.value = ''
+  bulkError.value = ''
+  const sourcesById = new Map(sources.value.map((source) => [source.id, source]))
+  const results = await Promise.allSettled(ids.map(async (id) => {
+    const source = sourcesById.get(id)
+    if (!source) {
+      throw new Error('来源不存在')
+    }
+    await updateSource(id, {
+      title: source.title,
+      sourceType: source.sourceType,
+      publisher: source.publisher || '',
+      url: source.url || '',
+      localFile: source.localFile || '',
+      accessedAt: source.accessedAt || today,
+      notes: source.notes || '',
+      status: bulkStatus.value,
+    })
+    return id
+  }))
+  const failedIds = results.flatMap((result, index) => (result.status === 'rejected' ? [ids[index]] : []))
+  const updatedCount = ids.length - failedIds.length
+
+  await loadSources()
+  replaceSourceSelection(failedIds)
+  bulkStatus.value = ''
+  bulkUpdating.value = false
+  if (failedIds.length) {
+    bulkError.value = `已更新 ${updatedCount} 项，另有 ${failedIds.length} 项失败；失败项已保留选择，可重试。`
+  } else {
+    bulkMessage.value = `已更新 ${updatedCount} 项来源状态。`
+  }
 }
 
 onMounted(loadSources)

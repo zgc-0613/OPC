@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import shutil
+import socket
 import ssl
 import sys
 import time
@@ -14,6 +15,8 @@ from pathlib import Path
 import bcrypt
 import paramiko
 
+from scripts.deployment_hardening import is_loopback_listener
+
 
 HOST = "39.105.25.189"
 PORT = 22
@@ -23,7 +26,10 @@ ROOT = Path(__file__).resolve().parent
 FRONTEND = ROOT / "opc-frontend" / "dist"
 BACKEND = ROOT / "opc-backend" / "target" / "opc-backend-0.0.1-SNAPSHOT.jar"
 MIGRATION = ROOT / "deploy" / "sql" / "20260719_admin_registration.sql"
+AI_MIGRATION = ROOT / "deploy" / "sql" / "20260724_ai_phase_one.sql"
+AI_CATALOG_MIGRATION = ROOT / "deploy" / "sql" / "20260724_ai_model_catalog.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
+SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 
 
 def connect():
@@ -129,6 +135,29 @@ def request_json(url, method="GET", payload=None, headers=None, expected_code=20
     return status, data
 
 
+def assert_external_backend_closed():
+    try:
+        connection = socket.create_connection((HOST, 8082), timeout=3)
+    except OSError:
+        return
+    connection.close()
+    raise RuntimeError("Backend port 8082 is reachable outside the Nginx reverse proxy")
+
+
+def assert_backend_runtime_hardened(client):
+    _, listener, _ = run(client, "ss -lntH 'sport = :8082' | awk '{print $4}'")
+    if not is_loopback_listener(listener, expected_port=8082):
+        raise RuntimeError(f"Backend listener is not loopback-only: {listener or 'missing'}")
+
+    _, backend_user, _ = run(
+        client,
+        'pid=$(systemctl show -p MainPID --value opc-backend.service); ps -o user= -p "$pid" | xargs',
+    )
+    if backend_user != "opc":
+        raise RuntimeError(f"Backend process is running as unexpected user: {backend_user or 'missing'}")
+    return {"listener": listener, "user": backend_user}
+
+
 def preflight(client):
     commands = {
         "time": "date -Iseconds",
@@ -138,6 +167,8 @@ def preflight(client):
         "disk": "df -P /opt /var/www | tail -n +2 | awk '{print $6 \" \" $5}'",
         "frontend": "test -f /var/www/opc/index.html && sha256sum /var/www/opc/index.html | awk '{print $1}'",
         "backend": "test -f /opt/opc-backend.jar && sha256sum /opt/opc-backend.jar | awk '{print $1}'",
+        "backend_listener": "ss -lntH 'sport = :8082' | awk '{print $4}'",
+        "backend_user": "pid=$(systemctl show -p MainPID --value opc-backend.service); ps -o user= -p \"$pid\" | xargs",
         "legacy_admin_secret": "if grep -q '^OPC_ADMIN_PASSWORD=' /etc/opc-backend.env; then echo present; else echo absent; fi",
     }
     result = {}
@@ -156,7 +187,7 @@ def preflight(client):
 
 
 def deploy(client):
-    required = [FRONTEND / "index.html", BACKEND, MIGRATION, NGINX]
+    required = [FRONTEND / "index.html", BACKEND, MIGRATION, AI_MIGRATION, AI_CATALOG_MIGRATION, NGINX, SYSTEMD]
     for path in required:
         if not path.exists():
             raise RuntimeError(f"Missing deployment artifact: {path}")
@@ -167,8 +198,11 @@ def deploy(client):
     rollback_frontend = f"/var/www/opc.rollback.{stamp}"
     backup_jar = f"/opt/opc-backend.rollback.{stamp}"
     remote_nginx = "/etc/nginx/conf.d/opc.conf"
+    remote_systemd = "/etc/systemd/system/opc-backend.service"
     uploaded_nginx = f"{release}/opc.conf"
+    uploaded_systemd = f"{release}/opc-backend.service"
     mutated = False
+    service_user_preexisting = False
 
     run(client, f"mkdir -p '{release}' '{backup}'")
     backup_command = f"""set -euo pipefail
@@ -189,14 +223,20 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     upload_tree(sftp, FRONTEND, f"{release}/frontend")
     sftp.put(str(BACKEND), f"{release}/opc-backend.jar")
     sftp.put(str(MIGRATION), f"{release}/admin-registration.sql")
+    sftp.put(str(AI_MIGRATION), f"{release}/ai-phase-one.sql")
+    sftp.put(str(AI_CATALOG_MIGRATION), f"{release}/ai-model-catalog.sql")
     sftp.put(str(NGINX), uploaded_nginx)
+    sftp.put(str(SYSTEMD), uploaded_systemd)
     sftp.close()
 
     local_files = {
         f"{release}/frontend/index.html": sha256(FRONTEND / "index.html"),
         f"{release}/opc-backend.jar": sha256(BACKEND),
         f"{release}/admin-registration.sql": sha256(MIGRATION),
+        f"{release}/ai-phase-one.sql": sha256(AI_MIGRATION),
+        f"{release}/ai-model-catalog.sql": sha256(AI_CATALOG_MIGRATION),
         uploaded_nginx: sha256(NGINX),
+        uploaded_systemd: sha256(SYSTEMD),
     }
     for remote_path, local_hash in local_files.items():
         _, remote_hash, _ = run(client, f"sha256sum '{remote_path}' | awk '{{print $1}}'")
@@ -204,6 +244,16 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
             raise RuntimeError(f"Upload checksum mismatch: {remote_path}")
 
     run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/admin-registration.sql'")
+    run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-phase-one.sql'")
+    run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-model-catalog.sql'")
+    run(
+        client,
+        "set -euo pipefail\n"
+        "if ! grep -q '^OPC_AI_SETTINGS_MASTER_KEY=' /etc/opc-backend.env; then\n"
+        "  umask 077\n"
+        "  printf 'OPC_AI_SETTINGS_MASTER_KEY=%s\\n' \"$(openssl rand -base64 32 | tr -d '\\n')\" >> /etc/opc-backend.env\n"
+        "fi",
+    )
     initial_hash = bcrypt.hashpw(
         os.environ["OPC_INITIAL_ADMIN_PASSWORD"].encode("utf-8"), bcrypt.gensalt(rounds=12)
     ).decode("ascii")
@@ -216,13 +266,36 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     database_command(client, seed_sql)
 
     try:
-        run(client, f"cp -a /opt/opc-backend.jar '{backup_jar}'")
-        run(client, f"install -m 0644 '{release}/opc-backend.jar' /opt/opc-backend.jar")
-        run(client, f"install -m 0644 '{uploaded_nginx}' '{remote_nginx}'")
-        run(client, "nginx -t")
-        run(client, "systemctl restart opc-backend.service")
+        _, service_user_state, _ = run(
+            client,
+            "if id -u opc >/dev/null 2>&1; then echo present; else echo absent; fi",
+        )
+        service_user_preexisting = service_user_state == "present"
         mutated = True
-        health_command = """set -e
+        run(
+            client,
+            "set -euo pipefail\n"
+            "getent group opc >/dev/null 2>&1 || groupadd --system opc\n"
+            "id -u opc >/dev/null 2>&1 || useradd --system --gid opc --home-dir /nonexistent --shell /sbin/nologin opc\n"
+            "usermod --gid opc --home /nonexistent --shell /sbin/nologin opc\n"
+            "install -d -o root -g root -m 0755 /opt/opc\n"
+            "if grep -q '^SERVER_ADDRESS=' /etc/opc-backend.env; then\n"
+            "  sed -i 's/^SERVER_ADDRESS=.*/SERVER_ADDRESS=127.0.0.1/' /etc/opc-backend.env\n"
+            "else\n"
+            "  printf 'SERVER_ADDRESS=127.0.0.1\\n' >> /etc/opc-backend.env\n"
+            "fi\n"
+            "chown root:opc /etc/opc-backend.env /opt/opc/application.yaml\n"
+            "chmod 0640 /etc/opc-backend.env /opt/opc/application.yaml",
+        )
+        run(client, f"systemd-analyze verify '{uploaded_systemd}'")
+        run(client, f"cp -a /opt/opc-backend.jar '{backup_jar}'")
+        run(client, f"install -o root -g root -m 0644 '{release}/opc-backend.jar' /opt/opc-backend.jar")
+        run(client, f"install -o root -g root -m 0644 '{uploaded_nginx}' '{remote_nginx}'")
+        run(client, f"install -o root -g root -m 0644 '{uploaded_systemd}' '{remote_systemd}'")
+        run(client, "nginx -t")
+        run(client, "systemctl daemon-reload")
+        run(client, "systemctl restart opc-backend.service")
+        health_command = """set -euo pipefail
 for i in $(seq 1 40); do
   if systemctl is-active --quiet opc-backend.service && curl -fsS http://127.0.0.1:8082/api/health >/dev/null; then
     exit 0
@@ -233,6 +306,8 @@ systemctl status opc-backend.service --no-pager
 exit 1
 """
         run(client, health_command, timeout=60)
+        backend_runtime = assert_backend_runtime_hardened(client)
+        assert_external_backend_closed()
         run(client, f"mv /var/www/opc '{rollback_frontend}' && cp -a '{release}/frontend' /var/www/opc")
         run(client, "nginx -t && systemctl reload nginx")
 
@@ -261,6 +336,64 @@ exit 1
             raise RuntimeError("Initial administrator login failed")
         token = login_body["data"]["token"]
         admin_headers = {"X-Admin-Token": token}
+
+        _, anonymous_ai_settings = request_json(
+            "https://admin.findopc.online/api/admin/ai-settings",
+        )
+        if anonymous_ai_settings.get("code") != 401:
+            raise RuntimeError("Anonymous AI settings request was not rejected")
+        _, ai_settings_body = request_json(
+            "https://admin.findopc.online/api/admin/ai-settings",
+            headers=admin_headers,
+        )
+        ai_settings_data = ai_settings_body.get("data") or {}
+        if ai_settings_body.get("code") != 200 or "apiKey" in ai_settings_data:
+            raise RuntimeError("AI settings endpoint failed or exposed API key")
+        if ai_settings_data.get("enabled"):
+            raise RuntimeError("AI provider unexpectedly enabled without production credentials")
+
+        _, anonymous_analysis = request_json(
+            "https://findopc.online/api/ai/case-analysis",
+            method="POST",
+            payload={"caseId": 0},
+        )
+        if anonymous_analysis.get("code") != 401:
+            raise RuntimeError("Anonymous case analysis request was not rejected")
+
+        ai_qa_username = f"aiqa_{stamp.replace('-', '')[-10:]}"
+        ai_qa_email = f"{ai_qa_username}@example.invalid"
+        ai_qa_token = secrets.token_hex(32)
+        ai_qa_sql = f"""
+INSERT INTO platform_users (username, email, password_hash, status)
+VALUES ('{ai_qa_username}', '{ai_qa_email}', NULL, 'active');
+INSERT INTO user_sessions (user_id, token, expires_at)
+SELECT id, '{ai_qa_token}', DATE_ADD(NOW(), INTERVAL 10 MINUTE)
+FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
+"""
+        database_command(client, ai_qa_sql)
+        try:
+            user_headers = {"Authorization": f"Bearer {ai_qa_token}"}
+            _, capabilities_body = request_json(
+                "https://findopc.online/api/ai/capabilities",
+                headers=user_headers,
+            )
+            provider_state = (capabilities_body.get("data") or {}).get("provider") or {}
+            if capabilities_body.get("code") != 200 or provider_state.get("available") is not False:
+                raise RuntimeError("Disabled AI provider state is not reflected by capabilities")
+            _, authorized_analysis = request_json(
+                "https://findopc.online/api/ai/case-analysis",
+                method="POST",
+                payload={"caseId": 0},
+                headers=user_headers,
+            )
+            if authorized_analysis.get("code") != 404:
+                raise RuntimeError("Authenticated case analysis route did not reach case validation")
+        finally:
+            database_command(
+                client,
+                f"DELETE FROM user_sessions WHERE token = '{ai_qa_token}';\n"
+                f"DELETE FROM platform_users WHERE username = '{ai_qa_username}';\n",
+            )
 
         qa_suffix = stamp.replace("-", "")[-10:]
         approve_username = f"qaapprove_{qa_suffix}"
@@ -346,13 +479,17 @@ DELETE FROM admin_registration_requests WHERE username IN ('{approve_username}',
             )
 
         run(client, "sed -i '/^OPC_ADMIN_PASSWORD=/d' /etc/opc-backend.env")
-        audit_command = """set -e
+        audit_command = """set -euo pipefail
 systemctl is-active nginx mysqld opc-backend.service
 test "$(ps -eo pid=,args= | awk '/[j]ava .*opc-backend/{count++} END{print count+0}')" -eq 1
 nginx -t
 curl -fsS http://127.0.0.1:8082/api/health >/dev/null
+test "$(stat -c '%U:%G %a' /etc/opc-backend.env)" = "root:opc 640"
+test "$(stat -c '%U:%G %a' /opt/opc/application.yaml)" = "root:opc 640"
 """
         run(client, audit_command)
+        backend_runtime = assert_backend_runtime_hardened(client)
+        assert_external_backend_closed()
     except Exception:
         if mutated:
             rollback = f"""set +e
@@ -360,13 +497,22 @@ if test -d '{rollback_frontend}'; then
   mv /var/www/opc /var/www/opc.failed.{stamp}
   mv '{rollback_frontend}' /var/www/opc
 fi
-cp -a '{backup_jar}' /opt/opc-backend.jar
+cp -a '{backup}/opc-backend.jar' /opt/opc-backend.jar
 cp -a '{backup}/opc.conf' '{remote_nginx}'
 cp -a '{backup}/opc-backend.env' /etc/opc-backend.env
+cp -a '{backup}/application.yaml' /opt/opc/application.yaml
+cp -a '{backup}/opc-backend.service' '{remote_systemd}'
+systemctl daemon-reload
 systemctl restart opc-backend.service
 nginx -t && systemctl reload nginx
 """
             run(client, rollback, check=False, timeout=120)
+            if not service_user_preexisting:
+                run(
+                    client,
+                    "userdel opc >/dev/null 2>&1 || true; groupdel opc >/dev/null 2>&1 || true",
+                    check=False,
+                )
         raise
 
     return {
@@ -377,6 +523,8 @@ nginx -t && systemctl reload nginx
         "rollback_backend": backup_jar,
         "frontend_hash": sha256(FRONTEND / "index.html"),
         "backend_hash": sha256(BACKEND),
+        "backend_listener": backend_runtime["listener"],
+        "backend_user": backend_runtime["user"],
     }
 
 
