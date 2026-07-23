@@ -410,7 +410,7 @@
               <div>
                 <span class="caption">MODEL CATALOG</span>
                 <h3>模型配置</h3>
-                <p>从供应商读取可用模型，或手工添加官方 Model ID。默认模型用于连接测试和后续智能体请求。</p>
+                <p>读取供应商模型或填写官方 Model ID，默认模型用于连接测试和智能体请求。</p>
               </div>
               <div class="ai-model-catalog-actions">
                 <button
@@ -421,57 +421,70 @@
                 >
                   <Download :size="16" />{{ aiModelDiscovering ? '获取中...' : '获取模型列表' }}
                 </button>
-                <button class="button button-ghost icon-text-button" type="button" @click="addAiModel">
-                  <Plus :size="16" />添加模型
+                <button class="button button-ghost icon-text-button" type="button" @click="startManualAiModel">
+                  <Plus :size="16" />手动填写
                 </button>
               </div>
             </div>
 
-            <div v-if="ai.models.length" class="ai-model-list" aria-label="已配置模型">
-              <div class="ai-model-list-head" aria-hidden="true">
-                <span>默认</span>
-                <span>Model ID</span>
-                <span>显示名称</span>
-                <span>操作</span>
-              </div>
-              <div v-for="model in ai.models" :key="model.clientId" class="ai-model-row">
-                <label class="ai-model-default">
+            <div class="ai-model-selector-grid">
+              <div class="ai-model-selector-field">
+                <label id="ai-model-id-label" for="ai-model-id">Model ID</label>
+                <div class="ai-model-combobox" @focusout="closeAiModelDropdown">
                   <input
-                    v-model="ai.modelId"
-                    type="radio"
-                    name="default-ai-model"
-                    :value="model.modelId"
-                    :disabled="!model.modelId.trim()"
-                    :aria-label="`将 ${model.displayName || model.modelId || '该模型'} 设为默认模型`"
-                  />
-                  <span>默认</span>
-                </label>
-                <label class="ai-model-field ai-model-id-field">
-                  <span>Model ID</span>
-                  <input
-                    :value="model.modelId"
+                    id="ai-model-id"
+                    ref="aiModelIdInput"
+                    v-model.trim="ai.modelId"
+                    role="combobox"
+                    aria-labelledby="ai-model-id-label"
+                    aria-controls="ai-model-options"
+                    aria-autocomplete="list"
+                    :aria-expanded="aiModelDropdownOpen"
                     autocomplete="off"
-                    placeholder="例如供应商返回的模型 ID"
-                    @input="updateAiModelId(model, $event.target.value)"
+                    placeholder="选择供应商模型或填写官方 Model ID"
+                    @focus="openAiModelDropdown"
+                    @input="handleAiModelInput"
+                    @keydown.down.prevent="openAiModelDropdown"
+                    @keydown.esc="aiModelDropdownOpen = false"
                   />
-                </label>
-                <label class="ai-model-field ai-model-name-field">
-                  <span>显示名称</span>
-                  <input v-model.trim="model.displayName" autocomplete="off" placeholder="用于管理界面识别" />
-                </label>
-                <button
-                  class="ai-model-delete"
-                  type="button"
-                  :aria-label="`删除模型 ${model.displayName || model.modelId || ''}`"
-                  title="删除模型"
-                  @click="removeAiModel(model.clientId)"
-                >
-                  <Trash2 :size="17" />
-                </button>
+                  <button
+                    type="button"
+                    :aria-label="aiModelDropdownOpen ? '收起模型列表' : '展开模型列表'"
+                    :aria-expanded="aiModelDropdownOpen"
+                    aria-controls="ai-model-options"
+                    @click="toggleAiModelDropdown"
+                  >
+                    <ChevronDown :size="18" />
+                  </button>
+
+                  <div v-if="aiModelDropdownOpen" id="ai-model-options" class="ai-model-options" role="listbox">
+                    <button
+                      v-for="model in filteredAiModels"
+                      :key="model.clientId"
+                      type="button"
+                      role="option"
+                      :aria-selected="model.modelId === ai.modelId"
+                      @click="selectAiModel(model)"
+                    >
+                      <span>
+                        <strong>{{ model.modelId }}</strong>
+                        <small v-if="model.displayName && model.displayName !== model.modelId">{{ model.displayName }}</small>
+                      </span>
+                      <CheckCircle v-if="model.modelId === ai.modelId" :size="16" />
+                    </button>
+                    <div v-if="!filteredAiModels.length" class="ai-model-options-empty">
+                      {{ ai.models.length ? '没有匹配的供应商模型，可直接使用当前输入值。' : '尚未获取供应商模型，可直接填写官方 Model ID。' }}
+                    </div>
+                  </div>
+                </div>
+                <small>{{ ai.models.length ? `已载入 ${ai.models.length} 个供应商模型，可下拉选择或继续输入。` : '填写 API Key 后获取模型列表，也可以直接输入官方 Model ID。' }}</small>
               </div>
-            </div>
-            <div v-else class="ai-model-empty">
-              尚未配置模型。填写 API Key 后获取供应商模型列表，或手工添加准确的 Model ID。
+
+              <label class="ai-model-display-field">
+                <span>显示名称</span>
+                <input v-model.trim="ai.modelDisplayName" autocomplete="off" placeholder="用于管理界面识别" />
+                <small>仅用于 SoloFirm 管理界面显示，不会修改供应商模型。</small>
+              </label>
             </div>
           </div>
 
@@ -754,12 +767,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import {
   Activity,
   Ban,
   BrainCircuit,
   CheckCircle,
+  ChevronDown,
   Download,
   LogOut,
   Mail,
@@ -817,6 +831,9 @@ const aiLoading = ref(false)
 const aiSaving = ref(false)
 const aiTesting = ref(false)
 const aiModelDiscovering = ref(false)
+const aiModelDropdownOpen = ref(false)
+const aiModelSearch = ref('')
+const aiModelIdInput = ref(null)
 const aiError = ref('')
 const aiNotice = ref('')
 const adminRequests = ref([])
@@ -908,6 +925,7 @@ const ai = reactive({
   apiFormat: 'openai_compatible',
   apiBaseUrl: AI_PROVIDER_PRESETS.deepseek.apiBaseUrl,
   modelId: '',
+  modelDisplayName: '',
   models: [],
   apiKey: '',
   apiKeyConfigured: false,
@@ -945,6 +963,14 @@ const canDiscoverAiModels = computed(() => (
   && ai.apiFormat === 'openai_compatible'
   && (Boolean(ai.apiKey.trim()) || ai.apiKeyConfigured)
 ))
+const filteredAiModels = computed(() => {
+  const query = aiModelSearch.value.trim().toLowerCase()
+  if (!query) return ai.models
+  return ai.models.filter((model) => (
+    model.modelId.toLowerCase().includes(query)
+    || model.displayName.toLowerCase().includes(query)
+  ))
+})
 
 let aiModelRowSequence = 0
 
@@ -978,6 +1004,7 @@ function applyAiSettingsState(settings) {
   Object.assign(ai, settings, {
     apiKey: '',
     modelId,
+    modelDisplayName: models.find((model) => model.modelId === modelId)?.displayName || modelId,
     models: models.map(createAiModelRow),
   })
 }
@@ -1001,6 +1028,13 @@ function serializeAiModels() {
       displayName: String(model.displayName || '').trim() || modelId,
     })
   })
+  const activeModelId = String(ai.modelId || '').trim()
+  if (activeModelId) {
+    unique.set(activeModelId, {
+      modelId: activeModelId,
+      displayName: String(ai.modelDisplayName || '').trim() || activeModelId,
+    })
+  }
   return [...unique.values()]
 }
 
@@ -1041,6 +1075,9 @@ async function loadAiModels() {
     if (!ai.models.some((model) => model.modelId === ai.modelId)) {
       ai.modelId = ai.models[0]?.modelId || ''
     }
+    const activeModel = ai.models.find((model) => model.modelId === ai.modelId)
+    ai.modelDisplayName = activeModel?.displayName || ai.modelId
+    aiModelSearch.value = ''
     aiNotice.value = discoveredModels?.length
       ? `已从供应商读取 ${discoveredModels.length} 个模型。选择默认模型后保存配置。`
       : '供应商未返回可用模型，可手工添加准确的 Model ID。'
@@ -1051,27 +1088,42 @@ async function loadAiModels() {
   }
 }
 
-function addAiModel() {
-  ai.models.push(createAiModelRow())
+function openAiModelDropdown() {
+  aiModelSearch.value = ''
+  aiModelDropdownOpen.value = true
 }
 
-function updateAiModelId(model, value) {
-  const previousModelId = model.modelId
-  model.modelId = value
-  if (!model.displayName || model.displayName === previousModelId) {
-    model.displayName = value
-  }
-  if (ai.modelId === previousModelId) {
-    ai.modelId = value
-  }
+function toggleAiModelDropdown() {
+  aiModelSearch.value = ''
+  aiModelDropdownOpen.value = !aiModelDropdownOpen.value
 }
 
-function removeAiModel(clientId) {
-  const removed = ai.models.find((model) => model.clientId === clientId)
-  ai.models = ai.models.filter((model) => model.clientId !== clientId)
-  if (removed && ai.modelId === removed.modelId) {
-    ai.modelId = ai.models.find((model) => model.modelId.trim())?.modelId || ''
-  }
+function closeAiModelDropdown(event) {
+  if (event.currentTarget.contains(event.relatedTarget)) return
+  aiModelDropdownOpen.value = false
+}
+
+function handleAiModelInput() {
+  aiModelSearch.value = ai.modelId
+  aiModelDropdownOpen.value = true
+  const matchedModel = ai.models.find((model) => model.modelId === ai.modelId)
+  ai.modelDisplayName = matchedModel?.displayName || ai.modelId
+}
+
+function selectAiModel(model) {
+  ai.modelId = model.modelId
+  ai.modelDisplayName = model.displayName || model.modelId
+  aiModelSearch.value = ''
+  aiModelDropdownOpen.value = false
+}
+
+async function startManualAiModel() {
+  ai.modelId = ''
+  ai.modelDisplayName = ''
+  aiModelSearch.value = ''
+  aiModelDropdownOpen.value = true
+  await nextTick()
+  aiModelIdInput.value?.focus()
 }
 
 async function saveAiSettings() {
@@ -1495,7 +1547,8 @@ function resetCaptchaNotice() {
 }
 
 .ai-model-catalog-head > div:first-child {
-  max-width: 680px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .ai-model-catalog-head h3 {
@@ -1524,116 +1577,169 @@ function resetCaptchaNotice() {
   white-space: nowrap;
 }
 
-.ai-model-list {
+.ai-model-selector-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 22px;
   margin-top: 24px;
+  padding-top: 22px;
   border-top: 1px solid #c9cec9;
 }
 
-.ai-model-list-head,
-.ai-model-row {
+.ai-model-selector-field,
+.ai-model-display-field {
   display: grid;
-  grid-template-columns: 58px minmax(220px, 1.15fr) minmax(190px, 0.85fr) 48px;
-  gap: 14px;
-}
-
-.ai-model-list-head {
-  align-items: center;
-  padding: 12px 8px 10px;
-  color: #686f69;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.ai-model-list-head span:first-child,
-.ai-model-list-head span:last-child {
-  text-align: center;
-}
-
-.ai-model-row {
-  align-items: end;
-  padding: 16px 8px;
-  border-top: 1px solid #dde0dc;
-}
-
-.ai-model-default {
-  display: grid;
-  min-width: 44px;
-  min-height: 50px;
-  place-items: center;
-  margin: 0;
-  cursor: pointer;
-}
-
-.ai-model-default input {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: #222522;
-}
-
-.ai-model-default span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
-.ai-model-field {
-  display: grid;
-  gap: 7px;
+  align-content: start;
+  gap: 8px;
   min-width: 0;
   margin: 0;
 }
 
-.ai-model-field > span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
+.ai-model-selector-field > label,
+.ai-model-display-field > span {
+  color: #4b514c;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
-.ai-model-field input {
+.ai-model-selector-field > small,
+.ai-model-display-field > small {
+  color: #687069;
+  font-size: 0.76rem;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+.ai-model-display-field input {
   width: 100%;
-  height: 50px;
-  min-height: 50px !important;
+  height: 56px;
+  min-height: 56px !important;
   margin: 0;
 }
 
-.ai-model-delete {
-  display: inline-grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  align-self: center;
-  padding: 0;
-  border: 1px solid transparent;
+.ai-model-combobox {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px;
+  min-width: 0;
+  height: 56px;
+  border: 1px solid #c8cdc8;
   border-radius: 6px;
+  background: #f7f7f4;
+}
+
+.ai-model-combobox:focus-within {
+  border-color: #676e68;
+  outline: 2px solid rgba(24, 26, 24, 0.12);
+  outline-offset: 1px;
+}
+
+.ai-model-combobox > input {
+  width: 100%;
+  height: 54px;
+  min-height: 54px !important;
+  margin: 0;
+  padding-inline: 16px;
+  border: 0 !important;
+  border-radius: 6px 0 0 6px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+.ai-model-combobox > button {
+  display: inline-grid;
+  width: 52px;
+  height: 54px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid #d2d6d1;
+  border-radius: 0 6px 6px 0;
   background: transparent;
-  color: #666c67;
+  color: #4f5650;
   cursor: pointer;
 }
 
-.ai-model-delete:hover {
-  border-color: #d8c7c3;
-  background: #f4eae7;
-  color: #742e26;
+.ai-model-combobox > button:hover {
+  background: #eceeea;
+  color: #181a18;
 }
 
-.ai-model-delete:focus-visible {
+.ai-model-combobox > button:focus-visible {
   outline: 2px solid #333733;
-  outline-offset: 2px;
+  outline-offset: -3px;
 }
 
-.ai-model-empty {
-  margin-top: 24px;
-  padding: 22px 0 4px;
-  border-top: 1px solid #c9cec9;
-  color: #656c66;
-  line-height: 1.65;
+.ai-model-options {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  right: 0;
+  left: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid #c8cdc8;
+  border-radius: 6px;
+  background: #fbfbf8;
+}
+
+.ai-model-options > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20px;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #202320;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-model-options > button:hover,
+.ai-model-options > button:focus-visible,
+.ai-model-options > button[aria-selected='true'] {
+  background: #eceeea;
+  outline: 0;
+}
+
+.ai-model-options > button span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ai-model-options > button strong,
+.ai-model-options > button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-model-options > button strong {
+  font-family: 'Bookman Old Style', Georgia, serif;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.ai-model-options > button small {
+  color: #69706a;
+  font-size: 0.75rem;
+}
+
+.ai-model-options-empty {
+  padding: 14px 12px;
+  color: #69706a;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.ai-settings-panel > .settings-notice {
+  margin-top: 22px !important;
 }
 
 .ai-runtime-band {
@@ -1795,6 +1901,20 @@ function resetCaptchaNotice() {
 }
 
 @media (max-width: 1120px) {
+  .ai-model-catalog-head {
+    display: grid;
+    align-items: start;
+    gap: 18px;
+  }
+
+  .ai-model-catalog-actions {
+    justify-content: flex-start;
+  }
+
+  .ai-model-selector-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .ai-runtime-band {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2013,48 +2133,6 @@ function resetCaptchaNotice() {
     justify-content: center;
   }
 
-  .ai-model-list-head {
-    display: none;
-  }
-
-  .ai-model-row {
-    grid-template-columns: 36px minmax(0, 1fr) 44px;
-    gap: 12px;
-    padding: 18px 0;
-  }
-
-  .ai-model-default {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .ai-model-id-field {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .ai-model-name-field {
-    grid-column: 2 / 4;
-    grid-row: 2;
-  }
-
-  .ai-model-field > span {
-    position: static;
-    width: auto;
-    height: auto;
-    overflow: visible;
-    clip: auto;
-    color: #626863;
-    font-size: 0.76rem;
-    white-space: normal;
-  }
-
-  .ai-model-delete {
-    grid-column: 3;
-    grid-row: 1;
-    align-self: start;
-  }
-
   .ai-temperature-field {
     grid-column: auto;
   }
@@ -2083,10 +2161,6 @@ function resetCaptchaNotice() {
 
 @media (prefers-reduced-motion: reduce) {
   .ai-connection-state {
-    transition: none;
-  }
-
-  .ai-model-delete {
     transition: none;
   }
 }
