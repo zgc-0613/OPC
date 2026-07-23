@@ -106,6 +106,29 @@ class AdminAiSettingsControllerTest {
     }
 
     @Test
+    void authenticatedAdminCanSetZeroForUnlimitedDailyQuota() throws Exception {
+        AdminAccount admin = new AdminAccount();
+        admin.setId(7L);
+        admin.setUsername("ACha_");
+        when(adminAuthService.requireAccount("valid-admin-token")).thenReturn(admin);
+
+        AiModelSettingsVO saved = new AiModelSettingsVO();
+        saved.setDailyTokenQuota(0L);
+        when(aiSettingsService.update(any(), any())).thenReturn(saved);
+
+        mockMvc.perform(put("/api/admin/ai-settings")
+                        .header("X-Admin-Token", "valid-admin-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validPayload().replace(
+                                "\"dailyTokenQuota\": 100000",
+                                "\"dailyTokenQuota\": 0"
+                        )))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.dailyTokenQuota").value(0));
+    }
+
+    @Test
     void authenticatedAdminCanDiscoverModelsWithTransientFormSettings() throws Exception {
         AdminAccount admin = new AdminAccount();
         admin.setId(7L);

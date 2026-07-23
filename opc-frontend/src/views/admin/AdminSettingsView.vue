@@ -515,7 +515,8 @@
             </label>
             <label class="ai-daily-quota-field">
               <span>单用户每日词元额度</span>
-              <input v-model.number="ai.dailyTokenQuota" type="number" min="1" step="1000" />
+              <input v-model.number="ai.dailyTokenQuota" type="number" min="0" step="1" />
+              <small>填写 0 表示不限制每日词元用量。</small>
             </label>
           </div>
 

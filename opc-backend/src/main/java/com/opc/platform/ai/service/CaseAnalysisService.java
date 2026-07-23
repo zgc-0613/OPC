@@ -144,8 +144,9 @@ public class CaseAnalysisService {
 
     private void enforceLimits(Long userId) {
         long used = value(runMapper.sumCompletedTokensToday(userId));
-        if (used >= settingsProvider.dailyTokenQuota()) {
-            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, "今日智能体 token 额度已用完");
+        long dailyTokenQuota = settingsProvider.dailyTokenQuota();
+        if (dailyTokenQuota > 0 && used >= dailyTokenQuota) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, "今日智能体词元额度已用完");
         }
         if (runMapper.countRunningForUser(userId) > 0) {
             throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, "已有案例分析正在进行，请勿重复提交");

@@ -57,7 +57,7 @@ public class AiModelSettingsUpdateDTO {
     private Integer retryCount;
 
     @NotNull
-    @Min(1)
+    @Min(0)
     private Long dailyTokenQuota;
 
     @NotNull

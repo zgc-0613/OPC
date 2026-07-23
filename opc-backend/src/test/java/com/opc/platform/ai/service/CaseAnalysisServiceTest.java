@@ -106,6 +106,40 @@ class CaseAnalysisServiceTest {
     }
 
     @Test
+    void zeroDailyTokenQuotaDisablesTheDailyLimit() {
+        when(caseItemMapper.selectById(1L)).thenReturn(caseItem("published", "verified"));
+        when(sourceMapper.selectById(8L)).thenReturn(source("published", "verified"));
+        when(policyMapper.selectList(any())).thenReturn(List.of());
+        when(settingsProvider.dailyTokenQuota()).thenReturn(0L);
+        when(runMapper.sumCompletedTokensToday(42L)).thenReturn(Long.MAX_VALUE);
+        when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
+        when(aiClient.generate(any())).thenReturn(new AiProviderResponse(
+                """
+                {
+                  "summary":"无限额分析",
+                  "businessModel":"订阅服务",
+                  "technicalAssessment":"技术路径可验证",
+                  "opportunities":["需求明确"],
+                  "risks":["样本有限"],
+                  "recommendedActions":["补充访谈"],
+                  "citations":[{"sourceId":8,"claim":"商业模式来自案例来源"}],
+                  "confidence":0.76
+                }
+                """,
+                120,
+                80,
+                200,
+                550,
+                "req-unlimited"
+        ));
+
+        var response = service.analyze(user(), request());
+
+        assertEquals("无限额分析", response.getSummary());
+        verify(aiClient).generate(any());
+    }
+
+    @Test
     void verifiedEvidenceProducesStructuredResultAndValidatedCitation() {
         when(caseItemMapper.selectById(1L)).thenReturn(caseItem("published", "verified"));
         when(sourceMapper.selectById(8L)).thenReturn(source("published", "verified"));
