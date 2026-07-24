@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -56,6 +57,8 @@ class AiTaskExecutionServiceTest {
             run.setId(9L);
             return 1;
         });
+        when(runMapper.settle(any(), any(), any(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any()))
+                .thenReturn(1);
     }
 
     @Test
@@ -168,6 +171,28 @@ class AiTaskExecutionServiceTest {
         verify(runMapper).settle(
                 eq(9L), eq("completed"), eq(null), anyInt(), anyInt(), eq(reservation.getValue()),
                 eq(0L), eq(null), eq("{}")
+        );
+    }
+
+    @Test
+    void lateProviderResponseCannotCompleteATaskAlreadyMarkedTimedOut() {
+        when(runMapper.settle(
+                eq(9L), eq("completed"), eq(null), anyInt(), anyInt(), anyInt(),
+                anyLong(), any(), eq("{}")
+        )).thenReturn(0);
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.execute(
+                task(), request("response arrives after task timeout"), execution -> "must not be returned"
+        ));
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
+        verify(runMapper).settle(
+                eq(9L), eq("completed"), eq(null), anyInt(), anyInt(), anyInt(),
+                anyLong(), any(), eq("{}")
+        );
+        verify(runMapper, never()).settle(
+                eq(9L), eq("failed"), any(), anyInt(), anyInt(), anyInt(),
+                anyLong(), any(), any()
         );
     }
 

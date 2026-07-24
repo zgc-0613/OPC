@@ -68,10 +68,12 @@ public class PolicyService {
 
     @Transactional
     public PolicyDetailVO updatePolicy(Long id, PolicyUpdateDTO dto, AuthenticatedAdmin admin) {
-        Policy policy = policyMapper.selectById(id);
+        Policy policy = policyMapper.selectByIdForUpdate(id);
         if (policy == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
         }
+        requireEditSnapshot(policy.getEvidenceRevision(), policy.getUpdatedAt(),
+                dto.getExpectedEvidenceRevision(), dto.getExpectedUpdatedAt());
         validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
 
         boolean evidenceChanged = evidenceRelevantFieldsChanged(policy, dto);
@@ -79,21 +81,22 @@ public class PolicyService {
         if (evidenceChanged) {
             evidenceReviewService.invalidatePolicyAfterEvidenceEdit(policy, admin);
         }
-        policyMapper.updateById(policy);
+        policy.setUpdatedAt(null);
+        requireSingleWrite(policyMapper.updateById(policy));
         syncPolicyTags(id, policy.getTags());
         return getPolicyDetail(id);
     }
 
     @Transactional
     public void deletePolicy(Long id) {
-        Policy policy = policyMapper.selectById(id);
+        Policy policy = policyMapper.selectByIdForUpdate(id);
         if (policy == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
         }
         evidenceReviewService.requireReviewedItemDeletionAllowed("policy", policy.getAiEvidenceStatus());
         policyTagMapper.delete(new LambdaQueryWrapper<PolicyTag>()
                 .eq(PolicyTag::getPolicyId, id));
-        policyMapper.deleteById(id);
+        requireSingleWrite(policyMapper.deleteById(id));
     }
 
     public List<PolicyListVO> listPolicies(PolicyQueryDTO query) {
@@ -146,8 +149,26 @@ public class PolicyService {
         if (regionMapper.selectById(regionId) == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Region not found");
         }
-        if (sourceMapper.selectById(sourceId) == null) {
+        if (sourceMapper.selectByIdForUpdate(sourceId) == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Source not found");
+        }
+    }
+
+    private void requireEditSnapshot(
+            Long actualRevision,
+            java.time.LocalDateTime actualUpdatedAt,
+            Long expectedRevision,
+            java.time.LocalDateTime expectedUpdatedAt
+    ) {
+        if ((expectedRevision != null && !Objects.equals(actualRevision == null ? 0L : actualRevision, expectedRevision))
+                || (expectedUpdatedAt != null && !Objects.equals(actualUpdatedAt, expectedUpdatedAt))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "政策已被其他操作修改，请重新加载后再保存");
+        }
+    }
+
+    private void requireSingleWrite(int affectedRows) {
+        if (affectedRows != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "政策已被其他操作修改，请重新加载后重试");
         }
     }
 
@@ -295,6 +316,8 @@ public class PolicyService {
         vo.setAccessedAt(policy.getAccessedAt());
         vo.setStatus(policy.getStatus());
         vo.setAiEvidenceStatus(policy.getAiEvidenceStatus());
+        vo.setEvidenceRevision(policy.getEvidenceRevision());
+        vo.setUpdatedAt(policy.getUpdatedAt());
         return vo;
     }
 
@@ -324,6 +347,8 @@ public class PolicyService {
         vo.setStatus(policy.getStatus());
         vo.setReviewer(policy.getReviewer());
         vo.setAiEvidenceStatus(policy.getAiEvidenceStatus());
+        vo.setEvidenceRevision(policy.getEvidenceRevision());
+        vo.setUpdatedAt(policy.getUpdatedAt());
         return vo;
     }
 

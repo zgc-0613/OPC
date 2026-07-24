@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Data
 public class SourceUpdateDTO {
@@ -30,5 +31,9 @@ public class SourceUpdateDTO {
     @NotBlank
     @Pattern(regexp = "draft|pending|published|archived")
     private String status;
+
+    private Long expectedEvidenceRevision;
+
+    private LocalDateTime expectedUpdatedAt;
 
 }

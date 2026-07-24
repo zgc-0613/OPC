@@ -82,18 +82,26 @@ public class AiTaskExecutionService {
         try {
             response = aiClient.generate(providerRequest, settings);
             T result = resultHandler.apply(new Execution(run, descriptor, response));
-            settle(run, response, "completed", null, response.content());
+            if (settle(run, response, "completed", null, response.content()) != 1) {
+                throw new TaskNoLongerRunningException();
+            }
             return result;
+        } catch (TaskNoLongerRunningException exception) {
+            throw taskExpired();
         } catch (BusinessException exception) {
-            settle(run, response, "failed", exception.getErrorCode().name(), null);
+            if (settle(run, response, "failed", exception.getErrorCode().name(), null) != 1) {
+                throw taskExpired();
+            }
             throw exception;
         } catch (RuntimeException exception) {
-            settle(run, response, "failed", "UNEXPECTED_PROVIDER_RESPONSE", null);
+            if (settle(run, response, "failed", "UNEXPECTED_PROVIDER_RESPONSE", null) != 1) {
+                throw taskExpired();
+            }
             throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "AI 返回内容格式无效，请稍后重试");
         }
     }
 
-    private void settle(
+    private int settle(
             AiAnalysisRun run,
             AiProviderResponse response,
             String status,
@@ -109,10 +117,14 @@ public class AiTaskExecutionService {
                 : Math.toIntExact(Math.min(Integer.MAX_VALUE, Math.max(1L, run.getReservedTokens())));
         long latencyMs = response == null ? 0 : response.latencyMs();
         String requestId = response == null ? null : response.requestId();
-        runMapper.settle(
+        return runMapper.settle(
                 run.getId(), status, errorType, promptTokens, completionTokens,
                 totalTokens, latencyMs, requestId, resultJson
         );
+    }
+
+    private BusinessException taskExpired() {
+        return new BusinessException(ErrorCode.CONFLICT, "AI 任务已超时，迟到的模型结果已丢弃，请重新提交");
     }
 
     private int safe(Integer value) {
@@ -133,5 +145,8 @@ public class AiTaskExecutionService {
             AiProviderDescriptor descriptor,
             AiProviderResponse response
     ) {
+    }
+
+    private static final class TaskNoLongerRunningException extends RuntimeException {
     }
 }

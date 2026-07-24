@@ -66,10 +66,12 @@ public class CaseItemService {
 
     @Transactional
     public CaseItemDetailVO updateCaseItem(Long id, CaseItemUpdateDTO dto, AuthenticatedAdmin admin) {
-        CaseItem caseItem = caseItemMapper.selectById(id);
+        CaseItem caseItem = caseItemMapper.selectByIdForUpdate(id);
         if (caseItem == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
         }
+        requireEditSnapshot(caseItem.getEvidenceRevision(), caseItem.getUpdatedAt(),
+                dto.getExpectedEvidenceRevision(), dto.getExpectedUpdatedAt());
         validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
 
         boolean evidenceChanged = evidenceRelevantFieldsChanged(caseItem, dto);
@@ -77,20 +79,21 @@ public class CaseItemService {
         if (evidenceChanged) {
             evidenceReviewService.invalidateCaseAfterEvidenceEdit(caseItem, admin);
         }
-        caseItemMapper.updateById(caseItem);
+        caseItem.setUpdatedAt(null);
+        requireSingleWrite(caseItemMapper.updateById(caseItem));
         syncCaseTags(id, caseItem.getTags(), caseItem.getCategory());
         return getCaseItemDetail(id);
     }
 
     @Transactional
     public void deleteCaseItem(Long id) {
-        CaseItem caseItem = caseItemMapper.selectById(id);
+        CaseItem caseItem = caseItemMapper.selectByIdForUpdate(id);
         if (caseItem == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
         }
         evidenceReviewService.requireReviewedItemDeletionAllowed("case", caseItem.getAiEvidenceStatus());
         caseTagMapper.delete(new LambdaQueryWrapper<CaseTag>().eq(CaseTag::getCaseId, id));
-        caseItemMapper.deleteById(id);
+        requireSingleWrite(caseItemMapper.deleteById(id));
     }
 
     public List<CaseItemListVO> listCaseItems(CaseItemQueryDTO query) {
@@ -143,8 +146,26 @@ public class CaseItemService {
         if (regionMapper.selectById(regionId) == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Region not found");
         }
-        if (sourceMapper.selectById(sourceId) == null) {
+        if (sourceMapper.selectByIdForUpdate(sourceId) == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Source not found");
+        }
+    }
+
+    private void requireEditSnapshot(
+            Long actualRevision,
+            java.time.LocalDateTime actualUpdatedAt,
+            Long expectedRevision,
+            java.time.LocalDateTime expectedUpdatedAt
+    ) {
+        if ((expectedRevision != null && !Objects.equals(actualRevision == null ? 0L : actualRevision, expectedRevision))
+                || (expectedUpdatedAt != null && !Objects.equals(actualUpdatedAt, expectedUpdatedAt))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "案例已被其他操作修改，请重新加载后再保存");
+        }
+    }
+
+    private void requireSingleWrite(int affectedRows) {
+        if (affectedRows != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "案例已被其他操作修改，请重新加载后重试");
         }
     }
 
@@ -273,6 +294,8 @@ public class CaseItemService {
         vo.setAccessedAt(caseItem.getAccessedAt());
         vo.setStatus(caseItem.getStatus());
         vo.setAiEvidenceStatus(caseItem.getAiEvidenceStatus());
+        vo.setEvidenceRevision(caseItem.getEvidenceRevision());
+        vo.setUpdatedAt(caseItem.getUpdatedAt());
         return vo;
     }
 
@@ -297,6 +320,8 @@ public class CaseItemService {
         vo.setStatus(caseItem.getStatus());
         vo.setReviewer(caseItem.getReviewer());
         vo.setAiEvidenceStatus(caseItem.getAiEvidenceStatus());
+        vo.setEvidenceRevision(caseItem.getEvidenceRevision());
+        vo.setUpdatedAt(caseItem.getUpdatedAt());
         return vo;
     }
 

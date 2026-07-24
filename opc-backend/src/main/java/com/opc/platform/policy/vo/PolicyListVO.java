@@ -3,6 +3,7 @@ package com.opc.platform.policy.vo;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Data
 public class PolicyListVO {
@@ -44,4 +45,8 @@ public class PolicyListVO {
     private String status;
 
     private String aiEvidenceStatus;
+
+    private Long evidenceRevision;
+
+    private LocalDateTime updatedAt;
 }

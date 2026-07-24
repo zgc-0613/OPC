@@ -149,6 +149,15 @@ class DeploymentHardeningTest(unittest.TestCase):
             migration = (ROOT / "deploy" / "sql" / migration_name).read_text(encoding="utf-8")
             self.assertNotRegex(migration, r"(?im)^\s*(DROP|TRUNCATE|DELETE)\b")
 
+    def test_ssh_fingerprint_is_checked_before_password_authentication(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        self.assertNotIn("paramiko.AutoAddPolicy", deploy)
+        self.assertLess(
+            deploy.index("actual = hashlib.sha256(key.asbytes()).hexdigest()"),
+            deploy.index("client.connect("),
+        )
+        self.assertIn("phase-one-finalization.sql", deploy)
+
 
 if __name__ == "__main__":
     unittest.main()

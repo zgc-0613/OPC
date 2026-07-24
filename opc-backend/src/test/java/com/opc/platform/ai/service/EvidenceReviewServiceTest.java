@@ -8,6 +8,7 @@ import com.opc.platform.ai.dto.EvidenceReviewQueryDTO;
 import com.opc.platform.ai.vo.EvidenceReviewPreflightVO;
 import com.opc.platform.ai.entity.AiEvidenceReview;
 import com.opc.platform.ai.mapper.AiEvidenceReviewMapper;
+import com.opc.platform.ai.mapper.EvidenceReviewQueueMapper;
 import com.opc.platform.caseitem.entity.CaseItem;
 import com.opc.platform.caseitem.mapper.CaseItemMapper;
 import com.opc.platform.common.enums.ErrorCode;
@@ -32,6 +33,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 class EvidenceReviewServiceTest {
 
@@ -39,12 +41,13 @@ class EvidenceReviewServiceTest {
     private final PolicyMapper policyMapper = mock(PolicyMapper.class);
     private final SourceMapper sourceMapper = mock(SourceMapper.class);
     private final AiEvidenceReviewMapper reviewMapper = mock(AiEvidenceReviewMapper.class);
+    private final EvidenceReviewQueueMapper queueMapper = mock(EvidenceReviewQueueMapper.class);
 
     private EvidenceReviewService service;
 
     @BeforeEach
     void setUp() {
-        service = new EvidenceReviewService(caseItemMapper, policyMapper, sourceMapper, reviewMapper);
+        service = new EvidenceReviewService(caseItemMapper, policyMapper, sourceMapper, reviewMapper, queueMapper);
         when(caseItemMapper.update(any(), any())).thenReturn(1);
         when(policyMapper.update(any(), any())).thenReturn(1);
         when(sourceMapper.update(any(), any())).thenReturn(1);
@@ -84,17 +87,18 @@ class EvidenceReviewServiceTest {
     }
 
     @Test
-    void deepUnfilteredPagesAreRejectedBeforeAllocatingGrowingMergeWindows() {
+    void deepUnfilteredPagesUseDatabaseOffsetWithoutMergeWindows() {
         EvidenceReviewQueryDTO query = new EvidenceReviewQueryDTO();
         query.setPage(51);
         query.setSize(100);
 
-        BusinessException exception = assertThrows(BusinessException.class, () -> service.list(query));
+        when(queueMapper.selectPage(query, 100, 5000)).thenReturn(List.of());
+        when(queueMapper.count(query)).thenReturn(0L);
 
-        assertEquals(ErrorCode.BAD_REQUEST, exception.getErrorCode());
-        verify(caseItemMapper, never()).selectList(any());
-        verify(policyMapper, never()).selectList(any());
-        verify(sourceMapper, never()).selectList(any());
+        var page = service.list(query);
+
+        assertEquals(0, page.getItems().size());
+        verify(queueMapper).selectPage(query, 100, 5000);
     }
 
     @Test
@@ -183,6 +187,22 @@ class EvidenceReviewServiceTest {
     }
 
     @Test
+    void sourceWithoutPublisherCannotBeApprovedAsEvidence() {
+        Source source = source("legacy_unverified");
+        source.setPublisher(" ");
+        when(sourceMapper.selectById(8L)).thenReturn(source);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.review("source", 8L, update("verified"), admin())
+        );
+
+        assertEquals(ErrorCode.BAD_REQUEST, exception.getErrorCode());
+        assertTrue(exception.getMessage().contains("发布机构"));
+        verify(sourceMapper, never()).update(any(), any());
+    }
+
+    @Test
     void verifiedSourceCannotBeDeletedThroughOrdinaryCrud() {
         Source source = source("verified");
         when(sourceMapper.selectOne(any())).thenReturn(source);
@@ -259,6 +279,58 @@ class EvidenceReviewServiceTest {
     }
 
     @Test
+    void batchDowngradeProcessesChildrenBeforeSourceRegardlessOfInputOrder() {
+        Source source = source("verified");
+        CaseItem caseItem = caseItem();
+        caseItem.setAiEvidenceStatus("verified");
+        when(sourceMapper.selectById(8L)).thenReturn(source);
+        when(caseItemMapper.selectById(11L)).thenReturn(caseItem);
+        when(caseItemMapper.selectList(any())).thenReturn(List.of(caseItem));
+        when(policyMapper.selectList(any())).thenReturn(List.of());
+        when(sourceMapper.update(any(), any())).thenReturn(1);
+        when(caseItemMapper.update(any(), any())).thenReturn(1);
+
+        EvidenceReviewBatchItemDTO sourceTarget = target("source", 8L);
+        sourceTarget.setExpectedEvidenceStatus("verified");
+        EvidenceReviewBatchItemDTO caseTarget = target("case", 11L);
+        caseTarget.setExpectedEvidenceStatus("verified");
+        EvidenceReviewBatchUpdateDTO dto = batch("excluded", sourceTarget, caseTarget);
+        dto.setCascade(true);
+
+        var result = service.reviewBatch(dto, admin());
+
+        assertEquals(2, result.getProcessedCount());
+        assertEquals("legacy_unverified", caseItem.getAiEvidenceStatus());
+        assertEquals("excluded", source.getAiEvidenceStatus());
+    }
+
+    @Test
+    void batchLegacyDowngradeUsesTheSameChildFirstOrdering() {
+        Source source = source("verified");
+        CaseItem caseItem = caseItem();
+        caseItem.setAiEvidenceStatus("verified");
+        when(sourceMapper.selectById(8L)).thenReturn(source);
+        when(caseItemMapper.selectById(11L)).thenReturn(caseItem);
+        when(caseItemMapper.selectList(any())).thenReturn(List.of(caseItem));
+        when(policyMapper.selectList(any())).thenReturn(List.of());
+        when(sourceMapper.update(any(), any())).thenReturn(1);
+        when(caseItemMapper.update(any(), any())).thenReturn(1);
+
+        EvidenceReviewBatchItemDTO sourceTarget = target("source", 8L);
+        sourceTarget.setExpectedEvidenceStatus("verified");
+        EvidenceReviewBatchItemDTO caseTarget = target("case", 11L);
+        caseTarget.setExpectedEvidenceStatus("verified");
+        EvidenceReviewBatchUpdateDTO dto = batch("legacy_unverified", sourceTarget, caseTarget);
+        dto.setCascade(true);
+
+        var result = service.reviewBatch(dto, admin());
+
+        assertEquals(2, result.getProcessedCount());
+        assertEquals("legacy_unverified", caseItem.getAiEvidenceStatus());
+        assertEquals("legacy_unverified", source.getAiEvidenceStatus());
+    }
+
+    @Test
     void editingVerifiedCaseInvalidatesItAndRecordsAnAutomaticAudit() {
         CaseItem caseItem = caseItem();
         caseItem.setAiEvidenceStatus("verified");
@@ -296,6 +368,30 @@ class EvidenceReviewServiceTest {
         assertEquals(1, audits.getAllValues().stream().map(AiEvidenceReview::getOperationId).distinct().count());
         assertTrue(audits.getAllValues().stream().anyMatch(audit -> "content_invalidated".equals(audit.getActionType())));
         assertEquals(2, audits.getAllValues().stream().filter(audit -> "dependency_invalidated".equals(audit.getActionType())).count());
+    }
+
+    @Test
+    void childCasFailureAbortsSourceCascadeInsteadOfBeingSilentlySkipped() {
+        Source source = source("verified");
+        CaseItem caseItem = caseItem();
+        caseItem.setAiEvidenceStatus("verified");
+        when(sourceMapper.selectById(8L)).thenReturn(source);
+        when(caseItemMapper.selectCount(any())).thenReturn(1L);
+        when(policyMapper.selectCount(any())).thenReturn(0L);
+        when(caseItemMapper.selectList(any())).thenReturn(List.of(caseItem));
+        when(policyMapper.selectList(any())).thenReturn(List.of());
+        when(caseItemMapper.update(any(), any())).thenReturn(0);
+        EvidenceReviewUpdateDTO dto = update("excluded");
+        dto.setExpectedEvidenceStatus("verified");
+        dto.setReason("source withdrawn");
+        dto.setCascade(true);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.review("source", 8L, dto, admin())
+        );
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
     }
 
     @Test
@@ -389,6 +485,7 @@ class EvidenceReviewServiceTest {
         Source source = new Source();
         source.setId(8L);
         source.setTitle("original publication");
+        source.setPublisher("official publisher");
         source.setUrl("https://source.example/8");
         source.setStatus("published");
         source.setAiEvidenceStatus(evidenceStatus);

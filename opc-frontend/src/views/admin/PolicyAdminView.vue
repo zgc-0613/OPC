@@ -347,13 +347,18 @@ async function startEdit(policy) {
 
 function toPayload(sourceId) {
   const { sourceTitle, ...policyFields } = form
-  return {
+  const payload = {
     ...policyFields,
     regionId: Number(form.regionId),
     sourceId,
     publishDate: form.publishDate || null,
     effectiveDate: form.effectiveDate || null,
   }
+  if (editingId.value) {
+    payload.expectedEvidenceRevision = Number(form.evidenceRevision ?? 0)
+    payload.expectedUpdatedAt = form.updatedAt || null
+  }
+  return payload
 }
 
 async function resolveSourceId() {
@@ -432,6 +437,8 @@ function policyDetailPayload(detail, status) {
     accessedAt: detail.accessedAt || today,
     status,
     reviewer: detail.reviewer || '',
+    expectedEvidenceRevision: Number(detail.evidenceRevision ?? 0),
+    expectedUpdatedAt: detail.updatedAt || null,
   }
 }
 

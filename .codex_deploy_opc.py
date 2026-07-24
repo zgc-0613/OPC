@@ -32,14 +32,23 @@ AI_STABILIZATION_MIGRATION = ROOT / "deploy" / "sql" / "20260724_ai_stabilizatio
 AI_STABILIZATION_PRECHECK = ROOT / "deploy" / "sql" / "20260724_ai_stabilization_precheck.sql"
 AI_STABILIZATION_POSTCHECK = ROOT / "deploy" / "sql" / "20260724_ai_stabilization_postcheck.sql"
 EVIDENCE_WORKBENCH_MIGRATION = ROOT / "deploy" / "sql" / "20260725_evidence_workbench.sql"
+PHASE_ONE_FINALIZATION_MIGRATION = ROOT / "deploy" / "sql" / "20260725_phase_one_finalization.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 
 
 def connect():
     password = os.environ["OPC_SSH_PASSWORD"]
+
+    class PinnedFingerprintPolicy(paramiko.MissingHostKeyPolicy):
+        def missing_host_key(self, client, hostname, key):
+            actual = hashlib.sha256(key.asbytes()).hexdigest()
+            if actual != EXPECTED_FINGERPRINT:
+                raise paramiko.SSHException("SSH host fingerprint mismatch")
+            client.get_host_keys().add(hostname, key.get_name(), key)
+
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.set_missing_host_key_policy(PinnedFingerprintPolicy())
     client.connect(
         HOST,
         port=PORT,
@@ -51,11 +60,6 @@ def connect():
         look_for_keys=False,
         allow_agent=False,
     )
-    key = client.get_transport().get_remote_server_key()
-    actual = hashlib.sha256(key.asbytes()).hexdigest()
-    if actual != EXPECTED_FINGERPRINT:
-        client.close()
-        raise RuntimeError("SSH host fingerprint mismatch")
     return client
 
 
@@ -203,6 +207,8 @@ def deploy(client):
         AI_STABILIZATION_POSTCHECK,
         NGINX,
         SYSTEMD,
+        EVIDENCE_WORKBENCH_MIGRATION,
+        PHASE_ONE_FINALIZATION_MIGRATION,
     ]
     for path in required:
         if not path.exists():
@@ -255,6 +261,7 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     sftp.put(str(AI_STABILIZATION_PRECHECK), f"{release}/ai-stabilization-precheck.sql")
     sftp.put(str(AI_STABILIZATION_POSTCHECK), f"{release}/ai-stabilization-postcheck.sql")
     sftp.put(str(EVIDENCE_WORKBENCH_MIGRATION), f"{release}/evidence-workbench.sql")
+    sftp.put(str(PHASE_ONE_FINALIZATION_MIGRATION), f"{release}/phase-one-finalization.sql")
     sftp.put(str(NGINX), uploaded_nginx)
     sftp.put(str(SYSTEMD), uploaded_systemd)
     sftp.close()
@@ -269,6 +276,7 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"{release}/ai-stabilization-precheck.sql": sha256(AI_STABILIZATION_PRECHECK),
         f"{release}/ai-stabilization-postcheck.sql": sha256(AI_STABILIZATION_POSTCHECK),
         f"{release}/evidence-workbench.sql": sha256(EVIDENCE_WORKBENCH_MIGRATION),
+        f"{release}/phase-one-finalization.sql": sha256(PHASE_ONE_FINALIZATION_MIGRATION),
         uploaded_nginx: sha256(NGINX),
         uploaded_systemd: sha256(SYSTEMD),
     }
@@ -308,6 +316,19 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         )
         if workbench_migration_output.splitlines()[-1:] != ["3\t3\t1"]:
             raise RuntimeError("Evidence workbench database migration verification failed")
+        _, finalization_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-one-finalization.sql'",
+        )
+        _, foreign_key_count, _ = database_command(
+            client,
+            "SELECT COUNT(*) FROM information_schema.referential_constraints "
+            "WHERE constraint_schema = DATABASE() "
+            "AND constraint_name IN ('fk_case_items_source', 'fk_policies_source');\n",
+        )
+        if foreign_key_count.splitlines()[-1:] != ["2"]:
+            raise RuntimeError("Phase-one source foreign-key migration verification failed")
         run(
             client,
             "set -euo pipefail\n"

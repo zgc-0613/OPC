@@ -44,10 +44,12 @@ public class SourceService {
 
     @Transactional
     public SourceVO updateSource(Long id, SourceUpdateDTO dto, AuthenticatedAdmin admin) {
-        Source source = sourceMapper.selectById(id);
+        Source source = sourceMapper.selectByIdForUpdate(id);
         if (source == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Source not found");
         }
+        requireEditSnapshot(source.getEvidenceRevision(), source.getUpdatedAt(),
+                dto.getExpectedEvidenceRevision(), dto.getExpectedUpdatedAt());
         validateUniqueTitle(dto.getTitle(), id);
         validateSourceUrl(dto.getUrl());
         boolean evidenceChanged = evidenceRelevantFieldsChanged(source, dto);
@@ -55,18 +57,19 @@ public class SourceService {
         if (evidenceChanged) {
             evidenceReviewService.invalidateSourceAfterEvidenceEdit(source, admin);
         }
-        sourceMapper.updateById(source);
+        source.setUpdatedAt(null);
+        requireSingleWrite(sourceMapper.updateById(source));
         return toVO(sourceMapper.selectById(id));
     }
 
     @Transactional
     public void deleteSource(Long id) {
-        Source source = sourceMapper.selectById(id);
+        Source source = sourceMapper.selectByIdForUpdate(id);
         if (source == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Source not found");
         }
         evidenceReviewService.requireSourceDeletionAllowed(source);
-        sourceMapper.deleteById(id);
+        requireSingleWrite(sourceMapper.deleteById(id));
     }
 
     public List<SourceVO> listSources() {
@@ -172,6 +175,8 @@ public class SourceService {
         vo.setNotes(source.getNotes());
         vo.setStatus(source.getStatus());
         vo.setAiEvidenceStatus(source.getAiEvidenceStatus());
+        vo.setEvidenceRevision(source.getEvidenceRevision());
+        vo.setUpdatedAt(source.getUpdatedAt());
         return vo;
     }
 
@@ -183,5 +188,23 @@ public class SourceService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "来源状态必须为 draft、pending、published 或 archived");
         }
         return status;
+    }
+
+    private void requireEditSnapshot(
+            Long actualRevision,
+            java.time.LocalDateTime actualUpdatedAt,
+            Long expectedRevision,
+            java.time.LocalDateTime expectedUpdatedAt
+    ) {
+        if ((expectedRevision != null && !Objects.equals(actualRevision == null ? 0L : actualRevision, expectedRevision))
+                || (expectedUpdatedAt != null && !Objects.equals(actualUpdatedAt, expectedUpdatedAt))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "来源已被其他操作修改，请重新加载后再保存");
+        }
+    }
+
+    private void requireSingleWrite(int affectedRows) {
+        if (affectedRows != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "来源已被其他操作修改，请重新加载后重试");
+        }
     }
 }

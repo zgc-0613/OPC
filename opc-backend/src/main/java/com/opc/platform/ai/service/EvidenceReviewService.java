@@ -9,6 +9,8 @@ import com.opc.platform.ai.dto.EvidenceReviewQueryDTO;
 import com.opc.platform.ai.dto.EvidenceReviewUpdateDTO;
 import com.opc.platform.ai.entity.AiEvidenceReview;
 import com.opc.platform.ai.mapper.AiEvidenceReviewMapper;
+import com.opc.platform.ai.mapper.EvidenceReviewQueueMapper;
+import com.opc.platform.ai.mapper.EvidenceReviewQueueRow;
 import com.opc.platform.ai.vo.EvidenceReviewItemVO;
 import com.opc.platform.ai.vo.EvidenceReviewBatchResultVO;
 import com.opc.platform.ai.vo.EvidenceReviewCheckVO;
@@ -49,71 +51,64 @@ public class EvidenceReviewService {
 
     private static final String PUBLISHED = "published";
     private static final String VERIFIED = "verified";
-    private static final int MAX_MERGE_WINDOW = 5_000;
-
     private final CaseItemMapper caseItemMapper;
     private final PolicyMapper policyMapper;
     private final SourceMapper sourceMapper;
     private final AiEvidenceReviewMapper reviewMapper;
+    private final EvidenceReviewQueueMapper queueMapper;
 
     public EvidenceReviewPageVO list(EvidenceReviewQueryDTO query) {
-        long requestedWindow = (long) query.getPage() * query.getSize();
-        if (requestedWindow > MAX_MERGE_WINDOW) {
-            throw new BusinessException(
-                    ErrorCode.BAD_REQUEST,
-                    "审核队列翻页范围过深，请先按资料类型或证据状态筛选"
-            );
-        }
-        int windowSize = Math.toIntExact(requestedWindow);
-        boolean filterByReviewability = StringUtils.hasText(query.getReviewability())
-                && !"all".equals(query.getReviewability());
-        int fetchWindow = filterByReviewability ? MAX_MERGE_WINDOW : windowSize;
-        boolean includeCases = !StringUtils.hasText(query.getItemType()) || "case".equals(query.getItemType());
-        boolean includePolicies = !StringUtils.hasText(query.getItemType()) || "policy".equals(query.getItemType());
-        boolean includeSources = !StringUtils.hasText(query.getItemType()) || "source".equals(query.getItemType());
-
-        List<CaseItem> caseItems = includeCases
-                ? safe(caseItemMapper.selectList(caseQuery(query, true).last("LIMIT " + fetchWindow)))
-                : List.of();
-        List<Policy> policies = includePolicies
-                ? safe(policyMapper.selectList(policyQuery(query, true).last("LIMIT " + fetchWindow)))
-                : List.of();
-        List<Source> sourceItems = includeSources
-                ? safe(sourceMapper.selectList(sourceQuery(query, true).last("LIMIT " + fetchWindow)))
-                : List.of();
-
-        long total = 0;
-        if (includeCases) total += count(caseItemMapper.selectCount(caseQuery(query, false)));
-        if (includePolicies) total += count(policyMapper.selectCount(policyQuery(query, false)));
-        if (includeSources) total += count(sourceMapper.selectCount(sourceQuery(query, false)));
-
-        Set<Long> sourceIds = new LinkedHashSet<>();
-        caseItems.stream().map(CaseItem::getSourceId).filter(java.util.Objects::nonNull).forEach(sourceIds::add);
-        policies.stream().map(Policy::getSourceId).filter(java.util.Objects::nonNull).forEach(sourceIds::add);
-        sourceItems.stream().map(Source::getId).filter(java.util.Objects::nonNull).forEach(sourceIds::add);
-        Map<Long, Source> sources = sourceIds.isEmpty()
-                ? Map.of()
-                : safe(sourceMapper.selectBatchIds(sourceIds)).stream()
-                        .collect(Collectors.toMap(Source::getId, Function.identity(), (left, right) -> left));
-
-        List<EvidenceReviewItemVO> values = new ArrayList<>();
-        caseItems.forEach(item -> values.add(caseItem(item, sources)));
-        policies.forEach(item -> values.add(policy(item, sources)));
-        sourceItems.forEach(item -> values.add(source(item)));
-        if (filterByReviewability) {
-            boolean expectedReviewable = "reviewable".equals(query.getReviewability());
-            values.removeIf(item -> item.isReviewable() != expectedReviewable);
-            total = values.size();
-        }
-        values.sort(reviewComparator(query.getSort()));
-        int from = Math.min((query.getPage() - 1) * query.getSize(), values.size());
-        int to = Math.min(from + query.getSize(), values.size());
         EvidenceReviewPageVO page = new EvidenceReviewPageVO();
-        page.setItems(List.copyOf(values.subList(from, to)));
+        int offset = Math.multiplyExact(query.getPage() - 1, query.getSize());
+        List<EvidenceReviewQueueRow> rows = safe(queueMapper.selectPage(query, query.getSize(), offset));
+        page.setItems(rows.stream().map(this::queueItem).toList());
         page.setPage(query.getPage());
         page.setSize(query.getSize());
-        page.setTotal(total);
+        page.setTotal(queueMapper.count(query));
         return page;
+    }
+
+    private EvidenceReviewItemVO queueItem(EvidenceReviewQueueRow row) {
+        EvidenceReviewItemVO item = new EvidenceReviewItemVO();
+        item.setItemType(row.getItemType());
+        item.setItemId(row.getItemId());
+        item.setTitle(row.getTitle());
+        item.setPublicationStatus(row.getPublicationStatus());
+        item.setEvidenceStatus(row.getEvidenceStatus());
+        item.setSourceId(row.getSourceId());
+        item.setSourceTitle(row.getSourceTitle());
+        item.setSourceStatus(row.getSourceStatus());
+        item.setSourceEvidenceStatus(row.getSourceEvidenceStatus());
+        item.setSourceEligible(row.getSourceId() != null && "published".equals(row.getSourceStatus())
+                && "verified".equals(row.getSourceEvidenceStatus()));
+        item.setReviewable(row.isReviewable());
+        item.setVersion(row.getVersion());
+        item.setUpdatedAt(row.getUpdatedAt());
+        List<String> blockers = new ArrayList<>();
+        if (!PUBLISHED.equals(row.getPublicationStatus())) blockers.add("资料尚未发布");
+        if (!row.isContentComplete()) blockers.add("资料缺少标题、摘要或必要发布信息");
+        if ("source".equals(row.getItemType())) {
+            if (!StringUtils.hasText(row.getSourcePublisher())) blockers.add("来源缺少发布机构");
+            if (!safeEvidenceUrl(row.getSourceUrl())) blockers.add("来源缺少安全原文链接");
+        } else {
+            if (row.getSourceId() == null) blockers.add("资料未关联来源");
+            if (!"published".equals(row.getSourceStatus())) blockers.add("关联来源尚未发布");
+            if (!"verified".equals(row.getSourceEvidenceStatus())) blockers.add("关联来源尚未核验");
+            if (!safeEvidenceUrl(row.getSourceUrl())) blockers.add("关联来源缺少安全原文链接");
+        }
+        item.setBlockingReasons(List.copyOf(blockers));
+        return item;
+    }
+
+    private boolean safeEvidenceUrl(String value) {
+        if (!StringUtils.hasText(value)) return false;
+        try {
+            URI uri = URI.create(value.trim());
+            return uri.getUserInfo() == null && uri.getHost() != null
+                    && ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()));
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     public EvidenceReviewDetailVO detail(String itemType, Long itemId) {
@@ -127,6 +122,14 @@ public class EvidenceReviewService {
 
     public EvidenceReviewPreflightVO preflight(EvidenceReviewBatchUpdateDTO dto) {
         Set<Long> sourcesVerifiedInBatch = new HashSet<>();
+        Set<Long> selectedCaseIds = dto.getItems().stream()
+                .filter(item -> "case".equals(item.getItemType()))
+                .map(EvidenceReviewBatchItemDTO::getItemId)
+                .collect(Collectors.toSet());
+        Set<Long> selectedPolicyIds = dto.getItems().stream()
+                .filter(item -> "policy".equals(item.getItemType()))
+                .map(EvidenceReviewBatchItemDTO::getItemId)
+                .collect(Collectors.toSet());
         if (VERIFIED.equals(dto.getEvidenceStatus())) {
             for (EvidenceReviewBatchItemDTO target : dto.getItems()) {
                 if (!"source".equals(target.getItemType())) continue;
@@ -144,7 +147,8 @@ public class EvidenceReviewService {
             }
         }
         List<EvidenceReviewPreflightItemVO> items = dto.getItems().stream()
-                .map(target -> preflightItem(target, dto.getEvidenceStatus(), dto.isCascade(), sourcesVerifiedInBatch))
+                .map(target -> preflightItem(target, dto.getEvidenceStatus(), dto.isCascade(), sourcesVerifiedInBatch,
+                        selectedCaseIds, selectedPolicyIds))
                 .toList();
         EvidenceReviewPreflightVO result = new EvidenceReviewPreflightVO();
         result.setRequestedCount(items.size());
@@ -256,7 +260,9 @@ public class EvidenceReviewService {
             EvidenceReviewBatchItemDTO target,
             String targetStatus,
             boolean cascade,
-            Set<Long> sourcesVerifiedInBatch
+            Set<Long> sourcesVerifiedInBatch,
+            Set<Long> selectedCaseIds,
+            Set<Long> selectedPolicyIds
     ) {
         EvidenceReviewPreflightItemVO result = new EvidenceReviewPreflightItemVO();
         result.setItemType(target.getItemType());
@@ -284,8 +290,8 @@ public class EvidenceReviewService {
                         .forEach(blockers::add);
             }
             if ("source".equals(target.getItemType()) && !VERIFIED.equals(targetStatus)) {
-                int caseCount = verifiedCaseDependencyCount(target.getItemId());
-                int policyCount = verifiedPolicyDependencyCount(target.getItemId());
+                int caseCount = verifiedCaseDependencyCount(target.getItemId(), selectedCaseIds);
+                int policyCount = verifiedPolicyDependencyCount(target.getItemId(), selectedPolicyIds);
                 result.setAffectedCaseCount(caseCount);
                 result.setAffectedPolicyCount(policyCount);
                 if ((caseCount + policyCount) > 0 && !cascade) {
@@ -305,6 +311,7 @@ public class EvidenceReviewService {
         checks.add(check("published", "资料已发布", PUBLISHED.equals(publicationStatus), "资料必须处于已发布状态"));
         if ("source".equals(itemType)) {
             checks.add(check("source_title", "来源标题完整", source != null && StringUtils.hasText(source.getTitle()), "来源缺少标题"));
+            checks.add(check("source_publisher", "发布机构完整", source != null && StringUtils.hasText(source.getPublisher()), "来源缺少发布机构"));
             checks.add(check("source_url", "原文链接安全且完整", source != null && isSafeEvidenceUrl(source.getUrl()), "来源必须提供安全的 HTTP/HTTPS 原文链接"));
         } else {
             boolean contentComplete = content instanceof CaseItem caseItem
@@ -328,16 +335,28 @@ public class EvidenceReviewService {
     }
 
     private int verifiedCaseDependencyCount(Long sourceId) {
-        Long count = caseItemMapper.selectCount(new LambdaQueryWrapper<CaseItem>()
+        return verifiedCaseDependencyCount(sourceId, Set.of());
+    }
+
+    private int verifiedCaseDependencyCount(Long sourceId, Set<Long> excludedIds) {
+        LambdaQueryWrapper<CaseItem> query = new LambdaQueryWrapper<CaseItem>()
                 .eq(CaseItem::getSourceId, sourceId)
-                .eq(CaseItem::getAiEvidenceStatus, VERIFIED));
+                .eq(CaseItem::getAiEvidenceStatus, VERIFIED);
+        if (excludedIds != null && !excludedIds.isEmpty()) query.notIn(CaseItem::getId, excludedIds);
+        Long count = caseItemMapper.selectCount(query);
         return count == null ? 0 : Math.toIntExact(count);
     }
 
     private int verifiedPolicyDependencyCount(Long sourceId) {
-        Long count = policyMapper.selectCount(new LambdaQueryWrapper<Policy>()
+        return verifiedPolicyDependencyCount(sourceId, Set.of());
+    }
+
+    private int verifiedPolicyDependencyCount(Long sourceId, Set<Long> excludedIds) {
+        LambdaQueryWrapper<Policy> query = new LambdaQueryWrapper<Policy>()
                 .eq(Policy::getSourceId, sourceId)
-                .eq(Policy::getAiEvidenceStatus, VERIFIED));
+                .eq(Policy::getAiEvidenceStatus, VERIFIED);
+        if (excludedIds != null && !excludedIds.isEmpty()) query.notIn(Policy::getId, excludedIds);
+        Long count = policyMapper.selectCount(query);
         return count == null ? 0 : Math.toIntExact(count);
     }
 
@@ -447,9 +466,13 @@ public class EvidenceReviewService {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "批量审核不能包含重复资料");
             }
         }
-        if (VERIFIED.equals(dto.getEvidenceStatus())) {
-            targets.sort(Comparator.comparing(target -> "source".equals(target.getItemType()) ? 0 : 1));
-        }
+        boolean downgrade = !VERIFIED.equals(dto.getEvidenceStatus());
+        targets.sort(Comparator
+                .comparing((EvidenceReviewBatchItemDTO target) -> downgrade
+                        ? ("source".equals(target.getItemType()) ? 1 : 0)
+                        : ("source".equals(target.getItemType()) ? 0 : 1))
+                .thenComparing(EvidenceReviewBatchItemDTO::getItemType)
+                .thenComparing(EvidenceReviewBatchItemDTO::getItemId));
 
         String operationId = UUID.randomUUID().toString();
         List<EvidenceReviewItemVO> reviewedItems = new ArrayList<>(targets.size());
@@ -585,9 +608,8 @@ public class EvidenceReviewService {
                 );
             }
         }
-        if (VERIFIED.equals(dto.getEvidenceStatus())
-                && (!PUBLISHED.equals(item.getStatus()) || !StringUtils.hasText(item.getTitle()) || !isSafeEvidenceUrl(item.getUrl()))) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "来源必须已发布且具有标题和原始链接后才能核验");
+        if (VERIFIED.equals(dto.getEvidenceStatus()) && !eligibleSourceForApproval(item)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "来源必须已发布且具有标题、发布机构和安全原文链接后才能核验");
         }
         String previous = item.getAiEvidenceStatus();
         transitionSourceEvidence(item, dto.getEvidenceStatus());
@@ -683,7 +705,7 @@ public class EvidenceReviewService {
                             .eq("evidence_revision", expectedVersion)
                             .set("ai_evidence_status", "legacy_unverified")
                             .set("evidence_revision", expectedVersion + 1));
-                    if (affected != 1) return;
+                    requireSingleAtomicUpdate(affected);
                     item.setAiEvidenceStatus("legacy_unverified");
                     item.setEvidenceRevision(expectedVersion + 1);
                     audit("case", item.getId(), VERIFIED, "legacy_unverified", reason,
@@ -700,7 +722,7 @@ public class EvidenceReviewService {
                             .eq("evidence_revision", expectedVersion)
                             .set("ai_evidence_status", "legacy_unverified")
                             .set("evidence_revision", expectedVersion + 1));
-                    if (affected != 1) return;
+                    requireSingleAtomicUpdate(affected);
                     item.setAiEvidenceStatus("legacy_unverified");
                     item.setEvidenceRevision(expectedVersion + 1);
                     audit("policy", item.getId(), VERIFIED, "legacy_unverified", reason,
@@ -892,6 +914,15 @@ public class EvidenceReviewService {
                 && PUBLISHED.equals(source.getStatus())
                 && VERIFIED.equals(source.getAiEvidenceStatus())
                 && StringUtils.hasText(source.getTitle())
+                && StringUtils.hasText(source.getPublisher())
+                && isSafeEvidenceUrl(source.getUrl());
+    }
+
+    private boolean eligibleSourceForApproval(Source source) {
+        return source != null
+                && PUBLISHED.equals(source.getStatus())
+                && StringUtils.hasText(source.getTitle())
+                && StringUtils.hasText(source.getPublisher())
                 && isSafeEvidenceUrl(source.getUrl());
     }
 

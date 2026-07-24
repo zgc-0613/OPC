@@ -81,6 +81,7 @@ public class CaseAnalysisService {
                 execution -> {
                     ModelPayload payload = parse(execution.response().content());
                     List<AiCitationVO> citations = validateCitations(payload.getCitations(), evidence.sources());
+                    requireEvidenceUnchanged(caseItem, evidence);
                     return toResult(
                             execution.run(), caseItem, execution.descriptor(), execution.response(), payload, citations
                     );
@@ -128,19 +129,25 @@ public class CaseAnalysisService {
     }
 
     private CaseAnalysisVO insufficient(AuthenticatedUser user, CaseItem caseItem, String evidenceStatus) {
-        AiAnalysisRun run = new AiAnalysisRun();
-        run.setUserId(user.userId());
-        run.setCaseId(caseItem.getId());
-        run.setStatus("evidence_insufficient");
-        run.setProvider("not_called");
-        run.setModelId("not_called");
-        run.setPromptVersion(PROMPT_VERSION);
-        run.setEvidenceHash(evidenceHash(caseItem, Map.of(), List.of(), evidenceStatus));
-        run.setResultJson("{\"evidenceStatus\":\"insufficient\"}");
-        run.setPromptTokens(0);
-        run.setCompletionTokens(0);
-        run.setTotalTokens(0);
-        runMapper.insert(run);
+        String hash = evidenceHash(caseItem, Map.of(), List.of(), evidenceStatus);
+        AiAnalysisRun run = runMapper.findRecentEvidenceInsufficient(
+                user.userId(), "case_analysis", caseItem.getId(), hash);
+        if (run == null) {
+            run = new AiAnalysisRun();
+            run.setUserId(user.userId());
+            run.setTaskType("case_analysis");
+            run.setCaseId(caseItem.getId());
+            run.setStatus("evidence_insufficient");
+            run.setProvider("not_called");
+            run.setModelId("not_called");
+            run.setPromptVersion(PROMPT_VERSION);
+            run.setEvidenceHash(hash);
+            run.setResultJson("{\"evidenceStatus\":\"insufficient\"}");
+            run.setPromptTokens(0);
+            run.setCompletionTokens(0);
+            run.setTotalTokens(0);
+            runMapper.insert(run);
+        }
 
         CaseAnalysisVO result = new CaseAnalysisVO();
         result.setAnalysisId(run.getId());
@@ -236,7 +243,79 @@ public class CaseAnalysisService {
                 && PUBLISHED.equals(source.getStatus())
                 && VERIFIED.equals(source.getAiEvidenceStatus())
                 && StringUtils.hasText(source.getTitle())
+                && StringUtils.hasText(source.getPublisher())
                 && StringUtils.hasText(source.getUrl());
+    }
+
+    private void requireEvidenceUnchanged(CaseItem original, EvidenceBundle evidence) {
+        CaseItem currentCase = caseItemMapper.selectById(original.getId());
+        if (currentCase == null || !sameVersion(original, currentCase)
+                || !PUBLISHED.equals(currentCase.getStatus())
+                || !VERIFIED.equals(currentCase.getAiEvidenceStatus())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分析期间案例证据已变更，请重新生成");
+        }
+
+        List<Policy> currentPolicies = evidence.policies().stream()
+                .map(policy -> policyMapper.selectById(policy.getId()))
+                .sorted(java.util.Comparator.comparing(Policy::getId))
+                .toList();
+        if (currentPolicies.size() != evidence.policies().size()
+                || !samePolicyVersions(evidence.policies(), currentPolicies)
+                || currentPolicies.stream().anyMatch(policy -> !PUBLISHED.equals(policy.getStatus())
+                || !VERIFIED.equals(policy.getAiEvidenceStatus()))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分析期间政策证据已变更，请重新生成");
+        }
+
+        Map<Long, Source> currentSources = evidence.sources().keySet().stream()
+                .sorted()
+                .map(sourceMapper::selectById)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toMap(Source::getId, source -> source, (left, right) -> left,
+                        LinkedHashMap::new));
+        if (currentSources.size() != evidence.sources().size()
+                || !sameSourceVersions(new ArrayList<>(evidence.sources().values()), new ArrayList<>(currentSources.values()))
+                || currentSources.values().stream().anyMatch(source -> !eligible(source))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分析期间来源证据已变更，请重新生成");
+        }
+        if (!Objects.equals(evidence.hash(), evidenceHash(currentCase, currentSources, currentPolicies, "verified"))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分析期间证据版本已变更，请重新生成");
+        }
+    }
+
+    private boolean sameVersion(CaseItem left, CaseItem right) {
+        return Objects.equals(left.getStatus(), right.getStatus())
+                && Objects.equals(left.getAiEvidenceStatus(), right.getAiEvidenceStatus())
+                && Objects.equals(revision(left.getEvidenceRevision()), revision(right.getEvidenceRevision()))
+                && Objects.equals(left.getUpdatedAt(), right.getUpdatedAt());
+    }
+
+    private boolean sameVersion(Policy left, Policy right) {
+        return Objects.equals(left.getStatus(), right.getStatus())
+                && Objects.equals(left.getAiEvidenceStatus(), right.getAiEvidenceStatus())
+                && Objects.equals(revision(left.getEvidenceRevision()), revision(right.getEvidenceRevision()))
+                && Objects.equals(left.getUpdatedAt(), right.getUpdatedAt());
+    }
+
+    private boolean sameVersion(Source left, Source right) {
+        return Objects.equals(left.getStatus(), right.getStatus())
+                && Objects.equals(left.getAiEvidenceStatus(), right.getAiEvidenceStatus())
+                && Objects.equals(revision(left.getEvidenceRevision()), revision(right.getEvidenceRevision()))
+                && Objects.equals(left.getUpdatedAt(), right.getUpdatedAt());
+    }
+
+    private boolean samePolicyVersions(List<Policy> expected, List<Policy> actual) {
+        if (expected.size() != actual.size()) return false;
+        List<Policy> sortedExpected = expected.stream().sorted(java.util.Comparator.comparing(Policy::getId)).toList();
+        return java.util.stream.IntStream.range(0, sortedExpected.size())
+                .allMatch(index -> sameVersion(sortedExpected.get(index), actual.get(index)));
+    }
+
+    private boolean sameSourceVersions(List<Source> expected, List<Source> actual) {
+        if (expected.size() != actual.size()) return false;
+        List<Source> sortedExpected = expected.stream().sorted(java.util.Comparator.comparing(Source::getId)).toList();
+        List<Source> sortedActual = actual.stream().sorted(java.util.Comparator.comparing(Source::getId)).toList();
+        return java.util.stream.IntStream.range(0, sortedExpected.size())
+                .allMatch(index -> sameVersion(sortedExpected.get(index), sortedActual.get(index)));
     }
 
     private String systemPrompt() {
@@ -316,14 +395,19 @@ public class CaseAnalysisService {
             content.put("case", List.of(
                     caseItem.getId(), safe(caseItem.getTitle()), safe(caseItem.getSummary()),
                     safe(caseItem.getBusinessModel()), safe(caseItem.getAiTools()), safe(caseItem.getOutcome()),
+                    safe(caseItem.getStatus()), safe(caseItem.getAiEvidenceStatus()),
+                    revision(caseItem.getEvidenceRevision()),
                     safe(caseItem.getUpdatedAt() == null ? null : caseItem.getUpdatedAt().toString())
             ));
-            content.put("policies", policies.stream().map(policy -> List.of(
+            content.put("policies", policies.stream().sorted(java.util.Comparator.comparing(Policy::getId)).map(policy -> List.of(
                     policy.getId(), safe(policy.getTitle()), safe(policy.getSummary()), safe(policy.getKeyPoints()),
-                    safe(policy.getSupportMeasures()), safe(policy.getUpdatedAt() == null ? null : policy.getUpdatedAt().toString())
+                    safe(policy.getSupportMeasures()), safe(policy.getStatus()), safe(policy.getAiEvidenceStatus()),
+                    revision(policy.getEvidenceRevision()),
+                    safe(policy.getUpdatedAt() == null ? null : policy.getUpdatedAt().toString())
             )).toList());
-            content.put("sources", sources.values().stream().map(source -> List.of(
-                    source.getId(), safe(source.getTitle()), safe(source.getUrl()), safe(source.getNotes()),
+            content.put("sources", sources.values().stream().sorted(java.util.Comparator.comparing(Source::getId)).map(source -> List.of(
+                    source.getId(), safe(source.getTitle()), safe(source.getPublisher()), safe(source.getUrl()), safe(source.getNotes()),
+                    safe(source.getStatus()), safe(source.getAiEvidenceStatus()), revision(source.getEvidenceRevision()),
                     safe(source.getUpdatedAt() == null ? null : source.getUpdatedAt().toString())
             )).toList());
             return sha256(objectMapper.writeValueAsString(content));
@@ -334,6 +418,10 @@ public class CaseAnalysisService {
 
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private long revision(Long value) {
+        return value == null ? 0L : value;
     }
 
     private record EvidenceBundle(

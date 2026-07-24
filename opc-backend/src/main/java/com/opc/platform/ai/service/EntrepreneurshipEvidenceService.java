@@ -93,6 +93,77 @@ public class EntrepreneurshipEvidenceService {
         return toReadiness(assess(request, allowAiResolution));
     }
 
+    public void requireUnchanged(Assessment assessment) {
+        List<ScoredCase> currentCases = assessment.cases().stream()
+                .map(item -> currentCase(item))
+                .sorted(Comparator.comparing(item -> item.item().getId()))
+                .toList();
+        List<ScoredPolicy> currentPolicies = assessment.policies().stream()
+                .map(item -> currentPolicy(item))
+                .sorted(Comparator.comparing(item -> item.item().getId()))
+                .toList();
+        Map<Long, Source> currentSources = assessment.sources().keySet().stream()
+                .sorted()
+                .map(sourceMapper::selectById)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toMap(Source::getId, Function.identity(), (left, right) -> left,
+                        LinkedHashMap::new));
+
+        if (currentCases.size() != assessment.cases().size()
+                || currentPolicies.size() != assessment.policies().size()
+                || currentSources.size() != assessment.sources().size()
+                || currentCases.stream().anyMatch(item -> !eligible(item.item()))
+                || currentPolicies.stream().anyMatch(item -> !eligible(item.item()))
+                || currentSources.values().stream().anyMatch(source -> !eligible(source))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分析期间证据已变更，请重新生成");
+        }
+        if (!Objects.equals(assessment.hash(), evidenceHash(
+                assessment.industry(), currentCases, currentPolicies, currentSources))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分析期间证据版本已变更，请重新生成");
+        }
+    }
+
+    private ScoredCase currentCase(ScoredCase original) {
+        CaseItem current = caseItemMapper.selectById(original.item().getId());
+        if (current == null || !sameVersion(original.item(), current)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分析期间案例证据已变更，请重新生成");
+        }
+        return new ScoredCase(current, original.relevance(), original.geographicRank(),
+                original.geographicLevel(), original.matchReason(), original.regionName());
+    }
+
+    private ScoredPolicy currentPolicy(ScoredPolicy original) {
+        Policy current = policyMapper.selectById(original.item().getId());
+        if (current == null || !sameVersion(original.item(), current)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分析期间政策证据已变更，请重新生成");
+        }
+        return new ScoredPolicy(current, original.relevance(), original.geographicRank(),
+                original.geographicLevel(), original.matchReason(), original.regionName());
+    }
+
+    private boolean sameVersion(CaseItem expected, CaseItem actual) {
+        return Objects.equals(expected.getStatus(), actual.getStatus())
+                && Objects.equals(expected.getAiEvidenceStatus(), actual.getAiEvidenceStatus())
+                && Objects.equals(expected.getSourceId(), actual.getSourceId())
+                && Objects.equals(revision(expected.getEvidenceRevision()), revision(actual.getEvidenceRevision()))
+                && Objects.equals(expected.getUpdatedAt(), actual.getUpdatedAt());
+    }
+
+    private boolean sameVersion(Policy expected, Policy actual) {
+        return Objects.equals(expected.getStatus(), actual.getStatus())
+                && Objects.equals(expected.getAiEvidenceStatus(), actual.getAiEvidenceStatus())
+                && Objects.equals(expected.getSourceId(), actual.getSourceId())
+                && Objects.equals(revision(expected.getEvidenceRevision()), revision(actual.getEvidenceRevision()))
+                && Objects.equals(expected.getUpdatedAt(), actual.getUpdatedAt());
+    }
+
+    private boolean sameVersion(Source expected, Source actual) {
+        return Objects.equals(expected.getStatus(), actual.getStatus())
+                && Objects.equals(expected.getAiEvidenceStatus(), actual.getAiEvidenceStatus())
+                && Objects.equals(revision(expected.getEvidenceRevision()), revision(actual.getEvidenceRevision()))
+                && Objects.equals(expected.getUpdatedAt(), actual.getUpdatedAt());
+    }
+
     private Assessment assess(
             Long regionId,
             Long industryTagId,
@@ -502,7 +573,16 @@ public class EntrepreneurshipEvidenceService {
                 && PUBLISHED.equals(source.getStatus())
                 && VERIFIED.equals(source.getAiEvidenceStatus())
                 && StringUtils.hasText(source.getTitle())
+                && StringUtils.hasText(source.getPublisher())
                 && StringUtils.hasText(source.getUrl());
+    }
+
+    private boolean eligible(CaseItem item) {
+        return item != null && PUBLISHED.equals(item.getStatus()) && VERIFIED.equals(item.getAiEvidenceStatus());
+    }
+
+    private boolean eligible(Policy item) {
+        return item != null && PUBLISHED.equals(item.getStatus()) && VERIFIED.equals(item.getAiEvidenceStatus());
     }
 
     private Comparator<ScoredCase> caseComparator() {
@@ -532,18 +612,25 @@ public class EntrepreneurshipEvidenceService {
         try {
             Map<String, Object> content = new LinkedHashMap<>();
             content.put("industry", industry);
-            content.put("cases", cases.stream().map(item -> List.of(
+            content.put("cases", cases.stream().sorted(Comparator.comparing(item -> item.item().getId())).map(item -> List.of(
                     item.item().getId(), safe(item.item().getTitle()), safe(item.item().getSummary()),
                     safe(item.item().getBusinessModel()), safe(item.item().getOutcome()),
+                    safe(item.item().getStatus()), safe(item.item().getAiEvidenceStatus()),
+                    revision(item.item().getEvidenceRevision()),
+                    item.item().getSourceId(),
                     safe(item.item().getUpdatedAt() == null ? null : item.item().getUpdatedAt().toString())
             )).toList());
-            content.put("policies", policies.stream().map(item -> List.of(
+            content.put("policies", policies.stream().sorted(Comparator.comparing(item -> item.item().getId())).map(item -> List.of(
                     item.item().getId(), safe(item.item().getTitle()), safe(item.item().getSummary()),
                     safe(item.item().getKeyPoints()), safe(item.item().getSupportMeasures()),
+                    safe(item.item().getStatus()), safe(item.item().getAiEvidenceStatus()),
+                    revision(item.item().getEvidenceRevision()),
+                    item.item().getSourceId(),
                     safe(item.item().getUpdatedAt() == null ? null : item.item().getUpdatedAt().toString())
             )).toList());
-            content.put("sources", sources.values().stream().map(source -> List.of(
-                    source.getId(), safe(source.getTitle()), safe(source.getUrl()), safe(source.getNotes()),
+            content.put("sources", sources.values().stream().sorted(Comparator.comparing(Source::getId)).map(source -> List.of(
+                    source.getId(), safe(source.getTitle()), safe(source.getPublisher()), safe(source.getUrl()), safe(source.getNotes()),
+                    safe(source.getStatus()), safe(source.getAiEvidenceStatus()), revision(source.getEvidenceRevision()),
                     safe(source.getUpdatedAt() == null ? null : source.getUpdatedAt().toString())
             )).toList());
             return sha256(objectMapper.writeValueAsString(content));
@@ -575,6 +662,10 @@ public class EntrepreneurshipEvidenceService {
 
     private String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private long revision(Long value) {
+        return value == null ? 0L : value;
     }
 
     private <T> List<T> safe(Collection<T> values) {

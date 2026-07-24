@@ -397,7 +397,7 @@
         </div>
 
         <form v-if="turns.length && providerReady" class="assistant-followup" @submit.prevent="requestAdvice('followup')">
-          <label for="assistant-followup-question">继续追问 <span>{{ followup.length }} / 500</span></label>
+          <label for="assistant-followup-question">补充问题并重新生成 <span>{{ followup.length }} / 500</span></label>
           <div>
             <textarea
               id="assistant-followup-question"

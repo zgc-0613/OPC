@@ -22,13 +22,21 @@ request.interceptors.response.use(
     const body = response.data
     if (body && typeof body === 'object' && 'code' in body) {
       if (body.code !== 200) {
-        return Promise.reject(new Error(body.message || 'Request failed'))
+        const requestError = new Error(body.message || 'Request failed')
+        requestError.businessCode = body.code
+        requestError.response = { ...response, data: body }
+        return Promise.reject(requestError)
       }
       return body.data
     }
     return body
   },
-  (error) => Promise.reject(error),
+  (error) => {
+    if (error?.response?.data?.code !== undefined) {
+      error.businessCode = error.response.data.code
+    }
+    return Promise.reject(error)
+  },
 )
 
 export default request

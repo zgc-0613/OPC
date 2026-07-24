@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Data
 public class CaseItemUpdateDTO {
@@ -45,5 +46,9 @@ public class CaseItemUpdateDTO {
     private String status;
 
     private String reviewer;
+
+    private Long expectedEvidenceRevision;
+
+    private LocalDateTime expectedUpdatedAt;
 
 }

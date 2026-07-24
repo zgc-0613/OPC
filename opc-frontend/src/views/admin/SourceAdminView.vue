@@ -262,7 +262,15 @@ function startEdit(source) {
 }
 
 async function submitForm() {
-  const payload = { ...form }
+  const payload = {
+    ...form,
+    ...(editingId.value
+      ? {
+          expectedEvidenceRevision: Number(form.evidenceRevision ?? 0),
+          expectedUpdatedAt: form.updatedAt || null,
+        }
+      : {}),
+  }
   formError.value = ''
   try {
     if (editingId.value) {
@@ -333,6 +341,8 @@ async function applyBulkStatus() {
       accessedAt: source.accessedAt || today,
       notes: source.notes || '',
       status: bulkStatus.value,
+      expectedEvidenceRevision: Number(source.evidenceRevision ?? 0),
+      expectedUpdatedAt: source.updatedAt || null,
     })
     return id
   }))

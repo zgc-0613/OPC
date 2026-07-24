@@ -15,6 +15,25 @@ import java.time.LocalDateTime;
 public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
 
     @Select("""
+            SELECT *
+            FROM ai_analysis_runs
+            WHERE user_id = #{userId}
+              AND task_type = #{taskType}
+              AND evidence_hash = #{evidenceHash}
+              AND status = 'evidence_insufficient'
+              AND ((case_id = #{caseId}) OR (case_id IS NULL AND #{caseId} IS NULL))
+              AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 30 SECOND)
+            ORDER BY id DESC
+            LIMIT 1
+            """)
+    AiAnalysisRun findRecentEvidenceInsufficient(
+            @Param("userId") Long userId,
+            @Param("taskType") String taskType,
+            @Param("caseId") Long caseId,
+            @Param("evidenceHash") String evidenceHash
+    );
+
+    @Select("""
             SELECT COALESCE(SUM(total_tokens), 0)
             FROM ai_analysis_runs
             WHERE user_id = #{userId}
@@ -71,6 +90,7 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
                 result_json = #{resultJson},
                 heartbeat_at = CURRENT_TIMESTAMP
             WHERE id = #{id}
+              AND status = 'running'
             """)
     int settle(
             @Param("id") Long id,

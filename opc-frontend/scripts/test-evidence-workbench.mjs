@@ -44,9 +44,19 @@ assert.equal(nextEvidenceItem([source], 'source:8'), null)
 assert.deepEqual([...reconcileEvidenceSelection([source, policy], new Set(['source:8', 'case:11']))], ['source:8'])
 assert.equal(clampEvidencePage(2, 1, 20), 1)
 
-const editPayload = buildEvidenceEditPayload('case', { id: 11, title: '新标题', regionId: '2', sourceId: '8', aiEvidenceStatus: 'verified', updatedAt: 'now' })
+const editPayload = buildEvidenceEditPayload('case', {
+  id: 11,
+  title: '新标题',
+  regionId: '2',
+  sourceId: '8',
+  aiEvidenceStatus: 'verified',
+  evidenceRevision: 7,
+  updatedAt: '2026-07-25T01:02:00',
+})
 assert.equal(editPayload.aiEvidenceStatus, undefined)
 assert.equal(editPayload.regionId, 2)
+assert.equal(editPayload.expectedEvidenceRevision, 7)
+assert.equal(editPayload.expectedUpdatedAt, '2026-07-25T01:02:00')
 
 const proxiedContent = new Proxy({
   title: '武汉人工智能应用创业案例',

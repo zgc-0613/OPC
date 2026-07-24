@@ -43,7 +43,7 @@
           <strong>当前不能批准</strong>
           <span v-for="reason in detail.blockingReasons" :key="reason">{{ reason }}</span>
         </div>
-        <p v-else class="review-ready"><Check :size="16" /> 资料完整，来源已核验，可用于智能体证据。</p>
+        <p v-else class="review-ready"><Check :size="16" /> 资料完整，审核条件已满足，可纳入智能体证据。</p>
       </section>
 
       <section class="review-detail__section">

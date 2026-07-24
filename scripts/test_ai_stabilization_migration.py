@@ -9,6 +9,7 @@ PRECHECK = ROOT / "deploy" / "sql" / "20260724_ai_stabilization_precheck.sql"
 POSTCHECK = ROOT / "deploy" / "sql" / "20260724_ai_stabilization_postcheck.sql"
 DEPLOY_SCRIPT = ROOT / ".codex_deploy_opc.py"
 EVIDENCE_WORKBENCH = ROOT / "deploy" / "sql" / "20260725_evidence_workbench.sql"
+PHASE_ONE_FINALIZATION = ROOT / "deploy" / "sql" / "20260725_phase_one_finalization.sql"
 
 
 class AiStabilizationMigrationTest(unittest.TestCase):
@@ -108,6 +109,20 @@ class AiStabilizationMigrationTest(unittest.TestCase):
         deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("EVIDENCE_WORKBENCH_MIGRATION", deploy)
         self.assertIn("evidence-workbench.sql", deploy)
+
+    def test_phase_one_finalization_checks_orphans_and_guards_each_constraint(self):
+        sql = PHASE_ONE_FINALIZATION.read_text(encoding="utf-8")
+        self.assertIn("case_items contains orphaned source_id rows", sql)
+        self.assertIn("policies contains orphaned source_id rows", sql)
+        for index in ("idx_case_items_source_id", "idx_policies_source_id"):
+            self.assertRegex(sql, rf"index_name\s*=\s*'{index}'")
+        for constraint in ("fk_case_items_source", "fk_policies_source"):
+            self.assertRegex(sql, rf"constraint_name\s*=\s*'{constraint}'")
+        self.assertEqual(6, len(re.findall(r"(?m)^PREPARE phase_one_", sql)))
+        self.assertIn("ON DELETE RESTRICT", sql)
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("PHASE_ONE_FINALIZATION_MIGRATION", deploy)
+        self.assertIn("phase-one-finalization.sql", deploy)
 
 
 if __name__ == "__main__":

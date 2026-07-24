@@ -321,6 +321,7 @@ class EntrepreneurshipEvidenceServiceTest {
         Source source = new Source();
         source.setId(id);
         source.setTitle("来源 " + id);
+        source.setPublisher("OPC 官方发布机构");
         source.setUrl("https://source.example/" + id);
         source.setStatus("published");
         source.setAiEvidenceStatus(verified ? "verified" : "legacy_unverified");

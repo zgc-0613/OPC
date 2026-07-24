@@ -3,6 +3,7 @@ package com.opc.platform.source.vo;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Data
 public class SourceVO {
@@ -26,4 +27,8 @@ public class SourceVO {
     private String status;
 
     private String aiEvidenceStatus;
+
+    private Long evidenceRevision;
+
+    private LocalDateTime updatedAt;
 }

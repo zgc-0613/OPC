@@ -3,6 +3,7 @@ package com.opc.platform.caseitem.vo;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Data
 public class CaseItemDetailVO {
@@ -44,4 +45,8 @@ public class CaseItemDetailVO {
     private String reviewer;
 
     private String aiEvidenceStatus;
+
+    private Long evidenceRevision;
+
+    private LocalDateTime updatedAt;
 }

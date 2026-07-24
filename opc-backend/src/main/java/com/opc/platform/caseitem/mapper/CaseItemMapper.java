@@ -3,11 +3,15 @@ package com.opc.platform.caseitem.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.opc.platform.caseitem.entity.CaseItem;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
 
 public interface CaseItemMapper extends BaseMapper<CaseItem> {
+
+    @Select("SELECT * FROM case_items WHERE id = #{id} FOR UPDATE")
+    CaseItem selectByIdForUpdate(@Param("id") Long id);
 
     @Update("""
             UPDATE case_items AS item
@@ -23,6 +27,7 @@ public interface CaseItemMapper extends BaseMapper<CaseItem> {
               AND source.status = 'published'
               AND source.ai_evidence_status = 'verified'
               AND source.title IS NOT NULL AND TRIM(source.title) <> ''
+              AND source.publisher IS NOT NULL AND TRIM(source.publisher) <> ''
               AND source.url IS NOT NULL AND TRIM(source.url) <> ''
             """)
     int verifyEvidenceWithEligibleSource(

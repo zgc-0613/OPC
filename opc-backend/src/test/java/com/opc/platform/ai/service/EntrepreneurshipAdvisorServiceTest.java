@@ -37,6 +37,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -82,13 +83,7 @@ class EntrepreneurshipAdvisorServiceTest {
                 objectMapper
         );
         service = new EntrepreneurshipAdvisorService(
-                caseItemMapper,
-                policyMapper,
-                sourceMapper,
-                regionMapper,
                 runMapper,
-                aiClient,
-                settingsProvider,
                 objectMapper,
                 evidenceService,
                 new AiTaskExecutionService(runMapper, aiClient, settingsProvider)
@@ -126,6 +121,15 @@ class EntrepreneurshipAdvisorServiceTest {
             run.setId(101L);
             return 1;
         });
+        when(runMapper.settle(anyLong(), any(), any(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any()))
+                .thenReturn(1);
+        when(caseItemMapper.selectById(anyLong())).thenAnswer(invocation -> {
+            Long id = invocation.getArgument(0);
+            return id == 11L ? caseItem() : id == 12L ? unrelatedCase() : null;
+        });
+        when(policyMapper.selectById(anyLong())).thenAnswer(invocation ->
+                invocation.getArgument(0).equals(21L) ? policy() : null
+        );
     }
 
     @Test
@@ -139,6 +143,24 @@ class EntrepreneurshipAdvisorServiceTest {
         assertTrue(result.getMatchedPolicies().isEmpty());
         assertTrue(result.getCitations().isEmpty());
         verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
+    }
+
+    @Test
+    void repeatedEvidenceInsufficientRequestsReuseTheRecentRun() {
+        AtomicReference<AiAnalysisRun> stored = new AtomicReference<>();
+        when(runMapper.findRecentEvidenceInsufficient(anyLong(), eq("entrepreneurship_advice"), eq(null), any()))
+                .thenAnswer(invocation -> stored.get());
+        when(runMapper.insert(any(AiAnalysisRun.class))).thenAnswer(invocation -> {
+            AiAnalysisRun run = invocation.getArgument(0);
+            run.setId(101L);
+            stored.set(run);
+            return 1;
+        });
+
+        service.advise(user(), request());
+        service.advise(user(), request());
+
+        verify(runMapper, org.mockito.Mockito.times(1)).insert(any(AiAnalysisRun.class));
     }
 
     @Test
@@ -270,6 +292,28 @@ class EntrepreneurshipAdvisorServiceTest {
         assertEquals("AI 返回内容格式无效，请稍后重试", exception.getMessage());
     }
 
+    @Test
+    void evidenceRevokedWhileAdvisorRunsIsRejectedBeforeReturningAdvice() {
+        when(caseItemMapper.selectList(any())).thenReturn(List.of(caseItem()));
+        when(policyMapper.selectList(any())).thenReturn(List.of(policy()));
+        when(sourceMapper.selectById(8L)).thenReturn(source(8L, "案例核验来源"), source(8L, "案例核验来源", "pending"));
+        when(sourceMapper.selectById(9L)).thenReturn(source(9L, "政策原文"));
+        when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
+                "{\"summary\":\"摘要\",\"recommendedDirection\":\"先验证需求\",\"opportunities\":[],"
+                        + "\"risks\":[],\"actionPlan\":[],\"citations\":[{\"sourceId\":8,\"claim\":\"来源结论\"}],\"confidence\":0.7}",
+                20, 20, 40, 50, "req-stale"
+        ));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.advise(user(), request())
+        );
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
+        assertTrue(exception.getMessage().contains("证据"));
+    }
+
     private EntrepreneurshipAdviceRequestDTO request() {
         EntrepreneurshipAdviceRequestDTO request = new EntrepreneurshipAdviceRequestDTO();
         request.setVentureType("solo_company");
@@ -327,12 +371,17 @@ class EntrepreneurshipAdvisorServiceTest {
     }
 
     private Source source(Long id, String title) {
+        return source(id, title, "published");
+    }
+
+    private Source source(Long id, String title, String status) {
         Source source = new Source();
         source.setId(id);
         source.setTitle(title);
+        source.setPublisher("官方发布机构");
         source.setUrl("https://source.example/" + id);
         source.setNotes("经人工核验的案例记录");
-        source.setStatus("published");
+        source.setStatus(status);
         source.setAiEvidenceStatus("verified");
         return source;
     }

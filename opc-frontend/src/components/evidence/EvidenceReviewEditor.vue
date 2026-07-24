@@ -39,7 +39,10 @@
       </div>
     </section>
 
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <div v-if="error" class="evidence-editor__error-banner" role="alert">
+      <p class="error">{{ error }}</p>
+      <button v-if="isConflict" type="button" class="button button-secondary" @click="$emit('reload')">重新加载资料</button>
+    </div>
     <footer class="evidence-editor__footer">
       <span>{{ dirty ? '有尚未保存的修改' : '尚未修改' }}</span>
       <button class="button" type="submit" :disabled="saving || !dirty">{{ saving ? '正在保存...' : '保存并重新检查' }}</button>
@@ -58,10 +61,11 @@ const props = defineProps({
   saving: Boolean,
   error: { type: String, default: '' },
 })
-const emit = defineEmits(['save', 'cancel', 'dirty'])
+const emit = defineEmits(['save', 'cancel', 'dirty', 'reload'])
 const form = reactive({})
 const errors = reactive({})
 const dirty = ref(false)
+const isConflict = computed(() => props.error.includes('其他操作') || props.error.includes('重新加载'))
 
 const typeLabel = computed(() => ({ case: '案例', policy: '政策', source: '来源' }[props.detail.itemType] || ''))
 const commonStatusOptions = [
@@ -76,7 +80,7 @@ const definitions = {
     { title: '来源标识', description: '标题、发布机构和原文地址共同决定来源可信度。', fields: [
       { key: 'title', label: '来源标题', required: true, wide: true },
       { key: 'sourceType', label: '来源类型', required: true },
-      { key: 'publisher', label: '发布机构' },
+      { key: 'publisher', label: '发布机构', required: true },
       { key: 'url', label: '原文链接', kind: 'url', wide: true },
       { key: 'localFile', label: '本地文件', wide: true },
     ] },
@@ -192,6 +196,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 
 <style scoped>
 .evidence-editor { display: grid; gap: 0; min-height: 100%; background: #fbfbf8; }
+.evidence-editor__error-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 18px 32px 0; padding: 12px 14px; border: 1px solid #d7b8b3; background: #f8eeeb; }.evidence-editor__error-banner p { margin: 0; }.evidence-editor__error-banner .button { flex: 0 0 auto; }
 .evidence-editor__header { display: flex; align-items: start; justify-content: space-between; gap: 24px; padding: 28px 32px; border-bottom: 1px solid #d4d8d2; }.evidence-editor__header h3 { margin: 7px 0 6px; color: #181a18; font-family: 'Noto Serif SC', STSong, SimSun, serif; font-size: 1.55rem; font-weight: 500; }.evidence-editor__header p { margin: 0; color: #626963; font-size: .84rem; line-height: 1.6; }
 .evidence-editor__section { display: grid; grid-template-columns: minmax(180px, .36fr) minmax(0, 1fr); gap: 30px; padding: 28px 32px; border-bottom: 1px solid #e0e3de; }.evidence-editor__section-title { display: grid; align-content: start; gap: 7px; }.evidence-editor__section-title strong { color: #252925; font-family: 'Noto Serif SC', STSong, SimSun, serif; }.evidence-editor__section-title span { color: #747b75; font-size: .76rem; line-height: 1.6; }
 .evidence-editor__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }.evidence-editor label { display: grid; align-content: start; gap: 7px; }.evidence-editor label.is-wide { grid-column: 1 / -1; }.evidence-editor label > span { color: #404640; font-size: .76rem; font-weight: 700; }.evidence-editor label b { color: #7d342e; }.evidence-editor input, .evidence-editor select, .evidence-editor textarea { width: 100%; border: 1px solid #cbd0ca; border-radius: 2px; background: #fff; color: #1e211e; }.evidence-editor textarea { resize: vertical; line-height: 1.65; }.evidence-editor__error { color: #80372f; font-size: .72rem; }

@@ -306,11 +306,16 @@ async function startEdit(item) {
 
 function toPayload(sourceId) {
   const { sourceTitle, ...caseFields } = form
-  return {
+  const payload = {
     ...caseFields,
     regionId: Number(form.regionId),
     sourceId,
   }
+  if (editingId.value) {
+    payload.expectedEvidenceRevision = Number(form.evidenceRevision ?? 0)
+    payload.expectedUpdatedAt = form.updatedAt || null
+  }
+  return payload
 }
 
 async function resolveSourceId() {
@@ -384,6 +389,8 @@ function caseDetailPayload(detail, status) {
     accessedAt: detail.accessedAt || today,
     status,
     reviewer: detail.reviewer || '',
+    expectedEvidenceRevision: Number(detail.evidenceRevision ?? 0),
+    expectedUpdatedAt: detail.updatedAt || null,
   }
 }
 

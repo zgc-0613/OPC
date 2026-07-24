@@ -80,7 +80,7 @@ class SourceServiceTest {
     @Test
     void renameConflictIdentifiesTheExistingSource() {
         Source current = source(7L, "Old Source");
-        when(sourceMapper.selectById(7L)).thenReturn(current);
+        when(sourceMapper.selectByIdForUpdate(7L)).thenReturn(current);
         when(sourceMapper.selectOne(any())).thenReturn(source(42L, "Policy Daily"));
 
         BusinessException exception = assertThrows(
@@ -97,8 +97,10 @@ class SourceServiceTest {
     @Test
     void renameWithoutConflictStoresTheTrimmedTitle() {
         Source current = source(7L, "Old Source");
-        when(sourceMapper.selectById(7L)).thenReturn(current, current);
+        when(sourceMapper.selectByIdForUpdate(7L)).thenReturn(current);
+        when(sourceMapper.selectById(7L)).thenReturn(current);
         when(sourceMapper.selectOne(any())).thenReturn(null);
+        when(sourceMapper.updateById(current)).thenReturn(1);
 
         service.updateSource(7L, updateDto("  Renamed Source  "), admin());
 
@@ -123,7 +125,7 @@ class SourceServiceTest {
     @Test
     void legacyActiveStatusCannotBeSavedByTheAdministratorApi() {
         Source current = source(7L, "Legacy Source");
-        when(sourceMapper.selectById(7L)).thenReturn(current, current);
+        when(sourceMapper.selectByIdForUpdate(7L)).thenReturn(current);
         when(sourceMapper.selectOne(any())).thenReturn(null);
         SourceUpdateDTO dto = updateDto("Legacy Source");
         dto.setStatus("active");
@@ -171,8 +173,10 @@ class SourceServiceTest {
     void changingVerifiedSourceEvidenceFieldsUsesCentralInvalidationService() {
         Source current = source(7L, "Verified Source");
         current.setAiEvidenceStatus("verified");
-        when(sourceMapper.selectById(7L)).thenReturn(current, current);
+        when(sourceMapper.selectByIdForUpdate(7L)).thenReturn(current);
+        when(sourceMapper.selectById(7L)).thenReturn(current);
         when(sourceMapper.selectOne(any())).thenReturn(null);
+        when(sourceMapper.updateById(current)).thenReturn(1);
         SourceUpdateDTO dto = updateDto("Renamed Verified Source");
 
         service.updateSource(7L, dto, admin());
@@ -186,14 +190,47 @@ class SourceServiceTest {
         Source current = source(7L, "Verified Source");
         current.setAiEvidenceStatus("verified");
         current.setNotes("old evidence note");
-        when(sourceMapper.selectById(7L)).thenReturn(current, current);
+        when(sourceMapper.selectByIdForUpdate(7L)).thenReturn(current);
+        when(sourceMapper.selectById(7L)).thenReturn(current);
         when(sourceMapper.selectOne(any())).thenReturn(null);
+        when(sourceMapper.updateById(current)).thenReturn(1);
         SourceUpdateDTO dto = updateDto("Verified Source");
         dto.setNotes("new evidence note");
 
         service.updateSource(7L, dto, admin());
 
         verify(evidenceReviewService).invalidateSourceAfterEvidenceEdit(current, admin());
+    }
+
+    @Test
+    void ordinarySourceUpdateReportsConflictWhenNoRowIsUpdated() {
+        Source current = source(7L, "Source");
+        current.setEvidenceRevision(4L);
+        current.setUpdatedAt(java.time.LocalDateTime.of(2026, 7, 25, 2, 0));
+        when(sourceMapper.selectByIdForUpdate(7L)).thenReturn(current);
+        when(sourceMapper.selectOne(any())).thenReturn(null);
+        when(sourceMapper.updateById(any(Source.class))).thenReturn(0);
+        SourceUpdateDTO dto = updateDto("Source updated");
+        dto.setExpectedEvidenceRevision(4L);
+        dto.setExpectedUpdatedAt(java.time.LocalDateTime.of(2026, 7, 25, 2, 0));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.updateSource(7L, dto, admin())
+        );
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
+    }
+
+    @Test
+    void ordinarySourceDeleteReportsConflictWhenNoRowIsDeleted() {
+        Source current = source(7L, "Source");
+        when(sourceMapper.selectByIdForUpdate(7L)).thenReturn(current);
+        when(sourceMapper.deleteById(7L)).thenReturn(0);
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.deleteSource(7L));
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
     }
 
     private SourceCreateDTO createDto(String title) {

@@ -118,8 +118,10 @@ export function clampEvidencePage(page, total, size) {
 }
 
 export function buildEvidenceEditPayload(itemType, content = {}) {
+  const expectedEvidenceRevision = Number(content.evidenceRevision ?? 0)
+  const expectedUpdatedAt = content.updatedAt || undefined
   const ignored = new Set([
-    'id', 'createdAt', 'updatedAt', 'aiEvidenceStatus', 'regionName', 'sourceTitle',
+    'id', 'createdAt', 'updatedAt', 'evidenceRevision', 'aiEvidenceStatus', 'regionName', 'sourceTitle',
   ])
   const payload = Object.fromEntries(
     Object.entries(content).filter(([key]) => !ignored.has(key)),
@@ -128,6 +130,8 @@ export function buildEvidenceEditPayload(itemType, content = {}) {
     payload.regionId = Number(payload.regionId)
     payload.sourceId = Number(payload.sourceId)
   }
+  payload.expectedEvidenceRevision = expectedEvidenceRevision
+  payload.expectedUpdatedAt = expectedUpdatedAt
   return payload
 }
 

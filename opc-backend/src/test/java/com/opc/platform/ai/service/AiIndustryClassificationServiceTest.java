@@ -80,6 +80,8 @@ class AiIndustryClassificationServiceTest {
             run.setId(88L);
             return 1;
         });
+        when(runMapper.settle(anyLong(), any(), any(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any()))
+                .thenReturn(1);
         service = new AiIndustryClassificationService(
                 industryTags,
                 new AiTaskExecutionService(runMapper, aiClient, settingsProvider),

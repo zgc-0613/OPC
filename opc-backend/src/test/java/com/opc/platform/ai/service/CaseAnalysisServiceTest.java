@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -77,6 +78,8 @@ class CaseAnalysisServiceTest {
             run.setId(99L);
             return 1;
         });
+        when(runMapper.settle(anyLong(), any(), any(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any()))
+                .thenReturn(1);
     }
 
     @Test
@@ -104,6 +107,25 @@ class CaseAnalysisServiceTest {
         assertTrue(response.getCitations().isEmpty());
         assertEquals(99L, response.getAnalysisId());
         verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
+    }
+
+    @Test
+    void repeatedEvidenceInsufficientRequestsReuseTheRecentRun() {
+        when(caseItemMapper.selectById(1L)).thenReturn(caseItem("published", "legacy_unverified"));
+        AtomicReference<AiAnalysisRun> stored = new AtomicReference<>();
+        when(runMapper.findRecentEvidenceInsufficient(anyLong(), eq("case_analysis"), eq(1L), any()))
+                .thenAnswer(invocation -> stored.get());
+        when(runMapper.insert(any(AiAnalysisRun.class))).thenAnswer(invocation -> {
+            AiAnalysisRun run = invocation.getArgument(0);
+            run.setId(99L);
+            stored.set(run);
+            return 1;
+        });
+
+        service.analyze(user(), request());
+        service.analyze(user(), request());
+
+        verify(runMapper, org.mockito.Mockito.times(1)).insert(any(AiAnalysisRun.class));
     }
 
     @Test
@@ -210,6 +232,31 @@ class CaseAnalysisServiceTest {
         assertEquals("AI 返回内容格式无效，请稍后重试", exception.getMessage());
     }
 
+    @Test
+    void evidenceRevokedWhileModelRunsIsRejectedBeforeReturningStructuredResult() {
+        CaseItem item = caseItem("published", "verified");
+        Source initial = source("published", "verified");
+        Source revoked = source("pending", "verified");
+        when(caseItemMapper.selectById(1L)).thenReturn(item);
+        when(sourceMapper.selectById(8L)).thenReturn(initial, revoked);
+        when(policyMapper.selectList(any())).thenReturn(List.of());
+        when(aiClient.descriptor(settings)).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
+                "{\"summary\":\"案例摘要\",\"businessModel\":\"订阅\",\"technicalAssessment\":\"可行\","
+                        + "\"opportunities\":[\"机会\"],\"risks\":[\"风险\"],\"recommendedActions\":[\"行动\"],"
+                        + "\"citations\":[{\"sourceId\":8,\"claim\":\"来源结论\"}],\"confidence\":0.8}",
+                10, 10, 20, 5, "req-revoked"
+        ));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.analyze(user(), request())
+        );
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
+        assertTrue(exception.getMessage().contains("证据"));
+    }
+
     private CaseAnalysisRequestDTO request() {
         CaseAnalysisRequestDTO dto = new CaseAnalysisRequestDTO();
         dto.setCaseId(1L);
@@ -240,6 +287,7 @@ class CaseAnalysisServiceTest {
         Source source = new Source();
         source.setId(8L);
         source.setTitle("来源标题");
+        source.setPublisher("官方发布机构");
         source.setUrl("https://source.example/8");
         source.setNotes("经人工核验的来源说明");
         source.setStatus(status);
