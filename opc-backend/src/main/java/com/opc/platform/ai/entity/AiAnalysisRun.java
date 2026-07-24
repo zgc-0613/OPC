@@ -14,6 +14,7 @@ public class AiAnalysisRun {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long userId;
+    private String taskType;
     private Long caseId;
     private String status;
     private String resultJson;
@@ -24,6 +25,10 @@ public class AiAnalysisRun {
     private Integer promptTokens;
     private Integer completionTokens;
     private Integer totalTokens;
+    private Long reservedTokens;
+    private LocalDateTime startedAt;
+    private LocalDateTime deadlineAt;
+    private LocalDateTime heartbeatAt;
     private Long latencyMs;
     private String providerRequestId;
     private String errorType;

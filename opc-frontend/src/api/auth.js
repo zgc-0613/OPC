@@ -43,11 +43,11 @@ export async function logoutAdmin() {
 }
 
 export function getUserToken() {
-  return sessionStorage.getItem(USER_TOKEN_KEY) || ''
+  return getUserSessionValue(USER_TOKEN_KEY)
 }
 
 export function getUserProfile() {
-  const raw = sessionStorage.getItem(USER_PROFILE_KEY)
+  const raw = getUserSessionValue(USER_PROFILE_KEY)
   if (!raw) {
     return null
   }
@@ -102,18 +102,37 @@ function saveUserSession(user) {
   if (!user?.token) {
     return
   }
-  sessionStorage.setItem(USER_TOKEN_KEY, user.token)
-  sessionStorage.setItem(USER_PROFILE_KEY, JSON.stringify({
+
+  localStorage.setItem(USER_TOKEN_KEY, user.token)
+  localStorage.setItem(USER_PROFILE_KEY, JSON.stringify({
     userId: user.userId,
     username: user.username,
     email: user.email,
     expiresAt: user.expiresAt,
   }))
+  sessionStorage.removeItem(USER_TOKEN_KEY)
+  sessionStorage.removeItem(USER_PROFILE_KEY)
 }
 
 function clearUserSession() {
-  sessionStorage.removeItem(USER_TOKEN_KEY)
-  sessionStorage.removeItem(USER_PROFILE_KEY)
+  for (const key of [USER_TOKEN_KEY, USER_PROFILE_KEY]) {
+    localStorage.removeItem(key)
+    sessionStorage.removeItem(key)
+  }
+}
+
+function getUserSessionValue(key) {
+  const persistentValue = localStorage.getItem(key)
+  if (persistentValue) {
+    return persistentValue
+  }
+
+  const legacyValue = sessionStorage.getItem(key) || ''
+  if (legacyValue) {
+    localStorage.setItem(key, legacyValue)
+    sessionStorage.removeItem(key)
+  }
+  return legacyValue
 }
 
 function clearAdminSession() {

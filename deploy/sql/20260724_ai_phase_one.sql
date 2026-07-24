@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS ai_settings_audit (
 CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT NOT NULL,
-    case_id BIGINT NOT NULL,
+    task_type VARCHAR(40) NOT NULL DEFAULT 'case_analysis',
+    case_id BIGINT NULL,
     status VARCHAR(30) NOT NULL COMMENT 'running/completed/failed/evidence_insufficient',
     active_guard BIGINT GENERATED ALWAYS AS (
         CASE WHEN status = 'running' THEN user_id ELSE NULL END
@@ -72,7 +73,33 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
-  COMMENT='Persisted AI case analysis results and usage metadata';
+  COMMENT='Persisted AI task results and usage metadata';
+
+SET @ai_task_type_exists = (
+    SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'ai_analysis_runs' AND column_name = 'task_type'
+);
+SET @ai_task_type_sql = IF(
+    @ai_task_type_exists = 0,
+    'ALTER TABLE ai_analysis_runs ADD COLUMN task_type VARCHAR(40) NOT NULL DEFAULT ''case_analysis'' AFTER user_id',
+    'SELECT 1'
+);
+PREPARE ai_task_type_statement FROM @ai_task_type_sql;
+EXECUTE ai_task_type_statement;
+DEALLOCATE PREPARE ai_task_type_statement;
+
+SET @ai_case_nullable = (
+    SELECT IS_NULLABLE FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'ai_analysis_runs' AND column_name = 'case_id'
+);
+SET @ai_case_nullable_sql = IF(
+    @ai_case_nullable = 'NO',
+    'ALTER TABLE ai_analysis_runs MODIFY COLUMN case_id BIGINT NULL',
+    'SELECT 1'
+);
+PREPARE ai_case_nullable_statement FROM @ai_case_nullable_sql;
+EXECUTE ai_case_nullable_statement;
+DEALLOCATE PREPARE ai_case_nullable_statement;
 
 SET @case_ai_status_exists = (
     SELECT COUNT(*) FROM information_schema.columns

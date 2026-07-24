@@ -21,6 +21,7 @@ import com.opc.platform.ai.provider.AiProviderRequest;
 import com.opc.platform.ai.provider.AiRuntimeSettings;
 import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.ai.security.AesGcmSecretCipher;
+import com.opc.platform.ai.security.ProviderEndpointPolicy;
 import com.opc.platform.ai.vo.AiConnectionTestVO;
 import com.opc.platform.ai.vo.AiModelSettingsVO;
 import com.opc.platform.common.enums.ErrorCode;
@@ -58,6 +59,7 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
     private final AiProviderFactory providerFactory;
     private final ObjectMapper objectMapper;
     private final AiHttpTransport transport;
+    private final ProviderEndpointPolicy endpointPolicy;
 
     public AiModelSettingsVO get() {
         return toVO(loadOrDefault());
@@ -71,16 +73,29 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
         if (insert) {
             current = defaults();
         }
+        String provider = normalize(dto.getProvider());
+        String apiBaseUrl = trimToNull(dto.getApiBaseUrl());
+        ProviderEndpointPolicy.ValidatedEndpoint endpoint = apiBaseUrl == null
+                ? null
+                : endpointPolicy.validate(provider, apiBaseUrl);
         boolean keyUpdated = StringUtils.hasText(dto.getApiKey());
         if (keyUpdated) {
             current.setApiKeyCiphertext(cipher.encrypt(dto.getApiKey().trim()));
+            current.setApiKeyProvider(provider);
+            current.setApiKeyOrigin(endpoint == null ? null : endpoint.origin());
+        } else if (StringUtils.hasText(current.getApiKeyCiphertext())) {
+            requireMatchingKeyBinding(current, provider, endpoint);
+            if (!StringUtils.hasText(current.getApiKeyProvider()) && endpoint != null) {
+                current.setApiKeyProvider(provider);
+                current.setApiKeyOrigin(endpoint.origin());
+            }
         }
         if (Boolean.TRUE.equals(dto.getEnabled())) {
             requireRunnable(dto, current);
         }
-        current.setProvider(dto.getProvider().trim().toLowerCase());
-        current.setApiFormat(dto.getApiFormat().trim().toLowerCase());
-        current.setApiBaseUrl(trimToNull(dto.getApiBaseUrl()));
+        current.setProvider(provider);
+        current.setApiFormat(normalize(dto.getApiFormat()));
+        current.setApiBaseUrl(apiBaseUrl);
         current.setModelId(trimToNull(dto.getModelId()));
         current.setModelCatalogJson(writeModelCatalog(dto.getModels()));
         current.setTemperature(dto.getTemperature());
@@ -140,12 +155,16 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
                 || !"openai_compatible".equalsIgnoreCase(dto.getApiFormat())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Selected provider cannot discover models");
         }
+        ProviderEndpointPolicy.ValidatedEndpoint endpoint = endpointPolicy.validate(
+                dto.getProvider(), dto.getApiBaseUrl()
+        );
         String apiKey = trimToNull(dto.getApiKey());
         if (apiKey == null) {
             AiModelSettings stored = settingsMapper.selectById(SETTINGS_ID);
             if (stored == null || !StringUtils.hasText(stored.getApiKeyCiphertext())) {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "请先填写 API Key 或保存密钥");
             }
+            requireMatchingKeyBinding(stored, normalize(dto.getProvider()), endpoint);
             apiKey = cipher.decrypt(stored.getApiKeyCiphertext());
         }
 
@@ -159,7 +178,7 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
             );
             AiHttpResponse response = transport.execute(new AiHttpRequest(
                     "GET",
-                    URI.create(joinUrl(dto.getApiBaseUrl(), "models")),
+                    URI.create(joinUrl(endpoint.baseUri().toString(), "models")),
                     headers,
                     "",
                     Duration.ofSeconds(dto.getTimeoutSeconds() == null ? 30 : dto.getTimeoutSeconds())
@@ -198,6 +217,10 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
                 || !StringUtils.hasText(stored.getApiKeyCiphertext())) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "AI provider is not configured");
         }
+        ProviderEndpointPolicy.ValidatedEndpoint endpoint = endpointPolicy.validate(
+                stored.getProvider(), stored.getApiBaseUrl()
+        );
+        requireMatchingKeyBinding(stored, normalize(stored.getProvider()), endpoint);
         String apiKey = cipher.decrypt(stored.getApiKeyCiphertext());
         return new AiRuntimeSettings(
                 stored.getProvider(), stored.getApiFormat(), stored.getApiBaseUrl(), stored.getModelId(), apiKey,
@@ -249,6 +272,26 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
         }
         if (!cipher.available()) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "AI settings master key is not configured");
+        }
+    }
+
+    private void requireMatchingKeyBinding(
+            AiModelSettings current,
+            String provider,
+            ProviderEndpointPolicy.ValidatedEndpoint endpoint
+    ) {
+        if (endpoint == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "已保存 API Key 需要匹配的 HTTPS 地址");
+        }
+        String boundProvider = StringUtils.hasText(current.getApiKeyProvider())
+                ? normalize(current.getApiKeyProvider())
+                : normalize(current.getProvider());
+        String boundOrigin = current.getApiKeyOrigin();
+        if (!StringUtils.hasText(boundOrigin) && StringUtils.hasText(current.getApiBaseUrl())) {
+            boundOrigin = endpointPolicy.validate(current.getProvider(), current.getApiBaseUrl()).origin();
+        }
+        if (!provider.equals(boundProvider) || !endpoint.origin().equals(boundOrigin)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "更换 Provider 或 API Base URL 后必须重新输入 API Key");
         }
     }
 
@@ -378,6 +421,10 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
 
     private String trimToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase();
     }
 
     private double value(Double value, double fallback) {

@@ -14,7 +14,7 @@
           </span>
           <p>{{ mode === 'register' ? 'ACCOUNT CREATED' : 'ACCESS GRANTED' }}</p>
           <h2>{{ mode === 'register' ? '注册成功' : '登录成功' }}</h2>
-          <span>正在跳转至首页...</span>
+          <span>正在进入您的资料空间...</span>
         </div>
       </div>
     </Transition>
@@ -45,7 +45,7 @@ function handleAuthSuccess(event) {
         visible.value = false
       })
     }
-  }, 1100)
+  }, 1450)
 }
 
 onMounted(() => window.addEventListener(AUTH_SUCCESS_EVENT, handleAuthSuccess))

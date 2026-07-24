@@ -28,6 +28,7 @@ BACKEND = ROOT / "opc-backend" / "target" / "opc-backend-0.0.1-SNAPSHOT.jar"
 MIGRATION = ROOT / "deploy" / "sql" / "20260719_admin_registration.sql"
 AI_MIGRATION = ROOT / "deploy" / "sql" / "20260724_ai_phase_one.sql"
 AI_CATALOG_MIGRATION = ROOT / "deploy" / "sql" / "20260724_ai_model_catalog.sql"
+AI_STABILIZATION_MIGRATION = ROOT / "deploy" / "sql" / "20260724_ai_stabilization.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 
@@ -187,7 +188,16 @@ def preflight(client):
 
 
 def deploy(client):
-    required = [FRONTEND / "index.html", BACKEND, MIGRATION, AI_MIGRATION, AI_CATALOG_MIGRATION, NGINX, SYSTEMD]
+    required = [
+        FRONTEND / "index.html",
+        BACKEND,
+        MIGRATION,
+        AI_MIGRATION,
+        AI_CATALOG_MIGRATION,
+        AI_STABILIZATION_MIGRATION,
+        NGINX,
+        SYSTEMD,
+    ]
     for path in required:
         if not path.exists():
             raise RuntimeError(f"Missing deployment artifact: {path}")
@@ -225,6 +235,7 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     sftp.put(str(MIGRATION), f"{release}/admin-registration.sql")
     sftp.put(str(AI_MIGRATION), f"{release}/ai-phase-one.sql")
     sftp.put(str(AI_CATALOG_MIGRATION), f"{release}/ai-model-catalog.sql")
+    sftp.put(str(AI_STABILIZATION_MIGRATION), f"{release}/ai-stabilization.sql")
     sftp.put(str(NGINX), uploaded_nginx)
     sftp.put(str(SYSTEMD), uploaded_systemd)
     sftp.close()
@@ -235,6 +246,7 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"{release}/admin-registration.sql": sha256(MIGRATION),
         f"{release}/ai-phase-one.sql": sha256(AI_MIGRATION),
         f"{release}/ai-model-catalog.sql": sha256(AI_CATALOG_MIGRATION),
+        f"{release}/ai-stabilization.sql": sha256(AI_STABILIZATION_MIGRATION),
         uploaded_nginx: sha256(NGINX),
         uploaded_systemd: sha256(SYSTEMD),
     }
@@ -246,6 +258,7 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/admin-registration.sql'")
     run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-phase-one.sql'")
     run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-model-catalog.sql'")
+    run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-stabilization.sql'")
     run(
         client,
         "set -euo pipefail\n"
@@ -349,8 +362,12 @@ exit 1
         ai_settings_data = ai_settings_body.get("data") or {}
         if ai_settings_body.get("code") != 200 or "apiKey" in ai_settings_data:
             raise RuntimeError("AI settings endpoint failed or exposed API key")
-        if ai_settings_data.get("enabled"):
-            raise RuntimeError("AI provider unexpectedly enabled without production credentials")
+        if ai_settings_data.get("enabled") and not (
+            ai_settings_data.get("apiKeyConfigured")
+            and ai_settings_data.get("apiBaseUrl")
+            and ai_settings_data.get("modelId")
+        ):
+            raise RuntimeError("Enabled AI provider is missing required production configuration")
 
         _, anonymous_analysis = request_json(
             "https://findopc.online/api/ai/case-analysis",
@@ -359,6 +376,21 @@ exit 1
         )
         if anonymous_analysis.get("code") != 401:
             raise RuntimeError("Anonymous case analysis request was not rejected")
+
+        _, anonymous_advice = request_json(
+            "https://findopc.online/api/ai/entrepreneurship-advice",
+            method="POST",
+            payload={
+                "ventureType": "solo_company",
+                "regionId": 1,
+                "industry": "人工智能应用",
+                "stage": "validation",
+                "budgetRange": "under_100k",
+                "goal": "验证付费需求",
+            },
+        )
+        if anonymous_advice.get("code") != 401:
+            raise RuntimeError("Anonymous entrepreneurship advice request was not rejected")
 
         ai_qa_username = f"aiqa_{stamp.replace('-', '')[-10:]}"
         ai_qa_email = f"{ai_qa_username}@example.invalid"
@@ -378,8 +410,12 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 headers=user_headers,
             )
             provider_state = (capabilities_body.get("data") or {}).get("provider") or {}
-            if capabilities_body.get("code") != 200 or provider_state.get("available") is not False:
-                raise RuntimeError("Disabled AI provider state is not reflected by capabilities")
+            expected_provider_available = bool(ai_settings_data.get("enabled"))
+            if (
+                capabilities_body.get("code") != 200
+                or provider_state.get("available") is not expected_provider_available
+            ):
+                raise RuntimeError("AI provider capabilities do not match the saved administrator configuration")
             _, authorized_analysis = request_json(
                 "https://findopc.online/api/ai/case-analysis",
                 method="POST",

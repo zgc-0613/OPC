@@ -6,11 +6,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.dto.CaseAnalysisRequestDTO;
 import com.opc.platform.ai.entity.AiAnalysisRun;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
-import com.opc.platform.ai.provider.AiClient;
 import com.opc.platform.ai.provider.AiProviderDescriptor;
 import com.opc.platform.ai.provider.AiProviderRequest;
 import com.opc.platform.ai.provider.AiProviderResponse;
-import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.ai.vo.AiCitationVO;
 import com.opc.platform.ai.vo.AiTokenUsageVO;
 import com.opc.platform.ai.vo.CaseAnalysisVO;
@@ -25,7 +23,6 @@ import com.opc.platform.source.mapper.SourceMapper;
 import com.opc.platform.userauth.AuthenticatedUser;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -40,7 +37,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -55,9 +51,8 @@ public class CaseAnalysisService {
     private final SourceMapper sourceMapper;
     private final PolicyMapper policyMapper;
     private final AiAnalysisRunMapper runMapper;
-    private final AiClient aiClient;
-    private final AiRuntimeSettingsProvider settingsProvider;
     private final ObjectMapper objectMapper;
+    private final AiTaskExecutionService taskExecutionService;
 
     public CaseAnalysisVO analyze(AuthenticatedUser user, CaseAnalysisRequestDTO request) {
         CaseItem caseItem = caseItemMapper.selectById(request.getCaseId());
@@ -74,33 +69,23 @@ public class CaseAnalysisService {
             return insufficient(user, caseItem, "insufficient");
         }
 
-        enforceLimits(user.userId());
-        AiProviderDescriptor descriptor = aiClient.descriptor();
-        if (!descriptor.available()) {
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "智能体模型尚未配置或未启用");
-        }
-
-        AiAnalysisRun run = startRun(user, caseItem, descriptor, evidence.hash());
-        try {
-            AiProviderResponse providerResponse = aiClient.generate(new AiProviderRequest(
+        return taskExecutionService.execute(
+                new AiTaskExecutionService.Task(user, "case_analysis", caseItem.getId(), PROMPT_VERSION, evidence.hash()),
+                new AiProviderRequest(
                     "case-analysis",
                     PROMPT_VERSION,
                     systemPrompt(),
                     userPrompt(caseItem, evidence, request.getUserQuestion()),
                     responseSchema()
-            ));
-            ModelPayload payload = parse(providerResponse.content());
-            List<AiCitationVO> citations = validateCitations(payload.getCitations(), evidence.sources());
-            CaseAnalysisVO result = toResult(run, caseItem, descriptor, providerResponse, payload, citations);
-            complete(run, providerResponse, providerResponse.content());
-            return result;
-        } catch (BusinessException exception) {
-            fail(run, exception.getErrorCode().name());
-            throw exception;
-        } catch (RuntimeException exception) {
-            fail(run, "UNEXPECTED_PROVIDER_RESPONSE");
-            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "AI 返回内容格式无效，请稍后重试");
-        }
+                ),
+                execution -> {
+                    ModelPayload payload = parse(execution.response().content());
+                    List<AiCitationVO> citations = validateCitations(payload.getCitations(), evidence.sources());
+                    return toResult(
+                            execution.run(), caseItem, execution.descriptor(), execution.response(), payload, citations
+                    );
+                }
+        );
     }
 
     private EvidenceBundle loadEvidence(CaseItem caseItem) {
@@ -138,41 +123,8 @@ public class CaseAnalysisService {
         List<Policy> usablePolicies = policies.stream()
                 .filter(policy -> sources.containsKey(policy.getSourceId()))
                 .toList();
-        String hash = sha256(caseItem.getId() + ":" + sources.keySet() + ":" + usablePolicies.stream().map(Policy::getId).toList());
+        String hash = evidenceHash(caseItem, sources, usablePolicies, "verified");
         return new EvidenceBundle(sources, usablePolicies, hash);
-    }
-
-    private void enforceLimits(Long userId) {
-        long used = value(runMapper.sumCompletedTokensToday(userId));
-        long dailyTokenQuota = settingsProvider.dailyTokenQuota();
-        if (dailyTokenQuota > 0 && used >= dailyTokenQuota) {
-            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, "今日智能体词元额度已用完");
-        }
-        if (runMapper.countRunningForUser(userId) > 0) {
-            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, "已有案例分析正在进行，请勿重复提交");
-        }
-    }
-
-    private AiAnalysisRun startRun(
-            AuthenticatedUser user,
-            CaseItem caseItem,
-            AiProviderDescriptor descriptor,
-            String evidenceHash
-    ) {
-        AiAnalysisRun run = new AiAnalysisRun();
-        run.setUserId(user.userId());
-        run.setCaseId(caseItem.getId());
-        run.setStatus("running");
-        run.setProvider(descriptor.provider());
-        run.setModelId(descriptor.model());
-        run.setPromptVersion(PROMPT_VERSION);
-        run.setEvidenceHash(evidenceHash);
-        try {
-            runMapper.insert(run);
-        } catch (DuplicateKeyException exception) {
-            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, "已有案例分析正在进行，请勿重复提交");
-        }
-        return run;
     }
 
     private CaseAnalysisVO insufficient(AuthenticatedUser user, CaseItem caseItem, String evidenceStatus) {
@@ -183,7 +135,7 @@ public class CaseAnalysisService {
         run.setProvider("not_called");
         run.setModelId("not_called");
         run.setPromptVersion(PROMPT_VERSION);
-        run.setEvidenceHash(sha256(caseItem.getId() + ":" + evidenceStatus));
+        run.setEvidenceHash(evidenceHash(caseItem, Map.of(), List.of(), evidenceStatus));
         run.setResultJson("{\"evidenceStatus\":\"insufficient\"}");
         run.setPromptTokens(0);
         run.setCompletionTokens(0);
@@ -228,6 +180,9 @@ public class CaseAnalysisService {
             List<ModelCitation> citations,
             Map<Long, Source> sources
     ) {
+        if (citations == null || citations.isEmpty()) {
+            throw invalidResponse();
+        }
         List<AiCitationVO> validated = new ArrayList<>();
         for (ModelCitation citation : citations) {
             Source source = sources.get(citation.getSourceId());
@@ -263,7 +218,7 @@ public class CaseAnalysisService {
         result.setRecommendedActions(payload.getRecommendedActions());
         result.setCitations(citations);
         result.setConfidence(payload.getConfidence());
-        result.setEvidenceStatus(citations.isEmpty() ? "insufficient" : "sufficient");
+        result.setEvidenceStatus("sufficient");
         result.setProvider(descriptor.provider());
         result.setModel(descriptor.model());
         result.setPromptVersion(PROMPT_VERSION);
@@ -274,23 +229,6 @@ public class CaseAnalysisService {
                 providerResponse.totalTokens()
         ));
         return result;
-    }
-
-    private void complete(AiAnalysisRun run, AiProviderResponse response, String resultJson) {
-        run.setStatus("completed");
-        run.setResultJson(resultJson);
-        run.setPromptTokens(response.promptTokens());
-        run.setCompletionTokens(response.completionTokens());
-        run.setTotalTokens(response.totalTokens());
-        run.setLatencyMs(response.latencyMs());
-        run.setProviderRequestId(response.requestId());
-        runMapper.updateById(run);
-    }
-
-    private void fail(AiAnalysisRun run, String errorType) {
-        run.setStatus("failed");
-        run.setErrorType(errorType);
-        runMapper.updateById(run);
     }
 
     private boolean eligible(Source source) {
@@ -366,8 +304,32 @@ public class CaseAnalysisService {
         }
     }
 
-    private long value(Long value) {
-        return value == null ? 0 : value;
+    private String evidenceHash(
+            CaseItem caseItem,
+            Map<Long, Source> sources,
+            List<Policy> policies,
+            String evidenceState
+    ) {
+        try {
+            Map<String, Object> content = new LinkedHashMap<>();
+            content.put("evidenceState", evidenceState);
+            content.put("case", List.of(
+                    caseItem.getId(), safe(caseItem.getTitle()), safe(caseItem.getSummary()),
+                    safe(caseItem.getBusinessModel()), safe(caseItem.getAiTools()), safe(caseItem.getOutcome()),
+                    safe(caseItem.getUpdatedAt() == null ? null : caseItem.getUpdatedAt().toString())
+            ));
+            content.put("policies", policies.stream().map(policy -> List.of(
+                    policy.getId(), safe(policy.getTitle()), safe(policy.getSummary()), safe(policy.getKeyPoints()),
+                    safe(policy.getSupportMeasures()), safe(policy.getUpdatedAt() == null ? null : policy.getUpdatedAt().toString())
+            )).toList());
+            content.put("sources", sources.values().stream().map(source -> List.of(
+                    source.getId(), safe(source.getTitle()), safe(source.getUrl()), safe(source.getNotes()),
+                    safe(source.getUpdatedAt() == null ? null : source.getUpdatedAt().toString())
+            )).toList());
+            return sha256(objectMapper.writeValueAsString(content));
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "案例证据版本无法计算");
+        }
     }
 
     private String safe(String value) {

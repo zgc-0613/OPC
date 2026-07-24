@@ -3,35 +3,30 @@
     <section class="panel filter-panel source-filter-panel scroll-reveal" @pointermove="handleSourceSpotlight">
       <div class="section-header">
         <div>
-          <span class="caption">source ledger</span>
           <h2>来源检索</h2>
           <p>展示来源链接、文件名、访问日期和状态，方便回到原始出处复核。</p>
         </div>
-        <span class="analysis-badge">{{ filteredSources.length }} sources</span>
       </div>
 
       <div class="source-summary-strip">
         <div>
           <span>来源总量</span>
           <strong>{{ sources.length }}</strong>
-          <small>当前台账记录</small>
         </div>
         <div>
           <span>当前结果</span>
           <strong>{{ filteredSources.length }}</strong>
-          <small>随筛选实时变化</small>
         </div>
         <div>
-          <span>含链接记录</span>
+          <span>有效链接</span>
           <strong>{{ linkedSourceCount }}</strong>
-          <small>可回到原始网页</small>
         </div>
         <div>
-          <span>访问日期</span>
+          <span>已记录日期</span>
           <strong>{{ accessedSourceCount }}</strong>
-          <small>已记录访问时间</small>
         </div>
       </div>
+      <p class="source-summary-note">统计口径：基于当前台账记录，随筛选条件实时更新；来源链接可回溯原始网页，访问日期均已记录。</p>
 
       <div class="auto-filter-grid">
         <label>

@@ -11,3 +11,11 @@ export function analyzeCase(caseId, userQuestion = '') {
   }
   return request.post('/ai/case-analysis', payload, { timeout: 120000 })
 }
+
+export function getEntrepreneurshipAdvice(payload) {
+  return request.post('/ai/entrepreneurship-advice', payload, { timeout: 120000 })
+}
+
+export function checkEntrepreneurshipReadiness(payload) {
+  return request.post('/ai/entrepreneurship-readiness', payload, { timeout: 45000 })
+}

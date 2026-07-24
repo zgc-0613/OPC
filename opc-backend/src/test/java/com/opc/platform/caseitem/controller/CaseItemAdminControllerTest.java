@@ -39,7 +39,13 @@ class CaseItemAdminControllerTest {
 
     @BeforeEach
     void setUp() {
-        CaseItemService service = new CaseItemService(caseItemMapper, regionMapper, sourceMapper);
+        CaseItemService service = new CaseItemService(
+                caseItemMapper,
+                regionMapper,
+                sourceMapper,
+                org.mockito.Mockito.mock(com.opc.platform.tag.mapper.TagMapper.class),
+                org.mockito.Mockito.mock(com.opc.platform.casetag.mapper.CaseTagMapper.class)
+        );
         mockMvc = MockMvcBuilders.standaloneSetup(new CaseItemAdminController(service)).build();
     }
 

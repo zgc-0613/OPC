@@ -18,6 +18,8 @@ public class Tag {
 
     private String tagType;
 
+    private Boolean isIndustry;
+
     private Integer sortOrder;
 
     private LocalDateTime createdAt;

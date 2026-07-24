@@ -52,7 +52,13 @@ class CaseItemServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CaseItemService(caseItemMapper, regionMapper, sourceMapper);
+        service = new CaseItemService(
+                caseItemMapper,
+                regionMapper,
+                sourceMapper,
+                org.mockito.Mockito.mock(com.opc.platform.tag.mapper.TagMapper.class),
+                org.mockito.Mockito.mock(com.opc.platform.casetag.mapper.CaseTagMapper.class)
+        );
     }
 
     @Test

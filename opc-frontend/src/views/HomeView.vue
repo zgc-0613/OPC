@@ -242,7 +242,14 @@
 
           <div class="home-contact-methods" aria-label="联系方式">
             <div class="home-contact-method">
-              <span class="home-contact-icon" aria-hidden="true"><MapPin :size="18" /></span>
+              <span
+                class="home-contact-icon"
+                aria-hidden="true"
+                @pointerenter="handleContactIconPointerMove"
+                @pointermove="handleContactIconPointerMove"
+                @pointerleave="handleContactIconPointerLeave"
+                @pointercancel="handleContactIconPointerLeave"
+              ><MapPin :size="18" /></span>
               <div>
                 <strong>所属单位</strong>
                 <p>西北工业大学软件学院</p>
@@ -250,7 +257,14 @@
             </div>
 
             <div class="home-contact-method">
-              <span class="home-contact-icon" aria-hidden="true"><Mail :size="18" /></span>
+              <span
+                class="home-contact-icon"
+                aria-hidden="true"
+                @pointerenter="handleContactIconPointerMove"
+                @pointermove="handleContactIconPointerMove"
+                @pointerleave="handleContactIconPointerLeave"
+                @pointercancel="handleContactIconPointerLeave"
+              ><Mail :size="18" /></span>
               <div>
                 <strong>联系人</strong>
                 <p class="home-contact-person">
@@ -412,6 +426,31 @@ function handleAccountContextMenu(event) {
   if (currentUser.value) {
     event.preventDefault()
   }
+}
+
+function handleContactIconPointerMove(event) {
+  if (event.pointerType !== 'mouse') {
+    return
+  }
+
+  const icon = event.currentTarget
+  icon.classList.add('is-glint-active')
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    return
+  }
+
+  const rect = icon.getBoundingClientRect()
+  const offsetX = event.clientX - rect.left - rect.width / 2
+  const offsetY = event.clientY - rect.top - rect.height / 2
+  icon.style.setProperty('--contact-glint-x', `${offsetX}px`)
+  icon.style.setProperty('--contact-glint-y', `${offsetY}px`)
+}
+
+function handleContactIconPointerLeave(event) {
+  const icon = event.currentTarget
+  icon.classList.remove('is-glint-active')
+  icon.style.removeProperty('--contact-glint-x')
+  icon.style.removeProperty('--contact-glint-y')
 }
 
 function setupScrollReveal() {

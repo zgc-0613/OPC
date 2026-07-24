@@ -12,9 +12,8 @@
         <div class="section-header">
           <div>
             <h2>平台访问热度</h2>
-            <p>基于公开页面访问记录动态统计，反映近期内容关注情况。</p>
+            <p>基于公开页面访问记录统计，反映近期内容关注趋势。</p>
           </div>
-          <span class="analysis-badge">LIVE</span>
         </div>
 
         <div class="public-visit-layout">
@@ -66,9 +65,8 @@
         <div class="section-header">
           <div>
             <h2>地区资料排行</h2>
-            <p>合并政策和案例的地区字段统计。</p>
+            <p>按地区维度汇总政策与案例数量。</p>
           </div>
-          <span class="analysis-badge">TOP {{ topRegions.length }}</span>
         </div>
 
         <div v-if="!topRegions.length" class="muted">暂无地区统计数据。</div>
@@ -87,7 +85,7 @@
         <div class="section-header">
           <div>
             <h2>来源追溯概览</h2>
-            <p>统计来源链接、访问日期与出处信息的记录情况。</p>
+            <p>统计来源链接、访问日期及出处信息的记录覆盖情况。</p>
           </div>
         </div>
 
@@ -474,10 +472,10 @@ const insights = computed(() => {
   const trendLast = publishTrend.value[publishTrend.value.length - 1]
 
   return [
-    region ? `当前资料收录最多的地区是「${region.name}」，政策与案例合计 ${region.count} 条。` : '当前还缺少可用于地区分析的资料数据。',
-    type ? `政策类型中「${type.label}」占比最高，可作为汇报中的重点方向。` : '当前还缺少可用于类型分析的政策数据。',
-    tag ? `高频标签是「${tag.name}」，说明该方向在资料库中出现较多。` : '当前标签还不够完整，建议录入时补齐 3-8 个标签。',
-    trendLast ? `最近一期有 ${trendLast.count} 条政策记录，可结合发布时间判断政策热度。` : '建议补齐政策发布日期，用于形成时间趋势分析。',
+    region ? `当前资料收录最多的地区为「${region.name}」，政策与案例合计 ${region.count} 条。` : '当前还缺少可用于地区分析的资料数据。',
+    type ? `政策类型中「${type.label}」占比最高。` : '当前还缺少可用于类型分析的政策数据。',
+    tag ? `高频标签为「${tag.name}」，相关记录数量居首。` : '当前标签还不够完整，建议录入时补齐 3-8 个标签。',
+    trendLast ? `最近一期新增 ${trendLast.count} 条政策记录。` : '建议补齐政策发布日期，用于形成时间趋势分析。',
   ]
 })
 

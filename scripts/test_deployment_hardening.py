@@ -63,6 +63,24 @@ class DeploymentHardeningTest(unittest.TestCase):
             self.assertIn("proxy_cache off;", location)
             self.assertNotIn("proxy_buffering off", location)
 
+    def test_entrepreneurship_advisor_has_the_same_bounded_proxy_on_both_hosts(self):
+        config = NGINX_CONFIG.read_text(encoding="utf-8")
+        locations = re.findall(
+            r"location = /api/ai/entrepreneurship-advice \{(?P<body>.*?)\n\s*\}",
+            config,
+            flags=re.DOTALL,
+        )
+
+        self.assertEqual(2, len(locations))
+        for location in locations:
+            self.assertIn("limit_req zone=opc_ai_case burst=5 nodelay;", location)
+            self.assertIn("client_max_body_size 64k;", location)
+            self.assertIn("proxy_connect_timeout 5s;", location)
+            self.assertIn("proxy_send_timeout 15s;", location)
+            self.assertIn("proxy_read_timeout 190s;", location)
+            self.assertIn("proxy_cache off;", location)
+            self.assertNotIn("proxy_buffering off", location)
+
     def test_backend_systemd_unit_runs_as_a_restricted_service_account(self):
         unit = SYSTEMD_UNIT.read_text(encoding="utf-8")
 

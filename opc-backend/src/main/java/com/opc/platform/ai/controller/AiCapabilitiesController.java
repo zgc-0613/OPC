@@ -19,6 +19,8 @@ public class AiCapabilitiesController {
 
     private static final String CASE_ANALYSIS_ID = "case-analysis";
     private static final String CASE_ANALYSIS_VERSION = "case-analysis-v1";
+    private static final String ENTREPRENEURSHIP_ADVISOR_ID = "entrepreneurship-advisor";
+    private static final String ENTREPRENEURSHIP_ADVISOR_VERSION = "entrepreneurship-advisor-v1";
 
     private final AiClient aiClient;
 
@@ -30,6 +32,11 @@ public class AiCapabilitiesController {
                 CASE_ANALYSIS_VERSION,
                 provider.available()
         );
-        return Result.success(new AiCapabilitiesVO(provider, List.of(caseAnalysis)));
+        AiCapabilityVO entrepreneurshipAdvisor = new AiCapabilityVO(
+                ENTREPRENEURSHIP_ADVISOR_ID,
+                ENTREPRENEURSHIP_ADVISOR_VERSION,
+                provider.available()
+        );
+        return Result.success(new AiCapabilitiesVO(provider, List.of(caseAnalysis, entrepreneurshipAdvisor)));
     }
 }

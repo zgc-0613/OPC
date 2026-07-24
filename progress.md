@@ -312,3 +312,25 @@
 - Production uses the `opc` process user, loopback-only port 8082, `root:opc 0640` runtime configuration, and one Java process.
 - Public/admin routes return 200; anonymous AI/admin settings requests return business 401; provider remains disabled and API Key data is not exposed.
 - Direct-origin rate-limit verification returned six application responses followed by two Nginx 429 responses.
+
+## Standalone Entrepreneurship Research Assistant (2026-07-24)
+- **Status:** complete and deployed in disabled-provider mode.
+- Added protected `/assistant` with a responsive profile-and-research layout, bounded follow-up questions, provider-disabled/loading/failure/retry states, structured recommendations, local case/policy links, expandable citations, and AI metadata.
+- Added `POST /api/ai/entrepreneurship-advice`, versioned capability reporting, verified local evidence loading, industry relevance ordering, strict source-ID citation validation, quota/concurrency checks, and persisted task metadata.
+- Extended `ai_analysis_runs` additively with `task_type` and nullable `case_id`; existing case-analysis rows retain the `case_analysis` default.
+- Added an exact Nginx proxy for the new endpoint on public and administrator hosts using the existing 64 KiB body, timeout, cache, and rate-limit controls.
+- Full backend verification passed with 77 tests; the Vue production build passed with 1,689 transformed modules; deployment-hardening tests passed with six checks.
+- Production release: `/opt/opc/releases/20260724-050106`; backup: `/opt/opc/backups/20260724-050106`; frontend rollback: `/var/www/opc.rollback.20260724-050106`; backend rollback: `/opt/opc-backend.rollback.20260724-050106`.
+- Production verification passed for `findopc.online`, `/assistant`, `admin.findopc.online`, health, anonymous AI/admin 401 boundaries, secret-free administrator settings, exact Nginx locations, loopback-only backend binding, and the `task_type`/nullable `case_id` migration.
+
+## AI Evidence Stabilization (2026-07-24)
+- **Status:** complete and deployed.
+- Added a shared `AiTaskExecutionService` for both case analysis and entrepreneurship advice. It atomically reserves quota, prevents concurrent runs per user, settles actual usage even when parsing fails, and recovers expired running tasks.
+- Evidence hashes now include case, policy, and source content/version data. Factual results with missing or invalid citations are rejected instead of being presented as evidence-backed analysis.
+- Added the administrator evidence-review queue at `/admin/evidence-reviews` and its audited API. Cases and policies cannot become `verified` without a published, verified source containing a title and URL.
+- The readiness route now requires authenticated user context, and deployment validation correctly permits an enabled provider only when its encrypted-key state, HTTPS Base URL, and Model ID are complete.
+- Verification passed: backend package 97 tests, frontend production build 1,692 modules, auth-session test, deployment hardening test suite, and `git diff --check`.
+- Production release: `/opt/opc/releases/20260724-073422`; backup: `/opt/opc/backups/20260724-073422`; frontend rollback: `/var/www/opc.rollback.20260724-073422`; backend rollback: `/opt/opc-backend.rollback.20260724-073422`.
+- No production data was silently promoted to the golden evidence set. Its current verified, human-reviewed count remains `0` until a reviewer selects and verifies real records.
+- Final stabilization republish: `/opt/opc/releases/20260724-074745`; backup: `/opt/opc/backups/20260724-074745`; frontend rollback: `/var/www/opc.rollback.20260724-074745`; backend rollback: `/opt/opc-backend.rollback.20260724-074745`.
+- Post-release checks: public root, `/assistant`, administrator login, and health return HTTP 200; anonymous AI capabilities, entrepreneurship advice, and administrator AI-settings calls each return the expected application-level 401.

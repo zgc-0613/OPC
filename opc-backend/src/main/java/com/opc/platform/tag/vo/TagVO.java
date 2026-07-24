@@ -11,5 +11,7 @@ public class TagVO {
 
     private String tagType;
 
+    private Boolean isIndustry;
+
     private Integer sortOrder;
 }

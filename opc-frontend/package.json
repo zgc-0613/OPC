@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test:auth-session": "node scripts/test-user-session.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^6.0.1",

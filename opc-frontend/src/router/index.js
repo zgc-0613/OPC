@@ -12,6 +12,7 @@ import PolicyDetailView from '@/views/PolicyDetailView.vue'
 import CaseListView from '@/views/CaseListView.vue'
 import CaseDetailView from '@/views/CaseDetailView.vue'
 import CaseAnalysisView from '@/views/CaseAnalysisView.vue'
+import AssistantView from '@/views/AssistantView.vue'
 import SourceLedgerView from '@/views/SourceLedgerView.vue'
 import AdminHomeView from '@/views/admin/AdminHomeView.vue'
 import PolicyAdminView from '@/views/admin/PolicyAdminView.vue'
@@ -19,6 +20,7 @@ import CaseAdminView from '@/views/admin/CaseAdminView.vue'
 import SourceAdminView from '@/views/admin/SourceAdminView.vue'
 import TagAdminView from '@/views/admin/TagAdminView.vue'
 import AdminSettingsView from '@/views/admin/AdminSettingsView.vue'
+import EvidenceReviewAdminView from '@/views/admin/EvidenceReviewAdminView.vue'
 import { isAdminAuthenticated, isUserAuthenticated } from '@/api/auth'
 import { recordVisit } from '@/api/visit'
 
@@ -69,6 +71,14 @@ const routes = [
         name: 'case-analysis',
         component: CaseAnalysisView,
         props: true,
+        meta: {
+          requiresUser: true,
+        },
+      },
+      {
+        path: 'assistant',
+        name: 'assistant',
+        component: AssistantView,
         meta: {
           requiresUser: true,
         },
@@ -135,6 +145,11 @@ const routes = [
         name: 'admin-settings',
         component: AdminSettingsView,
       },
+      {
+        path: 'evidence-reviews',
+        name: 'admin-evidence-reviews',
+        component: EvidenceReviewAdminView,
+      },
     ],
   },
 ]
@@ -150,7 +165,7 @@ router.beforeEach((to) => {
       path: '/login',
       query: {
         redirect: to.fullPath,
-        reason: to.name === 'case-analysis' ? 'ai-login-required' : undefined,
+        reason: ['case-analysis', 'assistant'].includes(to.name) ? 'ai-login-required' : undefined,
       },
     }
   }
@@ -246,6 +261,7 @@ function getPageTitle(route) {
     'policy-detail': `政策详情 #${route.params.id}`,
     'case-list': '案例索引',
     'case-detail': `案例详情 #${route.params.id}`,
+    assistant: '创业研究助手',
     'source-ledger': '来源台账',
     'user-account': '个人主页',
   }

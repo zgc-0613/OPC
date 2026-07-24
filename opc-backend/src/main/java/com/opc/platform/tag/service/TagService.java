@@ -61,12 +61,14 @@ public class TagService {
     private void copyCreateFields(TagCreateDTO dto, Tag tag) {
         tag.setName(trim(dto.getName()));
         tag.setTagType(trim(dto.getTagType()));
+        tag.setIsIndustry(Boolean.TRUE.equals(dto.getIsIndustry()));
         tag.setSortOrder(defaultSortOrder(dto.getSortOrder()));
     }
 
     private void copyUpdateFields(TagUpdateDTO dto, Tag tag) {
         tag.setName(trim(dto.getName()));
         tag.setTagType(trim(dto.getTagType()));
+        tag.setIsIndustry(Boolean.TRUE.equals(dto.getIsIndustry()));
         tag.setSortOrder(defaultSortOrder(dto.getSortOrder()));
     }
 
@@ -86,6 +88,7 @@ public class TagService {
         vo.setId(tag.getId());
         vo.setName(tag.getName());
         vo.setTagType(tag.getTagType());
+        vo.setIsIndustry(Boolean.TRUE.equals(tag.getIsIndustry()));
         vo.setSortOrder(tag.getSortOrder());
         return vo;
     }

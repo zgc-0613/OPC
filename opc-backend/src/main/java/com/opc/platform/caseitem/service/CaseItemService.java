@@ -8,19 +8,27 @@ import com.opc.platform.caseitem.entity.CaseItem;
 import com.opc.platform.caseitem.mapper.CaseItemMapper;
 import com.opc.platform.caseitem.vo.CaseItemDetailVO;
 import com.opc.platform.caseitem.vo.CaseItemListVO;
+import com.opc.platform.casetag.entity.CaseTag;
+import com.opc.platform.casetag.mapper.CaseTagMapper;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.region.entity.Region;
 import com.opc.platform.region.mapper.RegionMapper;
 import com.opc.platform.source.entity.Source;
 import com.opc.platform.source.mapper.SourceMapper;
+import com.opc.platform.tag.entity.Tag;
+import com.opc.platform.tag.mapper.TagMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -36,15 +44,22 @@ public class CaseItemService {
 
     private final SourceMapper sourceMapper;
 
+    private final TagMapper tagMapper;
+
+    private final CaseTagMapper caseTagMapper;
+
+    @Transactional
     public CaseItemDetailVO createCaseItem(CaseItemCreateDTO dto) {
         validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
 
         CaseItem caseItem = new CaseItem();
         copyCreateFields(dto, caseItem);
         caseItemMapper.insert(caseItem);
+        syncCaseTags(caseItem.getId(), caseItem.getTags(), caseItem.getCategory());
         return getCaseItemDetail(caseItem.getId());
     }
 
+    @Transactional
     public CaseItemDetailVO updateCaseItem(Long id, CaseItemUpdateDTO dto) {
         CaseItem caseItem = caseItemMapper.selectById(id);
         if (caseItem == null) {
@@ -54,14 +69,17 @@ public class CaseItemService {
 
         copyUpdateFields(dto, caseItem);
         caseItemMapper.updateById(caseItem);
+        syncCaseTags(id, caseItem.getTags(), caseItem.getCategory());
         return getCaseItemDetail(id);
     }
 
+    @Transactional
     public void deleteCaseItem(Long id) {
         CaseItem caseItem = caseItemMapper.selectById(id);
         if (caseItem == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
         }
+        caseTagMapper.delete(new LambdaQueryWrapper<CaseTag>().eq(CaseTag::getCaseId, id));
         caseItemMapper.deleteById(id);
     }
 
@@ -257,5 +275,51 @@ public class CaseItemService {
 
     private String normalizeEvidenceStatus(String requested, String fallback) {
         return StringUtils.hasText(requested) ? requested.trim() : fallback;
+    }
+
+    private void syncCaseTags(Long caseId, String tagsText, String category) {
+        caseTagMapper.delete(new LambdaQueryWrapper<CaseTag>().eq(CaseTag::getCaseId, caseId));
+        Set<String> names = parseTagNames(tagsText);
+        if (StringUtils.hasText(category)) {
+            names.add(category.trim());
+        }
+        for (String name : names) {
+            boolean industry = StringUtils.hasText(category) && category.trim().equals(name);
+            Tag tag = getOrCreateCaseTag(name, industry);
+            CaseTag relation = new CaseTag();
+            relation.setCaseId(caseId);
+            relation.setTagId(tag.getId());
+            caseTagMapper.insert(relation);
+        }
+    }
+
+    private Tag getOrCreateCaseTag(String name, boolean industry) {
+        Tag tag = tagMapper.selectOne(new LambdaQueryWrapper<Tag>()
+                .eq(Tag::getName, name)
+                .eq(Tag::getTagType, "case"));
+        if (tag == null) {
+            tag = new Tag();
+            tag.setName(name);
+            tag.setTagType("case");
+            tag.setIsIndustry(industry);
+            tag.setSortOrder(0);
+            tagMapper.insert(tag);
+            return tagMapper.selectById(tag.getId());
+        }
+        if (industry && !Boolean.TRUE.equals(tag.getIsIndustry())) {
+            tag.setIsIndustry(true);
+            tagMapper.updateById(tag);
+        }
+        return tag;
+    }
+
+    private Set<String> parseTagNames(String tagsText) {
+        if (!StringUtils.hasText(tagsText)) {
+            return new LinkedHashSet<>();
+        }
+        return Arrays.stream(tagsText.split("[,，]"))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 }

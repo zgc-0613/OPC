@@ -93,12 +93,14 @@ CREATE TABLE IF NOT EXISTS tags (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
     name VARCHAR(100) NOT NULL COMMENT 'Tag name',
     tag_type VARCHAR(20) NOT NULL COMMENT 'policy/case/common',
+    is_industry TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Industry taxonomy marker',
     sort_order INT NOT NULL DEFAULT 0 COMMENT 'Sort order',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created time',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated time',
 
     UNIQUE KEY uk_tags_name_type (name, tag_type),
     INDEX idx_tags_tag_type (tag_type),
+    INDEX idx_tags_is_industry (is_industry),
     INDEX idx_tags_sort_order (sort_order)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
@@ -118,6 +120,35 @@ CREATE TABLE IF NOT EXISTS policy_tags (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
   COMMENT='Policy tag relation table';
+
+CREATE TABLE IF NOT EXISTS case_tags (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
+    case_id BIGINT NOT NULL COMMENT 'Case ID',
+    tag_id BIGINT NOT NULL COMMENT 'Tag ID',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created time',
+
+    UNIQUE KEY uk_case_tags_case_tag (case_id, tag_id),
+    INDEX idx_case_tags_case_id (case_id),
+    INDEX idx_case_tags_tag_id (tag_id)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='Case tag relation table';
+
+CREATE TABLE IF NOT EXISTS tag_aliases (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
+    tag_id BIGINT NOT NULL COMMENT 'Canonical industry tag ID',
+    alias VARCHAR(100) NOT NULL COMMENT 'Human-readable alias',
+    normalized_alias VARCHAR(100) NOT NULL COMMENT 'Normalized exact-match alias',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created time',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated time',
+
+    UNIQUE KEY uk_tag_aliases_normalized (normalized_alias),
+    INDEX idx_tag_aliases_tag_id (tag_id)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='Industry tag aliases';
 
 CREATE TABLE IF NOT EXISTS search_logs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
@@ -304,7 +335,8 @@ CREATE TABLE IF NOT EXISTS ai_settings_audit (
 CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT NOT NULL,
-    case_id BIGINT NOT NULL,
+    task_type VARCHAR(40) NOT NULL DEFAULT 'case_analysis',
+    case_id BIGINT NULL,
     status VARCHAR(30) NOT NULL,
     active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'running' THEN user_id ELSE NULL END) STORED,
     result_json JSON NULL,
@@ -315,6 +347,10 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     prompt_tokens INT NOT NULL DEFAULT 0,
     completion_tokens INT NOT NULL DEFAULT 0,
     total_tokens INT NOT NULL DEFAULT 0,
+    reserved_tokens BIGINT NOT NULL DEFAULT 0,
+    started_at DATETIME NULL,
+    deadline_at DATETIME NULL,
+    heartbeat_at DATETIME NULL,
     latency_ms BIGINT NOT NULL DEFAULT 0,
     provider_request_id VARCHAR(191) NULL,
     error_type VARCHAR(80) NULL,
@@ -323,11 +359,29 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     UNIQUE KEY uk_ai_analysis_running_user (active_guard),
     INDEX idx_ai_analysis_user_created (user_id, created_at),
     INDEX idx_ai_analysis_case_created (case_id, created_at),
-    INDEX idx_ai_analysis_status_created (status, created_at)
+    INDEX idx_ai_analysis_status_created (status, created_at),
+    INDEX idx_ai_runs_running_deadline (status, deadline_at)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
-  COMMENT='Persisted AI case analysis results and usage metadata';
+  COMMENT='Persisted AI task results and usage metadata';
+
+CREATE TABLE IF NOT EXISTS ai_evidence_reviews (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    item_type VARCHAR(20) NOT NULL,
+    item_id BIGINT NOT NULL,
+    previous_status VARCHAR(30) NOT NULL,
+    new_status VARCHAR(30) NOT NULL,
+    admin_id BIGINT NOT NULL,
+    admin_username VARCHAR(100) NOT NULL,
+    notes VARCHAR(500) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_evidence_reviews_item (item_type, item_id),
+    INDEX idx_evidence_reviews_created_at (created_at)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='Administrator AI evidence review audit trail';
 
 INSERT INTO ai_model_settings (
     id, provider, api_format, temperature, max_output_tokens,

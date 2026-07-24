@@ -26,6 +26,7 @@ spring:
 opc:
   ai:
     settings-master-key: ${OPC_AI_SETTINGS_MASTER_KEY:}
+    trusted-provider-origins: ${OPC_AI_TRUSTED_PROVIDER_ORIGINS:https://api.deepseek.com}
   admin:
     session-hours: 12
   settings:

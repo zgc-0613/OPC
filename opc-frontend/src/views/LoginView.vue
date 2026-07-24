@@ -1,13 +1,22 @@
 <template>
   <main
     class="login-shell user-login-shell"
-    :class="authMode === 'login' ? 'is-login-view' : 'is-register-view'"
+    :class="[
+      authMode === 'login' ? 'is-login-view' : 'is-register-view',
+      { 'is-auth-transitioning': panelTransitioning },
+    ]"
   >
+    <Transition appear name="auth-panel-appear">
+    <div
+      class="login-motion-group"
+      :class="panelMotion === 'idle' ? '' : `is-panel-${panelMotion}`"
+      :aria-busy="panelTransitioning"
+    >
     <section class="login-panel">
       <div class="login-visual" aria-hidden="true">
         <span class="login-orbit"></span>
         <h2>连接你的 OPC 研究与创业资料空间</h2>
-        <p>使用账号密码进入资料空间；邮箱验证码只用于注册时确认邮箱所有权。</p>
+        <p>登录即进入您的专属资料空间。</p>
       </div>
 
       <div class="login-form-side">
@@ -19,6 +28,7 @@
             <small>{{ authMode === 'login' ? '用户登录' : '账号注册' }}</small>
           </span>
         </RouterLink>
+        <RouterLink class="login-home-link" to="/">返回首页</RouterLink>
       </div>
 
       <div class="login-copy">
@@ -126,31 +136,37 @@
         <button class="button" type="submit" :disabled="submitting">{{ submitButtonText }}</button>
         <p v-if="devCode" class="login-dev-code">开发模式验证码：{{ devCode }}</p>
         <p v-if="message" class="success">{{ message }}</p>
-        <p v-if="error" class="error">{{ error }}</p>
       </form>
 
       <div v-if="!currentUser" class="login-mode-switch">
         <span>{{ authMode === 'login' ? '没有账号？' : '已有账号？' }}</span>
-        <button type="button" @click="switchAuthMode">
+        <button type="button" :disabled="panelTransitioning" @click="switchAuthMode">
           {{ authMode === 'login' ? '点击注册' : '返回登录' }}
         </button>
       </div>
-
-      <div class="login-footnote">
-        <RouterLink to="/">返回首页</RouterLink>
-      </div>
+      <footer class="login-page-copyright">
+        Copyright &copy; 2026 <RouterLink to="/">SoloFirm<sup>&reg;</sup></RouterLink> - All rights reserved
+      </footer>
       </div>
     </section>
-    <footer class="login-page-copyright">
-      Copyright &copy; 2026 <RouterLink to="/">SoloFirm<sup>&reg;</sup></RouterLink> - All rights reserved
-    </footer>
+    </div>
+    </Transition>
+
+    <Teleport to="body">
+      <Transition name="auth-error-toast">
+        <div v-if="error" class="auth-error-toast" role="alert" aria-live="assertive">
+          <CircleAlert :size="20" aria-hidden="true" />
+          <span>{{ error }}</span>
+        </div>
+      </Transition>
+    </Teleport>
   </main>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { CheckCircle, Eye, EyeOff, RotateCcw } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { CheckCircle, CircleAlert, Eye, EyeOff, RotateCcw } from 'lucide-vue-next'
 import BrandMark from '@/components/BrandMark.vue'
 import { showAuthSuccessTransition } from '@/utils/authTransition'
 import {
@@ -164,6 +180,7 @@ import {
 } from '@/api/auth'
 
 const route = useRoute()
+const router = useRouter()
 const accessNotice = computed(() => route.query.reason === 'ai-login-required'
   ? '请先登录后使用智能体案例分析。登录完成后将返回原页面。'
   : '')
@@ -190,7 +207,13 @@ const error = ref('')
 const devCode = ref('')
 const emailCodeSent = ref(false)
 const showPassword = ref(false)
+const panelMotion = ref('idle')
+const panelTransitioning = ref(false)
+const PANEL_EXIT_DURATION = 720
+const PANEL_ARRIVAL_DURATION = 820
 let timer = null
+let errorTimer = null
+let panelMotionTimer = null
 
 onMounted(loadAltchaConfig)
 
@@ -326,8 +349,12 @@ async function submitAuth() {
         password: form.value.password,
         code: form.value.code,
     })
-    currentUser.value = getUserProfile() || user
-    showAuthSuccessTransition(authMode.value, '/')
+    const completedMode = authMode.value
+    const authenticatedUser = getUserProfile() || user
+    const returnTarget = resolveAuthReturnTarget()
+    await leaveAuthPanel()
+    currentUser.value = authenticatedUser
+    showAuthSuccessTransition(completedMode, returnTarget)
   } catch (err) {
     error.value = err.message || (authMode.value === 'login' ? '登录失败，请检查账号和密码' : '注册失败，请检查填写内容')
   } finally {
@@ -358,7 +385,50 @@ function resetNotice() {
   error.value = ''
 }
 
-function switchAuthMode() {
+function resolveAuthReturnTarget() {
+  const candidates = [route.query.redirect, window.history.state?.back]
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string' || !candidate.startsWith('/') || candidate.startsWith('//')) {
+      continue
+    }
+
+    const resolved = router.resolve(candidate)
+    if (resolved.name === 'login' || resolved.name === 'admin-login' || resolved.path.startsWith('/admin')) {
+      continue
+    }
+
+    return resolved.fullPath
+  }
+
+  return '/'
+}
+
+async function switchAuthMode() {
+  if (panelTransitioning.value) {
+    return
+  }
+
+  panelTransitioning.value = true
+  if (prefersReducedMotion()) {
+    resetAuthModeForm()
+    panelMotion.value = 'idle'
+    panelTransitioning.value = false
+    return
+  }
+
+  panelMotion.value = 'leaving'
+  await waitForPanelMotion(PANEL_EXIT_DURATION)
+
+  resetAuthModeForm()
+  await nextTick()
+  panelMotion.value = 'arriving'
+  await waitForPanelMotion(PANEL_ARRIVAL_DURATION)
+  panelMotion.value = 'idle'
+  panelTransitioning.value = false
+}
+
+function resetAuthModeForm() {
   authMode.value = authMode.value === 'login' ? 'register' : 'login'
   form.value.identifier = ''
   form.value.username = ''
@@ -372,6 +442,29 @@ function switchAuthMode() {
   resetNotice()
 }
 
+async function leaveAuthPanel() {
+  panelTransitioning.value = true
+  if (prefersReducedMotion()) {
+    return
+  }
+  panelMotion.value = 'leaving'
+  await waitForPanelMotion(PANEL_EXIT_DURATION)
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+}
+
+function waitForPanelMotion(duration) {
+  return new Promise((resolve) => {
+    window.clearTimeout(panelMotionTimer)
+    panelMotionTimer = window.setTimeout(() => {
+      panelMotionTimer = null
+      resolve()
+    }, duration)
+  })
+}
+
 watch(
   () => form.value.email,
   (value, previous) => {
@@ -383,7 +476,25 @@ watch(
   },
 )
 
+watch(error, (value) => {
+  clearTimeout(errorTimer)
+  errorTimer = null
+
+  if (!value) {
+    return
+  }
+
+  const currentMessage = value
+  errorTimer = setTimeout(() => {
+    if (error.value === currentMessage) {
+      error.value = ''
+    }
+  }, 3000)
+}, { flush: 'sync' })
+
 onBeforeUnmount(() => {
   clearInterval(timer)
+  clearTimeout(errorTimer)
+  clearTimeout(panelMotionTimer)
 })
 </script>

@@ -10,7 +10,9 @@ public class JavaNetAiHttpTransport implements AiHttpTransport {
     private final HttpClient httpClient;
 
     public JavaNetAiHttpTransport() {
-        this(HttpClient.newBuilder().build());
+        this(HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build());
     }
 
     JavaNetAiHttpTransport(HttpClient httpClient) {

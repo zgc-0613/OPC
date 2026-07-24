@@ -130,7 +130,7 @@
           <h1>{{ routeTitle }}</h1>
           <p>{{ routeSubtitle }}</p>
         </div>
-        <div v-if="route.name !== 'analysis-overview'" class="topbar-status">
+        <div v-if="!['analysis-overview', 'assistant'].includes(route.name)" class="topbar-status">
           <span></span>
           公开索引模式
         </div>
@@ -187,6 +187,7 @@ const routeTitle = computed(() => {
     'policy-detail': '政策详情',
     'case-list': '案例索引',
     'case-detail': '案例详情',
+    assistant: '创业研究助手',
     'source-ledger': '来源台账',
     'user-account': '个人主页',
   }
@@ -196,13 +197,14 @@ const routeTitle = computed(() => {
 const routeSubtitle = computed(() => {
   const subtitles = {
     home: '汇总全国 AI + OPC 相关政策、案例、来源与地区覆盖情况。',
-    'analysis-overview': '汇总访问热度、地区排行、政策趋势、来源完整度与案例分布。',
-    'region-directory': '按省份查看政策与案例资料覆盖情况，方便判断重点地区。',
-    'policy-list': '按地区、政策类型和关键词快速定位可引用资料。',
+    'analysis-overview': '呈现平台访问热度、地区资料排行、政策趋势走向、来源覆盖度与案例分布概况。',
+    'region-directory': '按省份查看政策与案例资料覆盖情况，便于识别资料集中的重点区域。',
+    'policy-list': '按地区、政策类型及关键词快速检索目标政策。',
     'policy-detail': '查看政策摘要、支持措施、来源链接和关键字段。',
-    'case-list': '沉淀一人公司和 AI 创业案例，便于后续分析。',
+    'case-list': '汇集一人公司与 AI 创业案例，支持多维度检索与分析。',
     'case-detail': '查看案例主体、模式、工具和成果记录。',
-    'source-ledger': '查看来源链接、文件名、访问日期和状态，保证资料可追溯。',
+    assistant: '结合创业画像检索本地已核验案例与政策，生成带来源依据的行动建议。',
+    'source-ledger': '查看来源链接、文件名、访问日期及状态，确保资料可追溯、可复核。',
     'user-account': '管理你的 SoloFirm 账号与个人资料空间。',
   }
   return subtitles[route.name] || '资料库工作台'

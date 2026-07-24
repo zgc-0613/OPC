@@ -12,35 +12,31 @@
       </div>
       <div class="section-header">
         <div>
-          <span class="caption">policy index</span>
           <h2>政策检索</h2>
           <p>点击地区或类型即可自动筛选政策，关键词输入后自动搜索。</p>
         </div>
-        <button class="button button-export" type="button" @click="exportPolicies">导出政策 Excel</button>
+        <button class="button button-export" type="button" @click="exportPolicies">导出 Excel</button>
       </div>
 
       <div class="policy-summary-strip">
         <div>
           <span>政策总量</span>
           <strong>{{ allPolicies.length }}</strong>
-          <small>当前资料库记录</small>
         </div>
         <div>
           <span>当前结果</span>
           <strong>{{ policies.length }}</strong>
-          <small>随筛选实时变化</small>
         </div>
         <div>
           <span>覆盖地区</span>
           <strong>{{ coveredRegionCount }}</strong>
-          <small>存在政策记录</small>
         </div>
         <div>
           <span>政策类型</span>
           <strong>{{ usedPolicyTypeCount }}</strong>
-          <small>字段与标签合并</small>
         </div>
       </div>
+      <p class="policy-summary-note">统计口径：基于当前资料库记录，随筛选条件实时更新；地区及类型字段合并标签统计。</p>
 
       <div class="auto-filter-grid">
         <label>

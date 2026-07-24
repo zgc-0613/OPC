@@ -12,5 +12,7 @@ public class TagUpdateDTO {
     @NotBlank
     private String tagType;
 
+    private Boolean isIndustry;
+
     private Integer sortOrder;
 }

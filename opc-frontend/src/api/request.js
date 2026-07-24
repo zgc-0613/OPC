@@ -6,7 +6,7 @@ const request = axios.create({
 })
 
 request.interceptors.request.use((config) => {
-  const token = sessionStorage.getItem('opc_user_token')
+  const token = localStorage.getItem('opc_user_token') || sessionStorage.getItem('opc_user_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }

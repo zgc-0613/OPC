@@ -41,6 +41,12 @@
           :class="{ 'nav-active': isAdminNavActive('tags') }"
         ><Tags :size="17" aria-hidden="true" /><b>标签管理</b></RouterLink>
         <RouterLink
+          to="/admin/evidence-reviews"
+          active-class="admin-route-active"
+          exact-active-class="admin-route-exact-active"
+          :class="{ 'nav-active': isAdminNavActive('evidence-reviews') }"
+        ><ShieldCheck :size="17" aria-hidden="true" /><b>证据审核</b></RouterLink>
+        <RouterLink
           to="/admin/settings"
           active-class="admin-route-active"
           exact-active-class="admin-route-exact-active"
@@ -78,6 +84,7 @@ import {
   LayoutDashboard,
   LogOut,
   Settings,
+  ShieldCheck,
   Tags,
 } from 'lucide-vue-next'
 import { logoutAdmin } from '@/api/auth'
@@ -93,6 +100,7 @@ const routeTitle = computed(() => {
     'admin-cases': '案例管理',
     'admin-sources': '来源管理',
     'admin-tags': '标签管理',
+    'admin-evidence-reviews': '证据审核',
     'admin-settings': '系统设置',
   }
   return titles[route.name] || '管理后台'
@@ -105,6 +113,7 @@ function isAdminNavActive(section) {
     cases: ['admin-cases'],
     sources: ['admin-sources'],
     tags: ['admin-tags'],
+    'evidence-reviews': ['admin-evidence-reviews'],
     settings: ['admin-settings'],
   }
   return sectionMap[section]?.includes(route.name)

@@ -3,19 +3,12 @@
     <section class="panel filter-panel region-hero-panel scroll-reveal" @pointermove="handleRegionSpotlight">
       <div class="section-header">
         <div>
-          <span class="caption">regional index</span>
           <h2>地区检索</h2>
           <p>按省份查看政策与案例资料覆盖情况，数据随当前后端接口实时变化。</p>
         </div>
-        <span class="analysis-badge">{{ visibleRegions.length }} 个地区</span>
       </div>
 
       <div class="region-summary-strip">
-        <div>
-          <span>收录地区</span>
-          <strong>{{ regionRows.length }}</strong>
-          <small>已排除上级地区</small>
-        </div>
         <div>
           <span>已有资料地区</span>
           <strong>{{ coveredRegionCount }}</strong>
@@ -56,12 +49,11 @@
         <span>可以换一个省份、政策关键词或案例关键词试试。</span>
       </div>
       <div v-else class="region-index-grid" @pointermove="handleRegionSpotlight">
-        <RouterLink
+        <article
           v-for="(item, index) in visibleRegions"
           :key="item.id || item.name"
           class="region-index-card scroll-reveal"
           :style="{ '--i': index }"
-          :to="{ path: '/policies', query: { regionId: item.id } }"
         >
           <span class="region-index-no">{{ String(index + 1).padStart(2, '0') }}</span>
           <div>
@@ -69,19 +61,27 @@
             <small>{{ regionAlias(item.name) }}</small>
           </div>
           <div class="region-index-bars">
-            <div>
+            <RouterLink
+              class="region-index-metric"
+              :to="{ path: '/policies', query: { regionId: item.id } }"
+              :aria-label="`查看${item.name}的政策资料，共 ${item.policyCount} 条`"
+            >
               <span>政策</span>
               <i :style="{ width: `${item.policyPercent}%` }"></i>
               <b>{{ item.policyCount }}</b>
-            </div>
-            <div>
+            </RouterLink>
+            <RouterLink
+              class="region-index-metric"
+              :to="{ path: '/cases', query: { regionId: item.id } }"
+              :aria-label="`查看${item.name}的案例资料，共 ${item.caseCount} 条`"
+            >
               <span>案例</span>
               <i :style="{ width: `${item.casePercent}%` }"></i>
               <b>{{ item.caseCount }}</b>
-            </div>
+            </RouterLink>
           </div>
           <em>{{ item.totalCount }}</em>
-        </RouterLink>
+        </article>
       </div>
     </section>
   </div>

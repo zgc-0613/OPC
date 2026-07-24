@@ -4,7 +4,7 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 13 (in progress)
+Phase 17 (implementation and deployment complete; human evidence audit pending)
 
 ## Phases
 
@@ -237,3 +237,28 @@ Phase 13 (in progress)
 - [x] Pass backend tests, frontend production build, deployment tests, and `git diff --check`.
 - [x] Deploy release `20260724-030722` and independently verify Nginx, auth, rate limiting, and external port closure.
 - **Status:** complete
+
+### Phase 16: Standalone Entrepreneurship Research Assistant
+- [x] Preserve `/cases/:id/analysis` as the single-case analysis workflow.
+- [x] Add a separate login-protected `/assistant` route without adding a homepage or sidebar entry.
+- [x] Add bounded entrepreneurship profile input for venture type, region, industry, stage, budget, goal, resources, and an optional question.
+- [x] Add authenticated `POST /api/ai/entrepreneurship-advice` behind the existing provider-neutral `AiClient`.
+- [x] Load only published and explicitly verified local cases, policies, and sources on the backend.
+- [x] Rank local evidence by the selected region and industry while keeping database matches separate from model-generated advice.
+- [x] Validate model citations against backend-assigned source IDs, persist run metadata, and reuse daily quota/concurrency controls.
+- [x] Build the standalone page as a responsive SoloFirm Prisma Light research workspace with profile, transcript, evidence, failure, retry, and provider-disabled states.
+- [x] Add exact bounded Nginx proxy coverage and an additive migration for multi-task AI run records.
+- [x] Pass the full backend test suite, frontend production build, deployment-hardening tests, and local diff checks.
+- [x] Deploy after the user confirms concurrent frontend copy changes can wait, then verify both hosts, auth boundaries, migration columns, and service health.
+- **Status:** complete and deployed in disabled-provider mode.
+
+### Phase 17: AI Evidence Stabilization
+- [x] Reproduce and cover the provider-not-called/evidence-insufficient workflow through public API test seams.
+- [x] Centralize quota reservation, active-run recovery, provider execution, and token settlement for both AI workflows.
+- [x] Bind evidence hashes to source content/version and reject factual output without legal citations.
+- [x] Add the audited administrator evidence-review queue with verified source-chain enforcement.
+- [x] Require authenticated user context for readiness and correct deployment validation for complete enabled provider configurations.
+- [x] Run the full backend suite, frontend build, auth-session check, deployment-hardening tests, and diff check.
+- [x] Deploy release `20260724-074745` with backups and rollback artifacts; verify public/admin health and protected API boundaries.
+- [ ] Build a 10-20 item golden evidence set from human-reviewed production records. This is intentionally pending because no records were fabricated or auto-verified.
+- **Status:** implementation and deployment complete; human evidence-review backlog remains.

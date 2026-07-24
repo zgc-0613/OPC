@@ -84,6 +84,9 @@ class AiCapabilitiesControllerTest {
                 .andExpect(jsonPath("$.data.capabilities[0].id").value("case-analysis"))
                 .andExpect(jsonPath("$.data.capabilities[0].version").value("case-analysis-v1"))
                 .andExpect(jsonPath("$.data.capabilities[0].available").value(true))
+                .andExpect(jsonPath("$.data.capabilities[1].id").value("entrepreneurship-advisor"))
+                .andExpect(jsonPath("$.data.capabilities[1].version").value("entrepreneurship-advisor-v1"))
+                .andExpect(jsonPath("$.data.capabilities[1].available").value(true))
                 .andExpect(jsonPath("$.data.provider.apiKey").doesNotExist());
     }
 

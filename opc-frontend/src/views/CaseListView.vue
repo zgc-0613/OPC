@@ -3,7 +3,6 @@
     <section class="panel filter-panel case-filter-panel scroll-reveal" @pointermove="handleCaseSpotlight">
       <div class="section-header">
         <div>
-          <span class="caption">case index</span>
           <h2>案例检索</h2>
           <p>按地区、类型和关键词快速定位 AI + OPC / 一人公司案例。</p>
         </div>
@@ -14,24 +13,21 @@
         <div>
           <span>案例总量</span>
           <strong>{{ allCases.length }}</strong>
-          <small>当前资料库记录</small>
         </div>
         <div>
           <span>当前结果</span>
           <strong>{{ cases.length }}</strong>
-          <small>随筛选实时变化</small>
         </div>
         <div>
           <span>覆盖地区</span>
           <strong>{{ coveredRegionCount }}</strong>
-          <small>存在案例记录</small>
         </div>
         <div>
           <span>案例类型</span>
           <strong>{{ usedCategoryCount }}</strong>
-          <small>按类型字段统计</small>
         </div>
       </div>
+      <p class="case-summary-note">统计口径：基于当前资料库记录，随筛选条件实时更新；类型字段按标签合并统计。</p>
 
       <div class="auto-filter-grid">
         <label>
@@ -138,7 +134,7 @@
             </div>
             <strong>{{ item.title }}</strong>
             <p>{{ item.summary || '暂无摘要' }}</p>
-            <div v-if="formatTags(item.tags).length" class="chip-row">
+            <div v-if="formatTags(item.tags).length" class="chip-row case-tag-row">
               <span v-for="tag in formatTags(item.tags)" :key="tag" class="chip">{{ tag }}</span>
             </div>
           </div>
@@ -168,11 +164,13 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { getCases } from '@/api/case'
 import { getRegions } from '@/api/region'
 import { getVisitRankings } from '@/api/visit'
 import { recordSearchKeyword } from '@/api/searchLog'
 
+const route = useRoute()
 const loading = ref(false)
 const error = ref('')
 const cases = ref([])
@@ -505,6 +503,7 @@ onMounted(async () => {
     regions.value = regionList
     allCases.value = caseList
     caseVisitRankings.value = visitRankingList || []
+    query.regionId = route.query.regionId ? String(route.query.regionId) : ''
     cases.value = filterCases(caseList)
     currentPage.value = 1
   } catch (err) {

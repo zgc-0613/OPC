@@ -6,6 +6,10 @@ export function getTags(tagType) {
   })
 }
 
+export function getIndustryTags() {
+  return request.get('/public/industry-tags')
+}
+
 export function createTag(data) {
   return request.post('/admin/tags', data)
 }

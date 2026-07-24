@@ -321,3 +321,23 @@ Update this file after every two repository or browser inspection operations.
 - Two deployment attempts were automatically rolled back because the original health assertion did not accept the mapped-loopback display form. The service itself had started successfully as `opc`; the regression is now covered by tests.
 - Final release: `/opt/opc/releases/20260724-030722`; backup: `/opt/opc/backups/20260724-030722`; frontend rollback: `/var/www/opc.rollback.20260724-030722`; backend rollback: `/opt/opc-backend.rollback.20260724-030722`.
 - Independent verification found one Java process, no post-release error journal entries, external port 8082 closed, both exact Nginx locations loaded, and direct-origin rate-limit responses `200,200,200,200,200,200,429,429`.
+
+## Standalone Entrepreneurship Research Assistant Findings (2026-07-24)
+- The requested independent assistant is a different product workflow from `/cases/:id/analysis`: it starts from a user's entrepreneurship profile and retrieves several local cases and policies instead of analyzing one selected case.
+- A bounded profile is the appropriate first contract. Venture type, region, industry, stage, budget, goal, resources, and a 500-character question keep the capability useful without opening an unlimited general chat endpoint.
+- Database case and policy matches are assembled deterministically on the backend. Model output cannot create a local match; it can only provide recommendations and cite source IDs assigned in the current evidence bundle.
+- Evidence eligibility remains `status=published AND ai_evidence_status=verified`, including the underlying source. A missing eligible bundle returns `evidence_insufficient` without calling the provider.
+- The existing `ai_analysis_runs` table can support both workflows by adding `task_type` and making `case_id` nullable. The generated active guard continues to enforce one running AI task per user across capabilities.
+- The public page uses the existing light SoloFirm Prisma language rather than the reference skill's original dark demo palette: paper surfaces, ink typography, fine borders, restrained green evidence states, and no decorative chat bubbles.
+- `/assistant` remains intentionally absent from homepage and sidebar navigation, matching the earlier requirement to build the page before choosing its public entry point.
+- The user later confirmed deployment could proceed. Release `20260724-050106` is live with the provider still disabled; a stored API key is configured but is not returned by the administrator API.
+
+## AI Evidence Stabilization Findings (2026-07-24)
+- The original case-analysis and entrepreneurship-advice services each owned overlapping quota, active-run, provider-call, and settlement logic. This made timeout recovery and failed-call accounting inconsistent. `AiTaskExecutionService` now owns that lifecycle for both public AI seams.
+- An evidence hash over identifiers alone does not invalidate analysis when evidence text, publication metadata, or source content changes. The stabilized hash includes case, policy, and source content/version fields.
+- A model response with prose but no valid backend-assigned citation must not be treated as factual output. Both workflows now fail in a controlled way when citations are absent or invalid.
+- The administrator evidence-review queue keeps verification explicit and auditable. A case or policy cannot be verified without a complete, published, verified source chain.
+- Production deployment validation previously rejected all enabled configurations. The corrected validator only permits enablement when encrypted credential state, strict HTTPS endpoint policy, and Model ID are all present; it still never prints or returns secrets.
+- A real golden evidence set needs human review of source credibility and content. No historic production row was auto-promoted, and the golden-set count is `0` rather than fabricated.
+- Release `20260724-073422` is live with timestamped frontend/backend rollback artifacts and passed health, authorization, and secret-redaction checks.
+- The final republish completed as release `20260724-074745`. Server preflight confirmed active Nginx, MySQL, and backend services, one Java process, loopback-only backend binding, and the hardened `opc` process user.

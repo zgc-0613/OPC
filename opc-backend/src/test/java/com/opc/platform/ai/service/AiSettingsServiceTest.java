@@ -13,6 +13,7 @@ import com.opc.platform.ai.provider.AiHttpRequest;
 import com.opc.platform.ai.provider.AiHttpResponse;
 import com.opc.platform.ai.provider.AiHttpTransport;
 import com.opc.platform.ai.security.AesGcmSecretCipher;
+import com.opc.platform.ai.security.ProviderEndpointPolicy;
 import com.opc.platform.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -22,6 +23,9 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.net.http.HttpHeaders;
+import java.net.InetAddress;
+import java.io.IOException;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -44,7 +48,8 @@ class AiSettingsServiceTest {
                 cipher,
                 mock(AiProviderFactory.class),
                 new ObjectMapper(),
-                mock(AiHttpTransport.class)
+                mock(AiHttpTransport.class),
+                endpointPolicy()
         );
         String apiKey = "sk-sensitive-setting-value";
 
@@ -80,7 +85,8 @@ class AiSettingsServiceTest {
                 new AesGcmSecretCipher(masterKey()),
                 mock(AiProviderFactory.class),
                 new ObjectMapper(),
-                transport
+                transport,
+                endpointPolicy()
         );
         AiModelDiscoveryRequestDTO request = new AiModelDiscoveryRequestDTO();
         request.setProvider("deepseek");
@@ -109,7 +115,8 @@ class AiSettingsServiceTest {
                 new AesGcmSecretCipher(masterKey()),
                 mock(AiProviderFactory.class),
                 new ObjectMapper(),
-                transport
+                transport,
+                endpointPolicy()
         );
         AiModelDiscoveryRequestDTO request = new AiModelDiscoveryRequestDTO();
         request.setProvider("deepseek");
@@ -126,11 +133,87 @@ class AiSettingsServiceTest {
         verify(transport, never()).execute(org.mockito.ArgumentMatchers.<AiHttpRequest>any());
     }
 
+    @Test
+    void storedKeyCannotBeSentToDifferentOriginDuringModelDiscovery() throws Exception {
+        AiModelSettingsMapper settingsMapper = mock(AiModelSettingsMapper.class);
+        AesGcmSecretCipher cipher = new AesGcmSecretCipher(masterKey());
+        AiHttpTransport transport = mock(AiHttpTransport.class);
+        org.mockito.Mockito.when(settingsMapper.selectById(1L)).thenReturn(stored(cipher, "https://api.deepseek.com/v1"));
+        AiSettingsService service = new AiSettingsService(
+                settingsMapper,
+                mock(AiSettingsAuditMapper.class),
+                cipher,
+                mock(AiProviderFactory.class),
+                new ObjectMapper(),
+                transport,
+                endpointPolicy()
+        );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.discoverModels(discovery("https://api.example.com/v1", null), new AuthenticatedAdmin(7L, "ACha_"))
+        );
+
+        assertEquals("更换 Provider 或 API Base URL 后必须重新输入 API Key", exception.getMessage());
+        verify(transport, never()).execute(org.mockito.ArgumentMatchers.<AiHttpRequest>any());
+    }
+
+    @Test
+    void changingBaseUrlWithoutNewKeyIsRejectedBeforePersisting() throws Exception {
+        AiModelSettingsMapper settingsMapper = mock(AiModelSettingsMapper.class);
+        AesGcmSecretCipher cipher = new AesGcmSecretCipher(masterKey());
+        org.mockito.Mockito.when(settingsMapper.selectById(1L)).thenReturn(stored(cipher, "https://api.deepseek.com/v1"));
+        AiSettingsService service = new AiSettingsService(
+                settingsMapper,
+                mock(AiSettingsAuditMapper.class),
+                cipher,
+                mock(AiProviderFactory.class),
+                new ObjectMapper(),
+                mock(AiHttpTransport.class),
+                endpointPolicy()
+        );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.update(dto(null, "https://api.example.com/v1"), new AuthenticatedAdmin(7L, "ACha_"))
+        );
+
+        assertEquals("更换 Provider 或 API Base URL 后必须重新输入 API Key", exception.getMessage());
+        verify(settingsMapper, never()).updateById(org.mockito.ArgumentMatchers.<AiModelSettings>any());
+    }
+
+    @Test
+    void discoveryFailureDoesNotExposeTransientApiKey() throws Exception {
+        AiHttpTransport transport = request -> {
+            throw new IOException("connection failed for Bearer sk-should-not-escape");
+        };
+        AiSettingsService service = new AiSettingsService(
+                mock(AiModelSettingsMapper.class),
+                mock(AiSettingsAuditMapper.class),
+                new AesGcmSecretCipher(masterKey()),
+                mock(AiProviderFactory.class),
+                new ObjectMapper(),
+                transport,
+                endpointPolicy()
+        );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.discoverModels(discovery("https://api.example.com/v1", "sk-should-not-escape"), new AuthenticatedAdmin(7L, "ACha_"))
+        );
+
+        assertFalse(exception.getMessage().contains("sk-should-not-escape"));
+    }
+
     private AiModelSettingsUpdateDTO dto(String apiKey) {
+        return dto(apiKey, "https://api.example.com/v1");
+    }
+
+    private AiModelSettingsUpdateDTO dto(String apiKey, String apiBaseUrl) {
         AiModelSettingsUpdateDTO dto = new AiModelSettingsUpdateDTO();
         dto.setProvider("deepseek");
         dto.setApiFormat("openai_compatible");
-        dto.setApiBaseUrl("https://api.example.com/v1");
+        dto.setApiBaseUrl(apiBaseUrl);
         dto.setModelId("configured-model");
         dto.setModels(List.of(new AiModelOptionDTO("configured-model", "Configured model")));
         dto.setApiKey(apiKey);
@@ -141,6 +224,36 @@ class AiSettingsServiceTest {
         dto.setDailyTokenQuota(100_000L);
         dto.setEnabled(false);
         return dto;
+    }
+
+    private AiModelDiscoveryRequestDTO discovery(String apiBaseUrl, String apiKey) {
+        AiModelDiscoveryRequestDTO request = new AiModelDiscoveryRequestDTO();
+        request.setProvider("deepseek");
+        request.setApiFormat("openai_compatible");
+        request.setApiBaseUrl(apiBaseUrl);
+        request.setApiKey(apiKey);
+        request.setTimeoutSeconds(15);
+        return request;
+    }
+
+    private AiModelSettings stored(AesGcmSecretCipher cipher, String apiBaseUrl) {
+        AiModelSettings settings = new AiModelSettings();
+        settings.setId(1L);
+        settings.setProvider("deepseek");
+        settings.setApiFormat("openai_compatible");
+        settings.setApiBaseUrl(apiBaseUrl);
+        settings.setApiKeyCiphertext(cipher.encrypt("sk-stored-key"));
+        settings.setApiKeyProvider("deepseek");
+        settings.setApiKeyOrigin("https://api.deepseek.com");
+        return settings;
+    }
+
+    private ProviderEndpointPolicy endpointPolicy() throws Exception {
+        InetAddress publicAddress = InetAddress.getByName("8.8.8.8");
+        return new ProviderEndpointPolicy(
+                Set.of("https://api.deepseek.com", "https://api.example.com"),
+                host -> List.of(publicAddress)
+        );
     }
 
     private String masterKey() throws Exception {

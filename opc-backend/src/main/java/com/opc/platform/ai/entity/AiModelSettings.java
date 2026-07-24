@@ -19,6 +19,8 @@ public class AiModelSettings {
     private String modelId;
     private String modelCatalogJson;
     private String apiKeyCiphertext;
+    private String apiKeyProvider;
+    private String apiKeyOrigin;
     private Double temperature;
     private Integer maxOutputTokens;
     private Integer timeoutSeconds;
