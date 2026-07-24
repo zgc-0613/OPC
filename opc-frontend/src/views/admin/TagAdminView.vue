@@ -25,6 +25,13 @@
           <span>排序</span>
           <input v-model.number="form.sortOrder" type="number" min="0" />
         </label>
+        <label class="settings-toggle-row">
+          <input v-model="form.isIndustry" type="checkbox" />
+          <span>
+            行业标签
+            <small>纳入用户端行业选择与政策、案例的共同分析范围。</small>
+          </span>
+        </label>
         <div class="admin-actions">
           <button class="button" type="submit">{{ editingId ? '保存修改' : '新增标签' }}</button>
           <button v-if="editingId" class="button button-ghost" type="button" @click="resetForm">取消编辑</button>
@@ -49,6 +56,7 @@
               <th>ID</th>
               <th>名称</th>
               <th>类型</th>
+              <th>行业维度</th>
               <th>排序</th>
               <th>操作</th>
             </tr>
@@ -58,6 +66,7 @@
               <td>{{ tag.id }}</td>
               <td>{{ tag.name }}</td>
               <td><span class="chip">{{ tag.tagType }}</span></td>
+              <td><span class="chip">{{ tag.isIndustry ? '是' : '否' }}</span></td>
               <td>{{ tag.sortOrder ?? 0 }}</td>
               <td>
                 <div class="row-actions">
@@ -84,6 +93,7 @@ const editingId = ref(null)
 const form = reactive({
   name: '',
   tagType: 'policy',
+  isIndustry: false,
   sortOrder: 0,
 })
 
@@ -103,6 +113,7 @@ function resetForm() {
   editingId.value = null
   form.name = ''
   form.tagType = 'policy'
+  form.isIndustry = false
   form.sortOrder = 0
 }
 
@@ -110,6 +121,7 @@ function startEdit(tag) {
   editingId.value = tag.id
   form.name = tag.name || ''
   form.tagType = tag.tagType || 'policy'
+  form.isIndustry = Boolean(tag.isIndustry)
   form.sortOrder = tag.sortOrder ?? 0
 }
 

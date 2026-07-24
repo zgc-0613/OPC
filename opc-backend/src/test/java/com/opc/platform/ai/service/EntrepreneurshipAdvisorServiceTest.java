@@ -2,12 +2,15 @@ package com.opc.platform.ai.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.dto.EntrepreneurshipAdviceRequestDTO;
+import com.opc.platform.ai.dto.EntrepreneurshipReadinessRequestDTO;
 import com.opc.platform.ai.entity.AiAnalysisRun;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
 import com.opc.platform.ai.provider.AiClient;
 import com.opc.platform.ai.provider.AiProviderDescriptor;
 import com.opc.platform.ai.provider.AiProviderResponse;
+import com.opc.platform.ai.provider.AiProviderRequest;
 import com.opc.platform.ai.provider.AiRuntimeSettings;
+import com.opc.platform.ai.provider.AiRuntimeSnapshot;
 import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.caseitem.entity.CaseItem;
 import com.opc.platform.caseitem.mapper.CaseItemMapper;
@@ -28,9 +31,12 @@ import com.opc.platform.tag.vo.IndustryResolution;
 import com.opc.platform.userauth.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Duration;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -38,12 +44,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class EntrepreneurshipAdvisorServiceTest {
+
+    private AiRuntimeSettings settings;
 
     private final CaseItemMapper caseItemMapper = mock(CaseItemMapper.class);
     private final PolicyMapper policyMapper = mock(PolicyMapper.class);
@@ -88,6 +97,12 @@ class EntrepreneurshipAdvisorServiceTest {
         when(regionMapper.selectList(any())).thenReturn(List.of(region()));
         when(caseItemMapper.selectList(any())).thenReturn(List.of());
         when(policyMapper.selectList(any())).thenReturn(List.of());
+        when(sourceMapper.selectBatchIds(any())).thenAnswer(invocation ->
+                ((Collection<Long>) invocation.getArgument(0)).stream()
+                        .map(sourceMapper::selectById)
+                        .filter(Objects::nonNull)
+                        .toList()
+        );
         when(caseTagMapper.selectList(any())).thenReturn(List.of(caseTag(11L, 703L)));
         when(policyTagMapper.selectList(any())).thenReturn(List.of(policyTag(21L, 703L)));
         when(industryTagService.resolve(any(), any(), any(Boolean.class))).thenReturn(
@@ -95,11 +110,12 @@ class EntrepreneurshipAdvisorServiceTest {
         );
         when(industryTagService.relatedTagIds(703L)).thenReturn(List.of(703L));
         when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("disabled", "unconfigured", false));
-        when(settingsProvider.dailyTokenQuota()).thenReturn(100_000L);
-        when(settingsProvider.current()).thenReturn(new AiRuntimeSettings(
+        settings = new AiRuntimeSettings(
                 "deepseek", "openai_compatible", "https://api.example.com/v1", "configured-model",
                 "test-key", 0.2, 1200, Duration.ofSeconds(20), 1, true
-        ));
+        );
+        when(settingsProvider.snapshot()).thenReturn(new AiRuntimeSnapshot(settings, 100_000L));
+        when(aiClient.descriptor(settings)).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
         when(runMapper.insert(any(AiAnalysisRun.class))).thenAnswer(invocation -> {
             AiAnalysisRun run = invocation.getArgument(0);
             run.setId(101L);
@@ -122,7 +138,20 @@ class EntrepreneurshipAdvisorServiceTest {
         assertTrue(result.getMatchedCases().isEmpty());
         assertTrue(result.getMatchedPolicies().isEmpty());
         assertTrue(result.getCitations().isEmpty());
-        verify(aiClient, never()).generate(any());
+        verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
+    }
+
+    @Test
+    void automaticReadinessUsesDeterministicIndustryResolutionOnly() {
+        EntrepreneurshipReadinessRequestDTO readinessRequest = new EntrepreneurshipReadinessRequestDTO();
+        readinessRequest.setRegionId(3L);
+        readinessRequest.setIndustryTagId(703L);
+        readinessRequest.setIndustry("人工智能应用");
+
+        service.readiness(readinessRequest);
+
+        verify(industryTagService).resolve(eq(703L), eq("人工智能应用"), eq(false));
+        verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
     }
 
     @Test
@@ -132,6 +161,7 @@ class EntrepreneurshipAdvisorServiceTest {
         when(sourceMapper.selectById(8L)).thenReturn(source());
         when(sourceMapper.selectById(9L)).thenReturn(source(9L, "政策原文"));
         when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("disabled", "unconfigured", false));
+        when(aiClient.descriptor(settings)).thenReturn(new AiProviderDescriptor("disabled", "unconfigured", false));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -139,7 +169,7 @@ class EntrepreneurshipAdvisorServiceTest {
         );
 
         assertEquals(ErrorCode.SERVICE_UNAVAILABLE, exception.getErrorCode());
-        verify(aiClient, never()).generate(any());
+        verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
     }
 
     @Test
@@ -149,9 +179,9 @@ class EntrepreneurshipAdvisorServiceTest {
         when(sourceMapper.selectById(8L)).thenReturn(source(8L, "案例核验来源"));
         when(sourceMapper.selectById(9L)).thenReturn(source(9L, "政策原文"));
         when(sourceMapper.selectById(10L)).thenReturn(source(10L, "无关案例来源"));
-        when(settingsProvider.dailyTokenQuota()).thenReturn(100_000L);
+        when(settingsProvider.snapshot()).thenReturn(new AiRuntimeSnapshot(settings, 100_000L));
         when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
-        when(aiClient.generate(any())).thenReturn(new AiProviderResponse(
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
                 """
                 {
                   "summary":"先验证细分行业的付费需求",
@@ -175,7 +205,7 @@ class EntrepreneurshipAdvisorServiceTest {
 
         var result = service.advise(user(), request());
 
-        assertEquals("sufficient", result.getEvidenceStatus());
+        assertEquals("partial", result.getEvidenceStatus());
         assertEquals("先验证细分行业的付费需求", result.getSummary());
         assertEquals(1, result.getMatchedCases().size());
         assertEquals(11L, result.getMatchedCases().get(0).getId());
@@ -185,6 +215,10 @@ class EntrepreneurshipAdvisorServiceTest {
         assertEquals(2, result.getCitations().size());
         assertEquals("政策原文", result.getCitations().get(1).getTitle());
         assertEquals(270, result.getTokenUsage().getTotalTokens());
+        ArgumentCaptor<AiProviderRequest> providerRequest = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(aiClient).generate(providerRequest.capture(), eq(settings));
+        assertTrue(providerRequest.getValue().systemPrompt().contains("证据有限"));
+        assertTrue(providerRequest.getValue().userPrompt().contains("\"readinessStatus\":\"partial\""));
     }
 
     @Test
@@ -193,7 +227,7 @@ class EntrepreneurshipAdvisorServiceTest {
         when(policyMapper.selectList(any())).thenReturn(List.of(policy()));
         when(sourceMapper.selectById(8L)).thenReturn(source());
         when(sourceMapper.selectById(9L)).thenReturn(source(9L, "政策原文"));
-        when(settingsProvider.dailyTokenQuota()).thenReturn(100L);
+        when(settingsProvider.snapshot()).thenReturn(new AiRuntimeSnapshot(settings, 100L));
         when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
         when(runMapper.reserve(any(AiAnalysisRun.class), anyLong(), anyInt())).thenReturn(0);
 
@@ -203,7 +237,7 @@ class EntrepreneurshipAdvisorServiceTest {
         );
 
         assertEquals(ErrorCode.TOO_MANY_REQUESTS, exception.getErrorCode());
-        verify(aiClient, never()).generate(any());
+        verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
     }
 
     @Test
@@ -213,7 +247,7 @@ class EntrepreneurshipAdvisorServiceTest {
         when(sourceMapper.selectById(8L)).thenReturn(source());
         when(sourceMapper.selectById(9L)).thenReturn(source(9L, "政策原文"));
         when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
-        when(aiClient.generate(any())).thenReturn(new AiProviderResponse(
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
                 """
                 {
                   "summary":"不可信引用测试",

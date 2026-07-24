@@ -2,7 +2,6 @@ package com.opc.platform.caseitem.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 import java.time.LocalDate;
@@ -47,6 +46,4 @@ public class CaseItemCreateDTO {
 
     private String reviewer;
 
-    @Pattern(regexp = "legacy_unverified|verified|excluded")
-    private String aiEvidenceStatus;
 }

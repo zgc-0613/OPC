@@ -4,7 +4,7 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 17 (implementation and deployment complete; human evidence audit pending)
+Phase 18 (complete; human evidence review remains)
 
 ## Phases
 
@@ -262,3 +262,29 @@ Phase 17 (implementation and deployment complete; human evidence audit pending)
 - [x] Deploy release `20260724-074745` with backups and rollback artifacts; verify public/admin health and protected API boundaries.
 - [ ] Build a 10-20 item golden evidence set from human-reviewed production records. This is intentionally pending because no records were fabricated or auto-verified.
 - **Status:** implementation and deployment complete; human evidence-review backlog remains.
+
+### Phase 18: First-Round AI Stabilization Fixes
+- [x] Prevent fuzzy and low-confidence AI industry suggestions from becoming a final tag without explicit user confirmation.
+- [x] Keep debounced readiness deterministic and free of provider calls; route all paid classification through `AiTaskExecutionService` with server-side abuse controls.
+- [x] Reserve conservative prompt-token estimates plus maximum output tokens, then settle actual or conservative usage on every terminal path.
+- [x] Classify direct, broader, in-province, national/unknown, and cross-region evidence using a cycle-safe multi-level region tree.
+- [x] Replace binary readiness with `sufficient`, `partial`, and `insufficient`, where sources support evidence rather than form a third mandatory content type.
+- [x] Normalize source publishing on `published`, reject illegal states, migrate historic `active` rows idempotently, and preserve public/AI visibility.
+- [x] Include reliable policy-side industry tags while producing a manual-review list for ambiguous non-industry tags.
+- [x] Make every stabilization migration column/index/backfill independently repeatable and add pre/post verification SQL.
+- [x] Require the AI connection test to parse a complete fixed JSON acknowledgement and reject empty, malformed, incorrect, timed-out, or redirected responses.
+- [x] Ignore stale frontend readiness responses and remove avoidable full-scan pagination paths within this phase's scope.
+- [x] Run the two-axis code review, full backend/frontend verification, deployment-hardening checks, backup/migration/deploy, and production API smoke tests.
+- [x] Produce the real `湖北省 + 人工智能应用` evidence-review checklist without promoting unreviewed production data.
+- **Status:** complete and deployed; production golden evidence remains an explicit human-review task.
+
+### Phase 19: Integrated Evidence Review Workbench
+- [x] Close ordinary case, policy, and source DTO/form paths that previously accepted AI evidence status.
+- [x] Centralize single, batch, automatic invalidation, dependency invalidation, reason, administrator, and operation audit handling.
+- [x] Add independent evidence revisions, atomic optimistic transitions, source-joined verification, cascade guards, and governed deletion rules.
+- [x] Add lightweight queue filtering plus on-demand detail, checks, related records, safe original links, history, and batch preflight APIs.
+- [x] Replace the status table with a Prisma Light queue/detail workbench, URL-restored context, in-place editor, approve-next, and mobile flow.
+- [x] Add an independently guarded evidence-workbench migration and deployment smoke checks without auto-verifying production data.
+- [x] Pass correctness/security review, 140 backend tests, five frontend test scripts, 14 migration/deployment tests, production build, and diff checks.
+- [x] Deploy the timestamped release and record production evidence counts and rollback paths.
+- **Status:** complete and deployed; one historic verified case has no verified source chain and remains a human-review item.

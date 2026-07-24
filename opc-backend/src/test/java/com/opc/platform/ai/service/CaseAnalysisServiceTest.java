@@ -8,6 +8,7 @@ import com.opc.platform.ai.provider.AiClient;
 import com.opc.platform.ai.provider.AiProviderDescriptor;
 import com.opc.platform.ai.provider.AiProviderResponse;
 import com.opc.platform.ai.provider.AiRuntimeSettings;
+import com.opc.platform.ai.provider.AiRuntimeSnapshot;
 import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.caseitem.entity.CaseItem;
 import com.opc.platform.caseitem.mapper.CaseItemMapper;
@@ -29,12 +30,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CaseAnalysisServiceTest {
+
+    private AiRuntimeSettings settings;
 
     private final CaseItemMapper caseItemMapper = mock(CaseItemMapper.class);
     private final SourceMapper sourceMapper = mock(SourceMapper.class);
@@ -55,11 +59,12 @@ class CaseAnalysisServiceTest {
                 new ObjectMapper(),
                 new AiTaskExecutionService(runMapper, aiClient, settingsProvider)
         );
-        when(settingsProvider.dailyTokenQuota()).thenReturn(100_000L);
-        when(settingsProvider.current()).thenReturn(new AiRuntimeSettings(
+        settings = new AiRuntimeSettings(
                 "deepseek", "openai_compatible", "https://api.example.com/v1", "configured-model",
                 "test-key", 0.2, 1200, Duration.ofSeconds(20), 1, true
-        ));
+        );
+        when(settingsProvider.snapshot()).thenReturn(new AiRuntimeSnapshot(settings, 100_000L));
+        when(aiClient.descriptor(settings)).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
         when(runMapper.sumCompletedTokensToday(42L)).thenReturn(0L);
         when(runMapper.countRunningForUser(42L)).thenReturn(0);
         when(runMapper.insert(any(AiAnalysisRun.class))).thenAnswer(invocation -> {
@@ -85,7 +90,7 @@ class CaseAnalysisServiceTest {
         );
 
         assertEquals(ErrorCode.NOT_FOUND, exception.getErrorCode());
-        verify(aiClient, never()).generate(any());
+        verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
     }
 
     @Test
@@ -98,7 +103,7 @@ class CaseAnalysisServiceTest {
         assertEquals("证据不足", response.getSummary());
         assertTrue(response.getCitations().isEmpty());
         assertEquals(99L, response.getAnalysisId());
-        verify(aiClient, never()).generate(any());
+        verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
     }
 
     @Test
@@ -115,7 +120,7 @@ class CaseAnalysisServiceTest {
         );
 
         assertEquals(ErrorCode.TOO_MANY_REQUESTS, exception.getErrorCode());
-        verify(aiClient, never()).generate(any());
+        verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
     }
 
     @Test
@@ -123,10 +128,10 @@ class CaseAnalysisServiceTest {
         when(caseItemMapper.selectById(1L)).thenReturn(caseItem("published", "verified"));
         when(sourceMapper.selectById(8L)).thenReturn(source("published", "verified"));
         when(policyMapper.selectList(any())).thenReturn(List.of());
-        when(settingsProvider.dailyTokenQuota()).thenReturn(0L);
+        when(settingsProvider.snapshot()).thenReturn(new AiRuntimeSnapshot(settings, 0L));
         when(runMapper.sumCompletedTokensToday(42L)).thenReturn(Long.MAX_VALUE);
         when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
-        when(aiClient.generate(any())).thenReturn(new AiProviderResponse(
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
                 """
                 {
                   "summary":"无限额分析",
@@ -149,7 +154,7 @@ class CaseAnalysisServiceTest {
         var response = service.analyze(user(), request());
 
         assertEquals("无限额分析", response.getSummary());
-        verify(aiClient).generate(any());
+        verify(aiClient).generate(any(), eq(settings));
     }
 
     @Test
@@ -158,7 +163,7 @@ class CaseAnalysisServiceTest {
         when(sourceMapper.selectById(8L)).thenReturn(source("published", "verified"));
         when(policyMapper.selectList(any())).thenReturn(List.of());
         when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
-        when(aiClient.generate(any())).thenReturn(new AiProviderResponse(
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
                 """
                 {
                   "summary":"案例摘要",
@@ -194,7 +199,7 @@ class CaseAnalysisServiceTest {
         when(sourceMapper.selectById(8L)).thenReturn(source("published", "verified"));
         when(policyMapper.selectList(any())).thenReturn(List.of());
         when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
-        when(aiClient.generate(any())).thenReturn(new AiProviderResponse("not-json"));
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse("not-json"));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,

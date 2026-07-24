@@ -30,6 +30,8 @@ import org.springframework.util.StringUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDate;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -51,6 +53,7 @@ public class EntrepreneurshipEvidenceService {
     private static final String VERIFIED = "verified";
     private static final int CASE_LIMIT = 6;
     private static final int POLICY_LIMIT = 6;
+    private static final Duration REGION_CACHE_TTL = Duration.ofSeconds(30);
 
     private final CaseItemMapper caseItemMapper;
     private final PolicyMapper policyMapper;
@@ -61,6 +64,7 @@ public class EntrepreneurshipEvidenceService {
     private final IndustryTagService industryTagService;
     private final AiClient aiClient;
     private final ObjectMapper objectMapper;
+    private volatile RegionCache regionCache = new RegionCache(Map.of(), Instant.EPOCH);
 
     public Assessment assess(EntrepreneurshipAdviceRequestDTO request, boolean allowAiResolution) {
         return assess(
@@ -106,40 +110,55 @@ public class EntrepreneurshipEvidenceService {
         }
 
         Map<Long, Region> regions = regionMap(requestedRegion);
-        Long provinceId = provinceId(requestedRegion, regions);
         Set<Long> relatedTagIds = new LinkedHashSet<>(industryTagService.relatedTagIds(resolution.tagId()));
         relatedTagIds.add(resolution.tagId());
-        Map<Long, Set<Long>> caseTags = caseTagsByItem();
-        Map<Long, Set<Long>> policyTags = policyTagsByItem();
+        Map<Long, Set<Long>> caseTags = caseTagsByItem(relatedTagIds);
+        Map<Long, Set<Long>> policyTags = policyTagsByItem(relatedTagIds);
         String requestedText = StringUtils.hasText(industryText) ? industryText.trim() : resolution.name();
 
+        LambdaQueryWrapper<CaseItem> caseQuery = new LambdaQueryWrapper<CaseItem>()
+                .eq(CaseItem::getStatus, PUBLISHED)
+                .eq(CaseItem::getAiEvidenceStatus, VERIFIED);
+        applyCaseIndustryFilter(caseQuery, caseTags.keySet(), industryTerms(requestedText, resolution.name()));
+
         List<ScoredCase> relevantCases = safe(caseItemMapper.selectList(
-                new LambdaQueryWrapper<CaseItem>()
-                        .eq(CaseItem::getStatus, PUBLISHED)
-                        .eq(CaseItem::getAiEvidenceStatus, VERIFIED)
+                caseQuery
         )).stream()
-                .map(item -> scoreCase(item, resolution, requestedText, goal, relatedTagIds, caseTags, regions, regionId, provinceId))
+                .map(item -> scoreCase(item, resolution, requestedText, goal, relatedTagIds, caseTags, regions, regionId))
                 .filter(item -> item.relevance() > 0)
                 .sorted(caseComparator())
                 .toList();
 
+        LambdaQueryWrapper<Policy> policyQuery = new LambdaQueryWrapper<Policy>()
+                .eq(Policy::getStatus, PUBLISHED)
+                .eq(Policy::getAiEvidenceStatus, VERIFIED);
+        applyPolicyIndustryFilter(policyQuery, policyTags.keySet(), industryTerms(requestedText, resolution.name()));
+
         List<ScoredPolicy> relevantPolicies = safe(policyMapper.selectList(
-                new LambdaQueryWrapper<Policy>()
-                        .eq(Policy::getStatus, PUBLISHED)
-                        .eq(Policy::getAiEvidenceStatus, VERIFIED)
+                policyQuery
         )).stream()
-                .map(item -> scorePolicy(item, resolution, requestedText, goal, relatedTagIds, policyTags, regions, regionId, provinceId))
+                .map(item -> scorePolicy(item, resolution, requestedText, goal, relatedTagIds, policyTags, regions, regionId))
                 .filter(item -> item.relevance() > 0 && !"cross_region".equals(item.geographicLevel()))
                 .sorted(policyComparator())
                 .toList();
 
+        Set<Long> candidateSourceIds = new LinkedHashSet<>();
+        relevantCases.stream().map(item -> item.item().getSourceId()).filter(Objects::nonNull).forEach(candidateSourceIds::add);
+        relevantPolicies.stream().map(item -> item.item().getSourceId()).filter(Objects::nonNull).forEach(candidateSourceIds::add);
+        Map<Long, Source> candidateSources = candidateSourceIds.isEmpty()
+                ? Map.of()
+                : safe(sourceMapper.selectBatchIds(candidateSourceIds)).stream()
+                        .filter(this::eligible)
+                        .collect(Collectors.toMap(Source::getId, Function.identity(), (left, right) -> left, LinkedHashMap::new));
         Map<Long, Source> sources = new LinkedHashMap<>();
         int sourceRejected = 0;
         List<ScoredCase> cases = new ArrayList<>();
         for (ScoredCase candidate : relevantCases) {
-            if (registerEligibleSource(candidate.item().getSourceId(), sources)) {
+            Source source = candidateSources.get(candidate.item().getSourceId());
+            if (source != null) {
                 if (cases.size() < CASE_LIMIT) {
                     cases.add(candidate);
+                    sources.put(source.getId(), source);
                 }
             } else {
                 sourceRejected++;
@@ -147,19 +166,16 @@ public class EntrepreneurshipEvidenceService {
         }
         List<ScoredPolicy> policies = new ArrayList<>();
         for (ScoredPolicy candidate : relevantPolicies) {
-            if (registerEligibleSource(candidate.item().getSourceId(), sources)) {
+            Source source = candidateSources.get(candidate.item().getSourceId());
+            if (source != null) {
                 if (policies.size() < POLICY_LIMIT) {
                     policies.add(candidate);
+                    sources.put(source.getId(), source);
                 }
             } else {
                 sourceRejected++;
             }
         }
-
-        Set<Long> usedSources = new LinkedHashSet<>();
-        cases.stream().map(item -> item.item().getSourceId()).filter(Objects::nonNull).forEach(usedSources::add);
-        policies.stream().map(item -> item.item().getSourceId()).filter(Objects::nonNull).forEach(usedSources::add);
-        sources.entrySet().removeIf(entry -> !usedSources.contains(entry.getKey()));
 
         List<String> reasons = new ArrayList<>();
         if (resolution.requiresConfirmation()) {
@@ -174,10 +190,17 @@ public class EntrepreneurshipEvidenceService {
         if (sourceRejected > 0) {
             reasons.add("存在 " + sourceRejected + " 条相关资料的来源未核验");
         }
-        boolean evidenceAvailable = !resolution.requiresConfirmation()
-                && !cases.isEmpty()
-                && !policies.isEmpty()
-                && !sources.isEmpty();
+        int selectedEvidenceCount = cases.size() + policies.size();
+        String readinessStatus;
+        if (resolution.requiresConfirmation() || selectedEvidenceCount == 0) {
+            readinessStatus = "insufficient";
+        } else if (!cases.isEmpty() && !policies.isEmpty() && selectedEvidenceCount >= 3) {
+            readinessStatus = "sufficient";
+        } else {
+            readinessStatus = "partial";
+            reasons.add("证据有限：将限制结论范围，不补造缺失事实");
+        }
+        boolean evidenceAvailable = !"insufficient".equals(readinessStatus);
         String hash = evidenceHash(resolution, cases, policies, sources);
         return new Assessment(
                 requestedRegion,
@@ -186,6 +209,8 @@ public class EntrepreneurshipEvidenceService {
                 List.copyOf(policies),
                 Map.copyOf(sources),
                 List.copyOf(reasons),
+                readinessStatus,
+                relevantCases.size() + relevantPolicies.size(),
                 evidenceAvailable,
                 aiClient.descriptor().available(),
                 hash
@@ -195,7 +220,7 @@ public class EntrepreneurshipEvidenceService {
     private Assessment emptyAssessment(Region region, IndustryResolution resolution, List<String> reasons) {
         return new Assessment(
                 region, resolution, List.of(), List.of(), Map.of(), reasons,
-                false, aiClient.descriptor().available(), sha256(region.getId() + ":unresolved")
+                "insufficient", 0, false, aiClient.descriptor().available(), sha256(region.getId() + ":unresolved")
         );
     }
 
@@ -203,14 +228,25 @@ public class EntrepreneurshipEvidenceService {
         EntrepreneurshipReadinessVO result = new EntrepreneurshipReadinessVO();
         result.setModelAvailable(assessment.modelAvailable());
         result.setEvidenceAvailable(assessment.evidenceAvailable());
+        result.setReadinessStatus(assessment.readinessStatus());
         result.setResolvedIndustryTag(assessment.industry());
         result.setMatchMethod(assessment.industry().method());
         result.setConfidence(assessment.industry().confidence());
         result.setVerifiedCaseCount(assessment.cases().size());
         result.setVerifiedPolicyCount(assessment.policies().size());
         result.setVerifiedSourceCount(assessment.sources().size());
+        result.setTotalRelevantCount(assessment.totalRelevantCount());
+        result.setSelectedEvidenceCount(assessment.cases().size() + assessment.policies().size());
+        result.setDirectRegionCount(
+                countLevel(assessment, "exact_region") + countLevel(assessment, "within_region")
+        );
+        result.setBroaderRegionCount(
+                countLevel(assessment, "broader_region")
+                        + countLevel(assessment, "national")
+                        + countLevel(assessment, "unknown")
+        );
         result.setExactRegionCount(countLevel(assessment, "exact_region"));
-        result.setParentRegionCount(countLevel(assessment, "parent_province"));
+        result.setParentRegionCount(countLevel(assessment, "broader_region"));
         result.setNationalCount(countLevel(assessment, "national"));
         result.setCrossRegionCount(countLevel(assessment, "cross_region"));
         result.setReasons(assessment.reasons());
@@ -231,8 +267,7 @@ public class EntrepreneurshipEvidenceService {
             Set<Long> relatedTagIds,
             Map<Long, Set<Long>> relations,
             Map<Long, Region> regions,
-            Long requestedRegionId,
-            Long provinceId
+            Long requestedRegionId
     ) {
         int relevance = relevance(
                 searchable(item.getTitle(), item.getCategory(), item.getSummary(), item.getTags(), item.getBusinessModel(), item.getOutcome()),
@@ -242,7 +277,7 @@ public class EntrepreneurshipEvidenceService {
                 relations.getOrDefault(item.getId(), Set.of()),
                 relatedTagIds
         );
-        Geographic geographic = geography(item.getRegionId(), regions, requestedRegionId, provinceId);
+        Geographic geographic = geography(item.getRegionId(), regions, requestedRegionId);
         return new ScoredCase(item, relevance, geographic.rank(), geographic.level(), geographic.reason(), geographic.regionName());
     }
 
@@ -254,8 +289,7 @@ public class EntrepreneurshipEvidenceService {
             Set<Long> relatedTagIds,
             Map<Long, Set<Long>> relations,
             Map<Long, Region> regions,
-            Long requestedRegionId,
-            Long provinceId
+            Long requestedRegionId
     ) {
         int relevance = relevance(
                 searchable(item.getTitle(), item.getPolicyType(), item.getSummary(), item.getTags(), item.getKeyPoints(), item.getSupportMeasures()),
@@ -265,7 +299,7 @@ public class EntrepreneurshipEvidenceService {
                 relations.getOrDefault(item.getId(), Set.of()),
                 relatedTagIds
         );
-        Geographic geographic = geography(item.getRegionId(), regions, requestedRegionId, provinceId);
+        Geographic geographic = geography(item.getRegionId(), regions, requestedRegionId);
         return new ScoredPolicy(item, relevance, geographic.rank(), geographic.level(), geographic.reason(), geographic.regionName());
     }
 
@@ -277,13 +311,15 @@ public class EntrepreneurshipEvidenceService {
             Set<Long> itemTags,
             Set<Long> relatedTagIds
     ) {
-        int score = itemTags.stream().anyMatch(relatedTagIds::contains) ? 50 : 0;
-        score += textScore(searchable, requestedText, 20);
+        int industryScore = itemTags.stream().anyMatch(relatedTagIds::contains) ? 50 : 0;
+        industryScore += textScore(searchable, requestedText, 20);
         if (!Objects.equals(requestedText, canonicalName)) {
-            score += textScore(searchable, canonicalName, 20);
+            industryScore += textScore(searchable, canonicalName, 20);
         }
-        score += textScore(searchable, goal, 2);
-        return score;
+        if (industryScore <= 0) {
+            return 0;
+        }
+        return industryScore + textScore(searchable, goal, 2);
     }
 
     private int textScore(String searchable, String value, int weight) {
@@ -303,57 +339,148 @@ public class EntrepreneurshipEvidenceService {
     private Geographic geography(
             Long itemRegionId,
             Map<Long, Region> regions,
-            Long requestedRegionId,
-            Long provinceId
+            Long requestedRegionId
     ) {
-        Region itemRegion = regions.get(itemRegionId);
+        Region itemRegion = itemRegionId == null ? null : regions.get(itemRegionId);
         String name = itemRegion == null ? "未标注地区" : itemRegion.getName();
         if (Objects.equals(itemRegionId, requestedRegionId)) {
-            return new Geographic(4, "exact_region", "当前地区直接匹配", name);
+            return new Geographic(5, "exact_region", "当前地区直接匹配", name);
         }
-        if (provinceId != null && Objects.equals(itemRegionId, provinceId)) {
-            return new Geographic(3, "parent_province", "上级省份可用资料", name);
+        if (itemRegion == null) {
+            return new Geographic(2, "unknown", "未标注地区的通用参考资料", name);
         }
-        if (itemRegion != null && ("country".equalsIgnoreCase(itemRegion.getLevel()) || "中国".equals(itemRegion.getName()))) {
+        if (isAncestor(requestedRegionId, itemRegionId, regions)) {
+            return new Geographic(4, "within_region", "当前地区范围内的下级地区资料", name);
+        }
+        if (isAncestor(itemRegionId, requestedRegionId, regions)) {
+            if ("country".equalsIgnoreCase(itemRegion.getLevel())) {
+                return new Geographic(2, "national", "国家级通用资料", name);
+            }
+            return new Geographic(3, "broader_region", "上级地区背景资料", name);
+        }
+        if ("country".equalsIgnoreCase(itemRegion.getLevel())) {
             return new Geographic(2, "national", "国家级通用资料", name);
         }
         return new Geographic(1, "cross_region", "跨地区借鉴案例，非本地案例", name);
     }
 
     private Map<Long, Region> regionMap(Region requested) {
-        List<Region> values = regionMapper.selectList(new LambdaQueryWrapper<Region>());
-        Map<Long, Region> result = safe(values).stream()
-                .collect(Collectors.toMap(Region::getId, Function.identity(), (left, right) -> left, HashMap::new));
-        result.put(requested.getId(), requested);
-        return result;
+        Instant now = Instant.now();
+        RegionCache current = regionCache;
+        if (!current.expiresAt().isAfter(now)) {
+            synchronized (this) {
+                current = regionCache;
+                if (!current.expiresAt().isAfter(now)) {
+                    Map<Long, Region> refreshed = safe(regionMapper.selectList(new LambdaQueryWrapper<Region>())).stream()
+                            .filter(region -> region.getId() != null)
+                            .collect(Collectors.toMap(
+                                    Region::getId, Function.identity(), (left, right) -> left, HashMap::new
+                            ));
+                    current = new RegionCache(Map.copyOf(refreshed), now.plus(REGION_CACHE_TTL));
+                    regionCache = current;
+                }
+            }
+        }
+        if (current.regions().containsKey(requested.getId())) {
+            return current.regions();
+        }
+        Map<Long, Region> withRequested = new HashMap<>(current.regions());
+        withRequested.put(requested.getId(), requested);
+        return Map.copyOf(withRequested);
     }
 
-    private Long provinceId(Region requested, Map<Long, Region> regions) {
-        Region current = requested;
+    private boolean isAncestor(Long ancestorId, Long descendantId, Map<Long, Region> regions) {
+        if (ancestorId == null || descendantId == null) {
+            return false;
+        }
+        Region current = regions.get(descendantId);
         Set<Long> visited = new LinkedHashSet<>();
         while (current != null && current.getId() != null && visited.add(current.getId())) {
-            if ("province".equalsIgnoreCase(current.getLevel())) {
-                return current.getId();
+            if (Objects.equals(current.getId(), ancestorId)) {
+                return true;
             }
             current = current.getParentId() == null ? null : regions.get(current.getParentId());
         }
-        return null;
+        return false;
     }
 
-    private Map<Long, Set<Long>> caseTagsByItem() {
-        return safe(caseTagMapper.selectList(new LambdaQueryWrapper<CaseTag>())).stream()
+    private Map<Long, Set<Long>> caseTagsByItem(Set<Long> relatedTagIds) {
+        return safe(caseTagMapper.selectList(
+                new LambdaQueryWrapper<CaseTag>().in(CaseTag::getTagId, relatedTagIds)
+        )).stream()
                 .collect(Collectors.groupingBy(
                         CaseTag::getCaseId,
                         Collectors.mapping(CaseTag::getTagId, Collectors.toSet())
                 ));
     }
 
-    private Map<Long, Set<Long>> policyTagsByItem() {
-        return safe(policyTagMapper.selectList(new LambdaQueryWrapper<PolicyTag>())).stream()
+    private Map<Long, Set<Long>> policyTagsByItem(Set<Long> relatedTagIds) {
+        return safe(policyTagMapper.selectList(
+                new LambdaQueryWrapper<PolicyTag>().in(PolicyTag::getTagId, relatedTagIds)
+        )).stream()
                 .collect(Collectors.groupingBy(
                         PolicyTag::getPolicyId,
                         Collectors.mapping(PolicyTag::getTagId, Collectors.toSet())
                 ));
+    }
+
+    private Set<String> industryTerms(String requestedText, String canonicalName) {
+        Set<String> terms = new LinkedHashSet<>();
+        for (String value : List.of(safe(requestedText), safe(canonicalName))) {
+            if (value.length() >= 2) terms.add(value);
+            for (String term : value.split("[\\s,，、/]+")) {
+                if (term.length() >= 2) terms.add(term);
+            }
+        }
+        return terms;
+    }
+
+    private void applyCaseIndustryFilter(
+            LambdaQueryWrapper<CaseItem> wrapper,
+            Set<Long> taggedItemIds,
+            Set<String> terms
+    ) {
+        wrapper.and(group -> {
+            boolean hasPrevious = false;
+            if (!taggedItemIds.isEmpty()) {
+                group.in(CaseItem::getId, taggedItemIds);
+                hasPrevious = true;
+            }
+            for (String term : terms) {
+                if (hasPrevious) group.or();
+                group.and(text -> text.like(CaseItem::getTitle, term)
+                        .or().like(CaseItem::getCategory, term)
+                        .or().like(CaseItem::getSummary, term)
+                        .or().like(CaseItem::getTags, term)
+                        .or().like(CaseItem::getBusinessModel, term)
+                        .or().like(CaseItem::getOutcome, term));
+                hasPrevious = true;
+            }
+        });
+    }
+
+    private void applyPolicyIndustryFilter(
+            LambdaQueryWrapper<Policy> wrapper,
+            Set<Long> taggedItemIds,
+            Set<String> terms
+    ) {
+        wrapper.and(group -> {
+            boolean hasPrevious = false;
+            if (!taggedItemIds.isEmpty()) {
+                group.in(Policy::getId, taggedItemIds);
+                hasPrevious = true;
+            }
+            for (String term : terms) {
+                if (hasPrevious) group.or();
+                group.and(text -> text.like(Policy::getTitle, term)
+                        .or().like(Policy::getPolicyType, term)
+                        .or().like(Policy::getSummary, term)
+                        .or().like(Policy::getTags, term)
+                        .or().like(Policy::getKeyPoints, term)
+                        .or().like(Policy::getSupportMeasures, term));
+                hasPrevious = true;
+            }
+        });
     }
 
     private boolean registerEligibleSource(Long sourceId, Map<Long, Source> sources) {
@@ -461,6 +588,8 @@ public class EntrepreneurshipEvidenceService {
             List<ScoredPolicy> policies,
             Map<Long, Source> sources,
             List<String> reasons,
+            String readinessStatus,
+            int totalRelevantCount,
             boolean evidenceAvailable,
             boolean modelAvailable,
             String hash
@@ -488,5 +617,8 @@ public class EntrepreneurshipEvidenceService {
     }
 
     private record Geographic(int rank, String level, String reason, String regionName) {
+    }
+
+    private record RegionCache(Map<Long, Region> regions, Instant expiresAt) {
     }
 }

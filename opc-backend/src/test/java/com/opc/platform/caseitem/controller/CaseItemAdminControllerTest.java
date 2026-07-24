@@ -44,7 +44,8 @@ class CaseItemAdminControllerTest {
                 regionMapper,
                 sourceMapper,
                 org.mockito.Mockito.mock(com.opc.platform.tag.mapper.TagMapper.class),
-                org.mockito.Mockito.mock(com.opc.platform.casetag.mapper.CaseTagMapper.class)
+                org.mockito.Mockito.mock(com.opc.platform.casetag.mapper.CaseTagMapper.class),
+                org.mockito.Mockito.mock(com.opc.platform.ai.service.EvidenceReviewService.class)
         );
         mockMvc = MockMvcBuilders.standaloneSetup(new CaseItemAdminController(service)).build();
     }

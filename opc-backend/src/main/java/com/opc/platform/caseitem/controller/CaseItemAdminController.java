@@ -1,6 +1,7 @@
 package com.opc.platform.caseitem.controller;
 
 import com.opc.platform.caseitem.dto.CaseItemCreateDTO;
+import com.opc.platform.adminauth.AuthenticatedAdmin;
 import com.opc.platform.caseitem.dto.CaseItemQueryDTO;
 import com.opc.platform.caseitem.dto.CaseItemUpdateDTO;
 import com.opc.platform.caseitem.service.CaseItemService;
@@ -17,9 +18,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+
+import static com.opc.platform.adminauth.AdminAuthInterceptor.AUTHENTICATED_ADMIN_ATTRIBUTE;
 
 @RestController
 @RequiredArgsConstructor
@@ -44,8 +48,12 @@ public class CaseItemAdminController {
     }
 
     @PutMapping("/{id}")
-    public Result<CaseItemDetailVO> updateCaseItem(@PathVariable Long id, @Valid @RequestBody CaseItemUpdateDTO dto) {
-        return Result.success(caseItemService.updateCaseItem(id, dto));
+    public Result<CaseItemDetailVO> updateCaseItem(
+            @PathVariable Long id,
+            @Valid @RequestBody CaseItemUpdateDTO dto,
+            @RequestAttribute(AUTHENTICATED_ADMIN_ATTRIBUTE) AuthenticatedAdmin admin
+    ) {
+        return Result.success(caseItemService.updateCaseItem(id, dto, admin));
     }
 
     @DeleteMapping("/{id}")

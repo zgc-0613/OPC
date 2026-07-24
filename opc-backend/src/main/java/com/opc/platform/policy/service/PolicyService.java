@@ -2,6 +2,8 @@ package com.opc.platform.policy.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.opc.platform.common.enums.ErrorCode;
+import com.opc.platform.adminauth.AuthenticatedAdmin;
+import com.opc.platform.ai.service.EvidenceReviewService;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.policy.dto.PolicyCreateDTO;
 import com.opc.platform.policy.dto.PolicyQueryDTO;
@@ -28,6 +30,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -50,6 +53,8 @@ public class PolicyService {
 
     private final PolicyTagMapper policyTagMapper;
 
+    private final EvidenceReviewService evidenceReviewService;
+
     @Transactional
     public PolicyDetailVO createPolicy(PolicyCreateDTO dto) {
         validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
@@ -62,14 +67,18 @@ public class PolicyService {
     }
 
     @Transactional
-    public PolicyDetailVO updatePolicy(Long id, PolicyUpdateDTO dto) {
+    public PolicyDetailVO updatePolicy(Long id, PolicyUpdateDTO dto, AuthenticatedAdmin admin) {
         Policy policy = policyMapper.selectById(id);
         if (policy == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
         }
         validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
 
+        boolean evidenceChanged = evidenceRelevantFieldsChanged(policy, dto);
         copyUpdateFields(dto, policy);
+        if (evidenceChanged) {
+            evidenceReviewService.invalidatePolicyAfterEvidenceEdit(policy, admin);
+        }
         policyMapper.updateById(policy);
         syncPolicyTags(id, policy.getTags());
         return getPolicyDetail(id);
@@ -81,6 +90,7 @@ public class PolicyService {
         if (policy == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
         }
+        evidenceReviewService.requireReviewedItemDeletionAllowed("policy", policy.getAiEvidenceStatus());
         policyTagMapper.delete(new LambdaQueryWrapper<PolicyTag>()
                 .eq(PolicyTag::getPolicyId, id));
         policyMapper.deleteById(id);
@@ -162,7 +172,8 @@ public class PolicyService {
         policy.setAccessedAt(dto.getAccessedAt());
         policy.setStatus(dto.getStatus());
         policy.setReviewer(dto.getReviewer());
-        policy.setAiEvidenceStatus(normalizeEvidenceStatus(dto.getAiEvidenceStatus(), "legacy_unverified"));
+        policy.setAiEvidenceStatus("legacy_unverified");
+        policy.setEvidenceRevision(0L);
     }
 
     private void copyUpdateFields(PolicyUpdateDTO dto, Policy policy) {
@@ -186,7 +197,28 @@ public class PolicyService {
         policy.setAccessedAt(dto.getAccessedAt());
         policy.setStatus(dto.getStatus());
         policy.setReviewer(dto.getReviewer());
-        policy.setAiEvidenceStatus(normalizeEvidenceStatus(dto.getAiEvidenceStatus(), policy.getAiEvidenceStatus()));
+    }
+
+    private boolean evidenceRelevantFieldsChanged(Policy current, PolicyUpdateDTO dto) {
+        return !Objects.equals(current.getTitle(), dto.getTitle())
+                || !Objects.equals(current.getRegionId(), dto.getRegionId())
+                || !Objects.equals(current.getIssuingBody(), dto.getIssuingBody())
+                || !Objects.equals(current.getDocumentNo(), dto.getDocumentNo())
+                || !Objects.equals(current.getPublishDate(), dto.getPublishDate())
+                || !Objects.equals(current.getEffectiveDate(), dto.getEffectiveDate())
+                || !Objects.equals(current.getValidPeriod(), dto.getValidPeriod())
+                || !Objects.equals(current.getSourceId(), dto.getSourceId())
+                || !Objects.equals(current.getPolicyLevel(), dto.getPolicyLevel())
+                || !Objects.equals(current.getPolicyType(), dto.getPolicyType())
+                || !Objects.equals(current.getSummary(), dto.getSummary())
+                || !Objects.equals(current.getKeyPoints(), dto.getKeyPoints())
+                || !Objects.equals(current.getSupportMeasures(), dto.getSupportMeasures())
+                || !Objects.equals(current.getTags(), normalizeTags(dto.getTags()))
+                || !Objects.equals(current.getOriginalUrl(), dto.getOriginalUrl())
+                || !Objects.equals(current.getEvidenceUrl(), dto.getEvidenceUrl())
+                || !Objects.equals(current.getLocalFile(), dto.getLocalFile())
+                || !Objects.equals(current.getAccessedAt(), dto.getAccessedAt())
+                || !Objects.equals(current.getStatus(), dto.getStatus());
     }
 
     private LambdaQueryWrapper<Policy> buildQueryWrapper(PolicyQueryDTO query) {
@@ -293,10 +325,6 @@ public class PolicyService {
         vo.setReviewer(policy.getReviewer());
         vo.setAiEvidenceStatus(policy.getAiEvidenceStatus());
         return vo;
-    }
-
-    private String normalizeEvidenceStatus(String requested, String fallback) {
-        return StringUtils.hasText(requested) ? requested.trim() : fallback;
     }
 
     private void syncPolicyTags(Long policyId, String tagsText) {

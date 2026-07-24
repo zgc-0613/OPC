@@ -7,7 +7,11 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test:auth-session": "node scripts/test-user-session.mjs"
+    "test:auth-session": "node scripts/test-user-session.mjs",
+    "test:assistant": "node scripts/test-assistant-workflow.mjs",
+    "test:evidence-review-batch": "node scripts/test-evidence-review-batch.mjs",
+    "test:evidence-review": "node scripts/test-evidence-review-query.mjs",
+    "test:evidence-workbench": "node scripts/test-evidence-workbench.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^6.0.1",

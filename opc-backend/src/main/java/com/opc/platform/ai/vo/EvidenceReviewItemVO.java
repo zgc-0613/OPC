@@ -3,6 +3,7 @@ package com.opc.platform.ai.vo;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class EvidenceReviewItemVO {
@@ -17,5 +18,8 @@ public class EvidenceReviewItemVO {
     private String sourceTitle;
     private String sourceStatus;
     private String sourceEvidenceStatus;
+    private boolean reviewable;
+    private List<String> blockingReasons;
+    private Long version;
     private LocalDateTime updatedAt;
 }

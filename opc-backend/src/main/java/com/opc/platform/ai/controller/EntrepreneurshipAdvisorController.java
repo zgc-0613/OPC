@@ -2,10 +2,13 @@ package com.opc.platform.ai.controller;
 
 import com.opc.platform.ai.dto.EntrepreneurshipAdviceRequestDTO;
 import com.opc.platform.ai.dto.EntrepreneurshipReadinessRequestDTO;
+import com.opc.platform.ai.dto.IndustryClassificationRequestDTO;
+import com.opc.platform.ai.service.AiIndustryClassificationService;
 import com.opc.platform.ai.service.EntrepreneurshipAdvisorService;
 import com.opc.platform.ai.vo.EntrepreneurshipAdviceVO;
 import com.opc.platform.ai.vo.EntrepreneurshipReadinessVO;
 import com.opc.platform.common.result.Result;
+import com.opc.platform.tag.vo.IndustryResolution;
 import com.opc.platform.userauth.AuthenticatedUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +26,7 @@ import static com.opc.platform.userauth.UserAuthInterceptor.AUTHENTICATED_USER_A
 public class EntrepreneurshipAdvisorController {
 
     private final EntrepreneurshipAdvisorService advisorService;
+    private final AiIndustryClassificationService classificationService;
 
     @PostMapping("/entrepreneurship-advice")
     public Result<EntrepreneurshipAdviceVO> advise(
@@ -38,5 +42,13 @@ public class EntrepreneurshipAdvisorController {
             @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser ignoredUser
     ) {
         return Result.success(advisorService.readiness(request));
+    }
+
+    @PostMapping("/industry-resolution")
+    public Result<IndustryResolution> classifyIndustry(
+            @Valid @RequestBody IndustryClassificationRequestDTO request,
+            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user
+    ) {
+        return Result.success(classificationService.classify(user, request.getIndustry()));
     }
 }

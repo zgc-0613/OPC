@@ -18,7 +18,9 @@ import com.opc.platform.ai.provider.AiHttpResponse;
 import com.opc.platform.ai.provider.AiHttpTransport;
 import com.opc.platform.ai.provider.AiProviderFactory;
 import com.opc.platform.ai.provider.AiProviderRequest;
+import com.opc.platform.ai.provider.AiProviderResponse;
 import com.opc.platform.ai.provider.AiRuntimeSettings;
+import com.opc.platform.ai.provider.AiRuntimeSnapshot;
 import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.ai.security.AesGcmSecretCipher;
 import com.opc.platform.ai.security.ProviderEndpointPolicy;
@@ -126,16 +128,17 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
             AiRuntimeSettings runtime = runtimeFromStored(stored, true);
             AiRuntimeSettings lowCost = new AiRuntimeSettings(
                     runtime.provider(), runtime.apiFormat(), runtime.apiBaseUrl(), runtime.model(), runtime.apiKey(),
-                    0, 1, runtime.timeout(), 0, runtime.enabled()
+                    0, 64, runtime.timeout(), 0, runtime.enabled()
             );
             AiClient client = providerFactory.create(lowCost);
-            client.generate(new AiProviderRequest(
+            AiProviderResponse response = client.generate(new AiProviderRequest(
                     "connection-test",
-                    "connection-test-v1",
-                    "Return only a small JSON object.",
-                    "Return {\"ok\":true}.",
-                    "{\"type\":\"object\"}"
+                    "connection-test-v2",
+                    "Return only the exact JSON object requested. Do not add markdown or explanation.",
+                    "Return exactly {\"ok\":true}.",
+                    "{\"type\":\"object\",\"required\":[\"ok\"],\"properties\":{\"ok\":{\"const\":true}}}"
             ));
+            validateConnectionAcknowledgement(response);
             updateTestState(stored, "success", "连接成功", testedAt);
             audit(admin, "test_connection", "connection succeeded", true);
             return new AiConnectionTestVO(true, "连接成功", testedAt);
@@ -204,11 +207,19 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
 
     @Override
     public AiRuntimeSettings current() {
+        return snapshot().settings();
+    }
+
+    @Override
+    public AiRuntimeSnapshot snapshot() {
         AiModelSettings stored = settingsMapper.selectById(SETTINGS_ID);
-        if (stored == null || !Boolean.TRUE.equals(stored.getEnabled())) {
-            return disabled(stored);
-        }
-        return runtimeFromStored(stored, true);
+        AiRuntimeSettings settings = stored == null || !Boolean.TRUE.equals(stored.getEnabled())
+                ? disabled(stored)
+                : runtimeFromStored(stored, true);
+        long quota = stored == null || stored.getDailyTokenQuota() == null
+                ? 100_000L
+                : stored.getDailyTokenQuota();
+        return new AiRuntimeSnapshot(settings, quota);
     }
 
     private AiRuntimeSettings runtimeFromStored(AiModelSettings stored, boolean enabled) {
@@ -231,8 +242,7 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
 
     @Override
     public long dailyTokenQuota() {
-        AiModelSettings stored = settingsMapper.selectById(SETTINGS_ID);
-        return stored == null || stored.getDailyTokenQuota() == null ? 100_000L : stored.getDailyTokenQuota();
+        return snapshot().dailyTokenQuota();
     }
 
     private AiRuntimeSettings disabled(AiModelSettings stored) {
@@ -416,7 +426,26 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
         if (!StringUtils.hasText(message)) {
             return "AI provider request failed";
         }
-        return message.length() > 240 ? message.substring(0, 240) : message;
+        String redacted = message
+                .replaceAll("(?i)Bearer\\s+[^\\s,;]+", "Bearer [redacted]")
+                .replaceAll("(?i)sk-[A-Za-z0-9._-]+", "[redacted]")
+                .replaceAll("(?i)(api[_ -]?key\\s*[:=]\\s*)[^\\s,;]+", "$1[redacted]");
+        return redacted.length() > 240 ? redacted.substring(0, 240) : redacted;
+    }
+
+    private void validateConnectionAcknowledgement(AiProviderResponse response) {
+        try {
+            JsonNode root = response == null || !StringUtils.hasText(response.content())
+                    ? null
+                    : objectMapper.readTree(response.content());
+            if (root == null || !root.isObject() || !root.path("ok").isBoolean() || !root.path("ok").asBoolean()) {
+                throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "连接测试响应校验失败");
+            }
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "连接测试响应校验失败");
+        }
     }
 
     private String trimToNull(String value) {

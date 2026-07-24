@@ -47,6 +47,8 @@ public class CaseItem {
 
     private String aiEvidenceStatus;
 
+    private Long evidenceRevision;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

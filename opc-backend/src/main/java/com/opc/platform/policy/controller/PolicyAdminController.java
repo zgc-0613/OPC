@@ -1,6 +1,7 @@
 package com.opc.platform.policy.controller;
 
 import com.opc.platform.common.result.Result;
+import com.opc.platform.adminauth.AuthenticatedAdmin;
 import com.opc.platform.policy.dto.PolicyCreateDTO;
 import com.opc.platform.policy.dto.PolicyQueryDTO;
 import com.opc.platform.policy.dto.PolicyUpdateDTO;
@@ -17,9 +18,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+
+import static com.opc.platform.adminauth.AdminAuthInterceptor.AUTHENTICATED_ADMIN_ATTRIBUTE;
 
 @RestController
 @RequiredArgsConstructor
@@ -44,8 +48,12 @@ public class PolicyAdminController {
     }
 
     @PutMapping("/{id}")
-    public Result<PolicyDetailVO> updatePolicy(@PathVariable Long id, @Valid @RequestBody PolicyUpdateDTO dto) {
-        return Result.success(policyService.updatePolicy(id, dto));
+    public Result<PolicyDetailVO> updatePolicy(
+            @PathVariable Long id,
+            @Valid @RequestBody PolicyUpdateDTO dto,
+            @RequestAttribute(AUTHENTICATED_ADMIN_ATTRIBUTE) AuthenticatedAdmin admin
+    ) {
+        return Result.success(policyService.updatePolicy(id, dto, admin));
     }
 
     @DeleteMapping("/{id}")

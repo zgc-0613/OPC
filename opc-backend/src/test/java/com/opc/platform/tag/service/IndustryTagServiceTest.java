@@ -1,11 +1,8 @@
 package com.opc.platform.tag.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.opc.platform.ai.provider.AiClient;
-import com.opc.platform.ai.provider.AiProviderDescriptor;
-import com.opc.platform.ai.provider.AiProviderRequest;
-import com.opc.platform.ai.provider.AiProviderResponse;
 import com.opc.platform.casetag.mapper.CaseTagMapper;
+import com.opc.platform.casetag.entity.CaseTag;
+import com.opc.platform.policytag.entity.PolicyTag;
 import com.opc.platform.policytag.mapper.PolicyTagMapper;
 import com.opc.platform.tag.entity.Tag;
 import com.opc.platform.tag.mapper.TagMapper;
@@ -13,7 +10,6 @@ import com.opc.platform.tagalias.entity.TagAlias;
 import com.opc.platform.tagalias.mapper.TagAliasMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 
@@ -22,7 +18,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class IndustryTagServiceTest {
@@ -31,8 +26,6 @@ class IndustryTagServiceTest {
     private final TagAliasMapper aliasMapper = mock(TagAliasMapper.class);
     private final CaseTagMapper caseTagMapper = mock(CaseTagMapper.class);
     private final PolicyTagMapper policyTagMapper = mock(PolicyTagMapper.class);
-    private final AiClient aiClient = mock(AiClient.class);
-
     private IndustryTagService service;
 
     @BeforeEach
@@ -41,9 +34,7 @@ class IndustryTagServiceTest {
                 tagMapper,
                 aliasMapper,
                 caseTagMapper,
-                policyTagMapper,
-                aiClient,
-                new ObjectMapper()
+                policyTagMapper
         );
         when(tagMapper.selectList(any())).thenReturn(List.of(industry(703L, "人工智能应用"), industry(517L, "智能零售")));
         when(aliasMapper.selectList(any())).thenReturn(List.of(alias(703L, "AI应用"), alias(703L, "AIGC")));
@@ -77,42 +68,36 @@ class IndustryTagServiceTest {
 
         assertEquals(703L, resolved.tagId());
         assertEquals("fuzzy", resolved.method());
-        assertFalse(resolved.requiresConfirmation());
+        assertTrue(resolved.requiresConfirmation());
     }
 
     @Test
-    void aiResolutionCanOnlySelectOneOfTheProvidedCandidateTagIds() {
-        when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
-        when(aiClient.generate(any())).thenReturn(new AiProviderResponse(
-                "{\"tagId\":703,\"confidence\":0.91}",
-                30,
-                8,
-                38,
-                120,
-                "req-industry"
-        ));
-
+    void deterministicResolutionNeverCallsTheProvider() {
         var resolved = service.resolve(null, "生成式算法产品", true);
 
-        assertEquals(703L, resolved.tagId());
-        assertEquals("ai", resolved.method());
-        assertFalse(resolved.requiresConfirmation());
-        ArgumentCaptor<AiProviderRequest> request = ArgumentCaptor.forClass(AiProviderRequest.class);
-        verify(aiClient).generate(request.capture());
-        assertTrue(request.getValue().userPrompt().contains("703"));
-        assertTrue(request.getValue().userPrompt().contains("517"));
+        assertEquals(null, resolved.tagId());
+        assertEquals("unresolved", resolved.method());
     }
 
     @Test
-    void lowConfidenceAiResolutionRequiresUserConfirmation() {
-        when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
-        when(aiClient.generate(any())).thenReturn(new AiProviderResponse("{\"tagId\":703,\"confidence\":0.55}"));
+    void publicIndustryListIncludesPolicyAndCaseUsageCounts() {
+        CaseTag caseTag = new CaseTag();
+        caseTag.setCaseId(11L);
+        caseTag.setTagId(703L);
+        PolicyTag firstPolicyTag = new PolicyTag();
+        firstPolicyTag.setPolicyId(21L);
+        firstPolicyTag.setTagId(703L);
+        PolicyTag secondPolicyTag = new PolicyTag();
+        secondPolicyTag.setPolicyId(22L);
+        secondPolicyTag.setTagId(703L);
+        when(caseTagMapper.selectList(any())).thenReturn(List.of(caseTag));
+        when(policyTagMapper.selectList(any())).thenReturn(List.of(firstPolicyTag, secondPolicyTag));
 
-        var resolved = service.resolve(null, "模糊的新方向", true);
+        var industries = service.listIndustries();
 
-        assertEquals(703L, resolved.tagId());
-        assertEquals("ai", resolved.method());
-        assertTrue(resolved.requiresConfirmation());
+        var ai = industries.stream().filter(item -> item.tagId().equals(703L)).findFirst().orElseThrow();
+        assertEquals(1, ai.caseUsageCount());
+        assertEquals(2, ai.policyUsageCount());
     }
 
     private Tag industry(Long id, String name) {

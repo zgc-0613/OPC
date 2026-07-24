@@ -101,14 +101,6 @@
           <span>校对人</span>
           <input v-model.trim="form.reviewer" />
         </label>
-        <label>
-          <span>AI 证据资格</span>
-          <select v-model="form.aiEvidenceStatus">
-            <option value="legacy_unverified">待 AI 证据核验</option>
-            <option value="verified">已核验，可用于智能体</option>
-            <option value="excluded">排除，不用于智能体</option>
-          </select>
-        </label>
         <label class="span-3">
           <span>摘要 *</span>
           <textarea v-model.trim="form.summary" required rows="4" placeholder="100-300 字摘要"></textarea>
@@ -299,7 +291,6 @@ const defaultForm = () => ({
   accessedAt: today,
   status: 'published',
   reviewer: '',
-  aiEvidenceStatus: 'legacy_unverified',
 })
 
 const form = reactive(defaultForm())
@@ -441,7 +432,6 @@ function policyDetailPayload(detail, status) {
     accessedAt: detail.accessedAt || today,
     status,
     reviewer: detail.reviewer || '',
-    aiEvidenceStatus: detail.aiEvidenceStatus || 'legacy_unverified',
   }
 }
 

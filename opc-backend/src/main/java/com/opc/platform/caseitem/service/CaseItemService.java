@@ -8,6 +8,8 @@ import com.opc.platform.caseitem.entity.CaseItem;
 import com.opc.platform.caseitem.mapper.CaseItemMapper;
 import com.opc.platform.caseitem.vo.CaseItemDetailVO;
 import com.opc.platform.caseitem.vo.CaseItemListVO;
+import com.opc.platform.adminauth.AuthenticatedAdmin;
+import com.opc.platform.ai.service.EvidenceReviewService;
 import com.opc.platform.casetag.entity.CaseTag;
 import com.opc.platform.casetag.mapper.CaseTagMapper;
 import com.opc.platform.common.enums.ErrorCode;
@@ -28,6 +30,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -48,6 +51,8 @@ public class CaseItemService {
 
     private final CaseTagMapper caseTagMapper;
 
+    private final EvidenceReviewService evidenceReviewService;
+
     @Transactional
     public CaseItemDetailVO createCaseItem(CaseItemCreateDTO dto) {
         validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
@@ -60,14 +65,18 @@ public class CaseItemService {
     }
 
     @Transactional
-    public CaseItemDetailVO updateCaseItem(Long id, CaseItemUpdateDTO dto) {
+    public CaseItemDetailVO updateCaseItem(Long id, CaseItemUpdateDTO dto, AuthenticatedAdmin admin) {
         CaseItem caseItem = caseItemMapper.selectById(id);
         if (caseItem == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
         }
         validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
 
+        boolean evidenceChanged = evidenceRelevantFieldsChanged(caseItem, dto);
         copyUpdateFields(dto, caseItem);
+        if (evidenceChanged) {
+            evidenceReviewService.invalidateCaseAfterEvidenceEdit(caseItem, admin);
+        }
         caseItemMapper.updateById(caseItem);
         syncCaseTags(id, caseItem.getTags(), caseItem.getCategory());
         return getCaseItemDetail(id);
@@ -79,6 +88,7 @@ public class CaseItemService {
         if (caseItem == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
         }
+        evidenceReviewService.requireReviewedItemDeletionAllowed("case", caseItem.getAiEvidenceStatus());
         caseTagMapper.delete(new LambdaQueryWrapper<CaseTag>().eq(CaseTag::getCaseId, id));
         caseItemMapper.deleteById(id);
     }
@@ -154,7 +164,8 @@ public class CaseItemService {
         caseItem.setAccessedAt(dto.getAccessedAt());
         caseItem.setStatus(dto.getStatus());
         caseItem.setReviewer(dto.getReviewer());
-        caseItem.setAiEvidenceStatus(normalizeEvidenceStatus(dto.getAiEvidenceStatus(), "legacy_unverified"));
+        caseItem.setAiEvidenceStatus("legacy_unverified");
+        caseItem.setEvidenceRevision(0L);
     }
 
     private void copyUpdateFields(CaseItemUpdateDTO dto, CaseItem caseItem) {
@@ -173,7 +184,23 @@ public class CaseItemService {
         caseItem.setAccessedAt(dto.getAccessedAt());
         caseItem.setStatus(dto.getStatus());
         caseItem.setReviewer(dto.getReviewer());
-        caseItem.setAiEvidenceStatus(normalizeEvidenceStatus(dto.getAiEvidenceStatus(), caseItem.getAiEvidenceStatus()));
+    }
+
+    private boolean evidenceRelevantFieldsChanged(CaseItem current, CaseItemUpdateDTO dto) {
+        return !Objects.equals(current.getTitle(), dto.getTitle())
+                || !Objects.equals(current.getRegionId(), dto.getRegionId())
+                || !Objects.equals(current.getCategory(), dto.getCategory())
+                || !Objects.equals(current.getActorName(), dto.getActorName())
+                || !Objects.equals(current.getSourceId(), dto.getSourceId())
+                || !Objects.equals(current.getSummary(), dto.getSummary())
+                || !Objects.equals(current.getBusinessModel(), dto.getBusinessModel())
+                || !Objects.equals(current.getAiTools(), dto.getAiTools())
+                || !Objects.equals(current.getOutcome(), dto.getOutcome())
+                || !Objects.equals(current.getTags(), dto.getTags())
+                || !Objects.equals(current.getOriginalUrl(), dto.getOriginalUrl())
+                || !Objects.equals(current.getLocalFile(), dto.getLocalFile())
+                || !Objects.equals(current.getAccessedAt(), dto.getAccessedAt())
+                || !Objects.equals(current.getStatus(), dto.getStatus());
     }
 
     private LambdaQueryWrapper<CaseItem> buildQueryWrapper(CaseItemQueryDTO query) {
@@ -271,10 +298,6 @@ public class CaseItemService {
         vo.setReviewer(caseItem.getReviewer());
         vo.setAiEvidenceStatus(caseItem.getAiEvidenceStatus());
         return vo;
-    }
-
-    private String normalizeEvidenceStatus(String requested, String fallback) {
-        return StringUtils.hasText(requested) ? requested.trim() : fallback;
     }
 
     private void syncCaseTags(Long caseId, String tagsText, String category) {

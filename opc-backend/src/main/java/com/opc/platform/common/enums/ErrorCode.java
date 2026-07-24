@@ -10,6 +10,7 @@ public enum ErrorCode {
     UNAUTHORIZED(401, "Unauthorized"),
     FORBIDDEN(403, "Forbidden"),
     NOT_FOUND(404, "Resource not found"),
+    CONFLICT(409, "Conflict"),
     TOO_MANY_REQUESTS(429, "Too many requests"),
     UPSTREAM_ERROR(502, "Upstream service error"),
     SERVICE_UNAVAILABLE(503, "Service unavailable"),

@@ -19,6 +19,9 @@ public class AiEvidenceReview {
     private String newStatus;
     private Long adminId;
     private String adminUsername;
+    private String actionType;
+    private String reason;
     private String notes;
+    private String operationId;
     private LocalDateTime createdAt;
 }

@@ -19,3 +19,7 @@ export function getEntrepreneurshipAdvice(payload) {
 export function checkEntrepreneurshipReadiness(payload) {
   return request.post('/ai/entrepreneurship-readiness', payload, { timeout: 45000 })
 }
+
+export function resolveIndustryWithAi(industry) {
+  return request.post('/ai/industry-resolution', { industry: industry.trim() }, { timeout: 45000 })
+}

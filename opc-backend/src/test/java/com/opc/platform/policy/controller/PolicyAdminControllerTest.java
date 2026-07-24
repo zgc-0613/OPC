@@ -47,7 +47,8 @@ class PolicyAdminControllerTest {
 
     @BeforeEach
     void setUp() {
-        PolicyService service = new PolicyService(policyMapper, regionMapper, sourceMapper, tagMapper, policyTagMapper);
+        PolicyService service = new PolicyService(policyMapper, regionMapper, sourceMapper, tagMapper, policyTagMapper,
+                org.mockito.Mockito.mock(com.opc.platform.ai.service.EvidenceReviewService.class));
         mockMvc = MockMvcBuilders.standaloneSetup(new PolicyAdminController(service)).build();
     }
 

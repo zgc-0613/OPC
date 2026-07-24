@@ -52,15 +52,6 @@
             <option value="draft">草稿</option>
             <option value="pending">待补充</option>
             <option value="archived">归档</option>
-            <option value="active">可用（旧状态）</option>
-          </select>
-        </label>
-        <label>
-          <span>AI 证据资格</span>
-          <select v-model="form.aiEvidenceStatus">
-            <option value="legacy_unverified">待 AI 证据核验</option>
-            <option value="verified">已核验，可用于智能体</option>
-            <option value="excluded">排除，不用于智能体</option>
           </select>
         </label>
         <label class="span-3">
@@ -181,7 +172,7 @@ const bulkUpdating = ref(false)
 const bulkMessage = ref('')
 const bulkError = ref('')
 const sourceStatusOptions = [
-  { value: 'active', label: '可用' },
+  { value: 'published', label: '发布' },
   { value: 'pending', label: '待补充' },
   { value: 'archived', label: '归档' },
 ]
@@ -207,7 +198,6 @@ const form = reactive({
   accessedAt: today,
   notes: '',
   status: 'published',
-  aiEvidenceStatus: 'legacy_unverified',
 })
 const {
   allSelected: allSourcesSelected,
@@ -253,7 +243,6 @@ function resetForm() {
     accessedAt: today,
     notes: '',
     status: 'published',
-    aiEvidenceStatus: 'legacy_unverified',
   })
 }
 
@@ -269,7 +258,6 @@ function startEdit(source) {
     accessedAt: source.accessedAt || today,
     notes: source.notes || '',
     status: source.status || 'published',
-    aiEvidenceStatus: source.aiEvidenceStatus || 'legacy_unverified',
   })
 }
 
@@ -292,7 +280,6 @@ async function submitForm() {
 
 function sourceStatusLabel(status) {
   return {
-    active: '可用',
     published: '已发布',
     draft: '草稿',
     pending: '待补充',

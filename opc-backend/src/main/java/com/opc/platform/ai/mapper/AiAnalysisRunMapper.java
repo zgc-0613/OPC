@@ -88,6 +88,8 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
             UPDATE ai_analysis_runs
             SET status = 'failed',
                 error_type = 'TASK_TIMEOUT',
+                prompt_tokens = CASE WHEN total_tokens = 0 THEN LEAST(reserved_tokens, 2147483647) ELSE prompt_tokens END,
+                total_tokens = CASE WHEN total_tokens = 0 THEN LEAST(reserved_tokens, 2147483647) ELSE total_tokens END,
                 reserved_tokens = 0,
                 heartbeat_at = #{now}
             WHERE status = 'running'

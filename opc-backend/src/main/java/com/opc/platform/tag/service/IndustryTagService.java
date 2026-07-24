@@ -1,10 +1,6 @@
 package com.opc.platform.tag.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.opc.platform.ai.provider.AiClient;
-import com.opc.platform.ai.provider.AiProviderRequest;
 import com.opc.platform.casetag.entity.CaseTag;
 import com.opc.platform.casetag.mapper.CaseTagMapper;
 import com.opc.platform.common.enums.ErrorCode;
@@ -35,20 +31,17 @@ import java.util.stream.Collectors;
 public class IndustryTagService {
 
     private static final double FUZZY_THRESHOLD = 0.72;
-    private static final double AI_CONFIRMATION_THRESHOLD = 0.75;
-
     private final TagMapper tagMapper;
     private final TagAliasMapper aliasMapper;
     private final CaseTagMapper caseTagMapper;
     private final PolicyTagMapper policyTagMapper;
-    private final AiClient aiClient;
-    private final ObjectMapper objectMapper;
 
     public List<IndustryTagVO> listIndustries() {
         List<Tag> tags = industryTags();
-        Map<Long, Long> caseCounts = safeCaseTags().stream()
+        List<Long> industryTagIds = tags.stream().map(Tag::getId).toList();
+        Map<Long, Long> caseCounts = safeCaseTags(industryTagIds).stream()
                 .collect(Collectors.groupingBy(CaseTag::getTagId, Collectors.counting()));
-        Map<Long, Long> policyCounts = safePolicyTags().stream()
+        Map<Long, Long> policyCounts = safePolicyTags(industryTagIds).stream()
                 .collect(Collectors.groupingBy(PolicyTag::getTagId, Collectors.counting()));
         return tags.stream()
                 .map(tag -> new IndustryTagVO(
@@ -96,12 +89,9 @@ public class IndustryTagService {
 
         ScoredTag fuzzy = bestFuzzy(normalized, candidates, aliases, byId);
         if (fuzzy != null && fuzzy.score() >= FUZZY_THRESHOLD) {
-            return resolved(fuzzy.tag(), "fuzzy", fuzzy.score(), fuzzy.score() < 0.80);
+            return resolved(fuzzy.tag(), "fuzzy", fuzzy.score(), true);
         }
 
-        if (allowAi && aiClient.descriptor().available() && !candidates.isEmpty()) {
-            return resolveWithAi(rawText, candidates, byId);
-        }
         return IndustryResolution.unresolved();
     }
 
@@ -118,44 +108,14 @@ public class IndustryTagService {
                 .map(this::normalizedAlias)
                 .collect(Collectors.toSet());
         relatedNames.add(normalize(industry.getName()));
-        return safeTags().stream()
+        List<Tag> relatedTags = tagMapper.selectList(
+                new LambdaQueryWrapper<Tag>().in(Tag::getName, relatedNames)
+        );
+        return (relatedTags == null ? List.<Tag>of() : relatedTags).stream()
                 .filter(tag -> relatedNames.contains(normalize(tag.getName())))
                 .map(Tag::getId)
                 .distinct()
                 .toList();
-    }
-
-    private IndustryResolution resolveWithAi(String rawText, List<Tag> candidates, Map<Long, Tag> byId) {
-        try {
-            List<Map<String, Object>> options = candidates.stream()
-                    .limit(100)
-                    .map(tag -> Map.<String, Object>of("tagId", tag.getId(), "name", tag.getName()))
-                    .toList();
-            String prompt = objectMapper.writeValueAsString(Map.of(
-                    "industryText", rawText == null ? "" : rawText.trim(),
-                    "candidateTags", options,
-                    "instruction", "只能从 candidateTags 选择 tagId，不得创建新标签"
-            ));
-            var response = aiClient.generate(new AiProviderRequest(
-                    "industry-classification",
-                    "industry-resolver-v1",
-                    "将行业文本映射到给定候选标签，只返回 JSON。",
-                    prompt,
-                    "{\"type\":\"object\",\"required\":[\"tagId\",\"confidence\"]}"
-            ));
-            JsonNode root = objectMapper.readTree(response.content());
-            Long selectedId = root.path("tagId").canConvertToLong() ? root.path("tagId").asLong() : null;
-            double confidence = root.path("confidence").asDouble(-1);
-            Tag selected = selectedId == null ? null : byId.get(selectedId);
-            if (selected == null || confidence < 0 || confidence > 1) {
-                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "AI 行业分类结果无效");
-            }
-            return resolved(selected, "ai", confidence, confidence < AI_CONFIRMATION_THRESHOLD);
-        } catch (BusinessException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "AI 行业分类结果无效");
-        }
     }
 
     private ScoredTag bestFuzzy(
@@ -226,23 +186,24 @@ public class IndustryTagService {
         return values == null ? List.of() : values;
     }
 
-    private List<Tag> safeTags() {
-        List<Tag> values = tagMapper.selectList(new LambdaQueryWrapper<Tag>());
-        return values == null ? List.of() : values;
-    }
-
     private List<TagAlias> aliases() {
         List<TagAlias> values = aliasMapper.selectList(new LambdaQueryWrapper<TagAlias>());
         return values == null ? List.of() : values;
     }
 
-    private List<CaseTag> safeCaseTags() {
-        List<CaseTag> values = caseTagMapper.selectList(new LambdaQueryWrapper<CaseTag>());
+    private List<CaseTag> safeCaseTags(List<Long> tagIds) {
+        if (tagIds.isEmpty()) return List.of();
+        List<CaseTag> values = caseTagMapper.selectList(
+                new LambdaQueryWrapper<CaseTag>().in(CaseTag::getTagId, tagIds)
+        );
         return values == null ? List.of() : values;
     }
 
-    private List<PolicyTag> safePolicyTags() {
-        List<PolicyTag> values = policyTagMapper.selectList(new LambdaQueryWrapper<PolicyTag>());
+    private List<PolicyTag> safePolicyTags(List<Long> tagIds) {
+        if (tagIds.isEmpty()) return List.of();
+        List<PolicyTag> values = policyTagMapper.selectList(
+                new LambdaQueryWrapper<PolicyTag>().in(PolicyTag::getTagId, tagIds)
+        );
         return values == null ? List.of() : values;
     }
 
@@ -256,7 +217,7 @@ public class IndustryTagService {
                 : normalize(alias.getAlias());
     }
 
-    static String normalize(String value) {
+    public static String normalize(String value) {
         if (!StringUtils.hasText(value)) {
             return "";
         }

@@ -28,8 +28,7 @@ public class SourceUpdateDTO {
     private String notes;
 
     @NotBlank
+    @Pattern(regexp = "draft|pending|published|archived")
     private String status;
 
-    @Pattern(regexp = "legacy_unverified|verified|excluded")
-    private String aiEvidenceStatus;
 }

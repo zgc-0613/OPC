@@ -104,6 +104,31 @@
             <small v-if="profile.industryTagId" class="assistant-industry-selected">
               已选择规范行业：{{ profile.industry }}
             </small>
+            <div v-if="industrySuggestion" class="assistant-industry-suggestion" role="status">
+              <div>
+                <span>{{ industrySuggestionLabel }}</span>
+                <strong>{{ industrySuggestion.name }}</strong>
+                <small>
+                  原始输入“{{ industrySuggestion.originalText }}” · {{ formatConfidence(industrySuggestion.confidence) }}
+                </small>
+              </div>
+              <div class="assistant-suggestion-actions">
+                <button class="button" type="button" @click="confirmSuggestedIndustry">确认使用</button>
+                <button class="button button-ghost" type="button" @click="rejectSuggestedIndustry">重新选择</button>
+              </div>
+            </div>
+            <div v-if="!profile.industryTagId && profile.industry.trim()" class="assistant-industry-resolution-actions">
+              <button
+                class="button button-ghost"
+                type="button"
+                :disabled="industryResolutionLoading || submitting"
+                @click="requestIndustryRecommendation"
+              >
+                <Sparkles :size="15" aria-hidden="true" />
+                {{ industryResolutionLoading ? '正在识别行业' : 'AI 推荐规范行业' }}
+              </button>
+              <small v-if="industryResolutionError" role="alert">{{ industryResolutionError }}</small>
+            </div>
           </label>
 
           <div class="assistant-form-pair">
@@ -170,22 +195,26 @@
                 <small>{{ providerLabel }}</small>
               </div>
             </div>
-            <div class="assistant-provider-note" :class="{ 'is-ready': evidenceReady }">
+            <div class="assistant-provider-note" :class="readinessStatusClass">
               <span></span>
               <div>
-                <strong>{{ readinessChecking ? '正在核验证据' : evidenceReady ? '证据已就绪' : '证据尚未就绪' }}</strong>
+                <strong>{{ readinessTitle }}</strong>
                 <small v-if="readiness">
-                  案例 {{ readiness.verifiedCaseCount || 0 }} · 政策 {{ readiness.verifiedPolicyCount || 0 }} · 来源 {{ readiness.verifiedSourceCount || 0 }}
+                  已选 {{ readiness.selectedEvidenceCount || 0 }} · 案例 {{ readiness.verifiedCaseCount || 0 }} · 政策 {{ readiness.verifiedPolicyCount || 0 }} · 来源 {{ readiness.verifiedSourceCount || 0 }}
                 </small>
-                <small v-else>选择地区和规范行业后自动检查</small>
+                <small v-else-if="readinessError" class="is-error">{{ readinessError }}</small>
+                <small v-else>选择地区和行业后自动检查</small>
               </div>
             </div>
+            <p v-if="readinessUi.warning" class="assistant-readiness-warning">
+              当前只有部分有效证据，可以继续生成；结论会限制在已有来源范围内。
+            </p>
             <ul v-if="readinessReasons.length" class="assistant-readiness-reasons">
               <li v-for="reason in readinessReasons" :key="reason">{{ reason }}</li>
             </ul>
           </div>
 
-          <button class="button assistant-submit" type="submit" :disabled="submitting || readinessChecking || !providerReady">
+          <button class="button assistant-submit" type="submit" :disabled="submitting || !providerReady || !readinessUi.canSubmit || Boolean(industrySuggestion)">
             <FileSearch :size="17" aria-hidden="true" />
             {{ submitting ? '正在研究...' : turns.length ? '生成新的研究建议' : '开始创业研究' }}
             <ArrowRight :size="16" aria-hidden="true" />
@@ -407,9 +436,21 @@ import {
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-vue-next'
-import { checkEntrepreneurshipReadiness, getAiCapabilities, getEntrepreneurshipAdvice } from '@/api/ai'
+import {
+  checkEntrepreneurshipReadiness,
+  getAiCapabilities,
+  getEntrepreneurshipAdvice,
+  resolveIndustryWithAi,
+} from '@/api/ai'
 import { getRegions } from '@/api/region'
 import { getIndustryTags } from '@/api/tag'
+import {
+  confirmIndustrySuggestion,
+  createLatestRequestGate,
+  decideIndustryResolution,
+  industrySuggestionKey,
+  readinessPresentation,
+} from '@/utils/assistantWorkflow'
 
 const PROFILE_STORAGE_KEY = 'opc_assistant_profile_v1'
 
@@ -442,6 +483,7 @@ const industries = ref([])
 const capabilities = ref({})
 const readiness = ref(null)
 const readinessChecking = ref(false)
+const readinessError = ref('')
 const submitting = ref(false)
 const requestError = ref('')
 const turns = ref([])
@@ -450,6 +492,12 @@ const lastMode = ref('initial')
 const industryQuery = ref('')
 const industryOpen = ref(false)
 const activeIndustryIndex = ref(-1)
+const industrySuggestion = ref(null)
+const rejectedIndustrySuggestionKey = ref('')
+const industryResolutionLoading = ref(false)
+const industryResolutionError = ref('')
+const readinessGate = createLatestRequestGate()
+const industryResolutionGate = createLatestRequestGate()
 let readinessTimer
 
 const profile = reactive({
@@ -476,8 +524,32 @@ const providerLabel = computed(() => {
   return `${capabilities.value.provider.provider} / ${capabilities.value.provider.model}`
 })
 
-const evidenceReady = computed(() => Boolean(readiness.value?.evidenceAvailable))
+const readinessUi = computed(() => readinessPresentation(
+  readiness.value?.readinessStatus,
+  { loading: readinessChecking.value, error: Boolean(readinessError.value) },
+))
 const readinessReasons = computed(() => readiness.value?.reasons || [])
+const readinessTitle = computed(() => {
+  if (readinessChecking.value) return '正在核验证据'
+  if (readinessError.value) return '证据预检失败'
+  const labels = {
+    sufficient: '证据充分',
+    partial: '证据有限，可继续',
+    insufficient: '证据不足',
+  }
+  return labels[readiness.value?.readinessStatus] || '等待证据预检'
+})
+const readinessStatusClass = computed(() => ({
+  'is-ready': readiness.value?.readinessStatus === 'sufficient',
+  'is-partial': readiness.value?.readinessStatus === 'partial',
+  'is-error': Boolean(readinessError.value),
+}))
+const industrySuggestionLabel = computed(() => {
+  const method = industrySuggestion.value?.method
+  if (method === 'fuzzy') return '找到相近行业，请确认'
+  if (method === 'ai') return 'AI 推荐行业，请确认'
+  return '行业推荐需要确认'
+})
 const filteredIndustries = computed(() => {
   const query = industryQuery.value.trim().toLowerCase()
   const values = query
@@ -609,6 +681,10 @@ function handleIndustryInput() {
     (item) => item.name?.toLowerCase() === industryQuery.value.trim().toLowerCase(),
   )
   profile.industryTagId = selected ? String(selected.tagId) : ''
+  industrySuggestion.value = null
+  industryResolutionError.value = ''
+  industryResolutionGate.begin()
+  industryResolutionLoading.value = false
   industryOpen.value = true
   activeIndustryIndex.value = filteredIndustries.value.length ? 0 : -1
 }
@@ -635,39 +711,109 @@ function selectIndustry(industry) {
   industryQuery.value = industry.name
   industryOpen.value = false
   activeIndustryIndex.value = -1
+  industrySuggestion.value = null
+  rejectedIndustrySuggestionKey.value = ''
+  industryResolutionError.value = ''
 }
 
 function scheduleReadiness() {
   window.clearTimeout(readinessTimer)
+  readinessGate.begin()
+  readinessChecking.value = false
   readiness.value = null
+  readinessError.value = ''
   if (!profile.regionId || (!profile.industryTagId && !profile.industry.trim())) return
   readinessTimer = window.setTimeout(() => checkReadiness(), 420)
 }
 
 async function checkReadiness() {
   if (!profile.regionId || (!profile.industryTagId && !profile.industry.trim())) return false
+  const requestId = readinessGate.begin()
   readinessChecking.value = true
+  readinessError.value = ''
   try {
-    readiness.value = await checkEntrepreneurshipReadiness({
+    const result = await checkEntrepreneurshipReadiness({
       regionId: Number(profile.regionId),
       industryTagId: profile.industryTagId ? Number(profile.industryTagId) : undefined,
       industry: profile.industry.trim(),
     })
-    if (readiness.value?.resolvedIndustryTag?.tagId && !profile.industryTagId) {
-      profile.industryTagId = String(readiness.value.resolvedIndustryTag.tagId)
-      profile.industry = readiness.value.resolvedIndustryTag.name
-      industryQuery.value = readiness.value.resolvedIndustryTag.name
+    if (!readinessGate.isCurrent(requestId)) return false
+    readiness.value = result
+    const decision = decideIndustryResolution(
+      result?.resolvedIndustryTag,
+      profile.industry,
+      profile.industryTagId,
+      rejectedIndustrySuggestionKey.value,
+    )
+    if (decision.action === 'accept') {
+      applyIndustrySelection(decision.selection)
+      return false
     }
-    return Boolean(readiness.value?.evidenceAvailable)
+    industrySuggestion.value = decision.suggestion
+    return readinessUi.value.canSubmit && !industrySuggestion.value && Boolean(profile.industryTagId)
   } catch (err) {
-    readiness.value = {
-      evidenceAvailable: false,
-      reasons: [err.message || '证据预检失败'],
-    }
+    if (!readinessGate.isCurrent(requestId)) return false
+    readiness.value = null
+    readinessError.value = err.message || '证据预检失败'
     return false
   } finally {
-    readinessChecking.value = false
+    if (readinessGate.isCurrent(requestId)) readinessChecking.value = false
   }
+}
+
+async function requestIndustryRecommendation() {
+  const originalText = profile.industry.trim()
+  if (!originalText || industryResolutionLoading.value) return
+  const requestId = industryResolutionGate.begin()
+  industryResolutionLoading.value = true
+  industryResolutionError.value = ''
+  try {
+    const resolution = await resolveIndustryWithAi(originalText)
+    if (!industryResolutionGate.isCurrent(requestId) || profile.industry.trim() !== originalText) return
+    const decision = decideIndustryResolution(
+      resolution,
+      originalText,
+      profile.industryTagId,
+      rejectedIndustrySuggestionKey.value,
+    )
+    if (decision.action === 'accept') {
+      applyIndustrySelection(decision.selection)
+    } else if (decision.action === 'confirm') {
+      industrySuggestion.value = decision.suggestion
+    } else if (decision.action === 'unresolved') {
+      industryResolutionError.value = '暂未找到可靠的规范行业，请继续输入或从列表选择。'
+    }
+  } catch (err) {
+    if (industryResolutionGate.isCurrent(requestId)) {
+      industryResolutionError.value = err.message || '行业识别失败，请稍后重试。'
+    }
+  } finally {
+    if (industryResolutionGate.isCurrent(requestId)) industryResolutionLoading.value = false
+  }
+}
+
+function confirmSuggestedIndustry() {
+  if (!industrySuggestion.value) return
+  applyIndustrySelection(confirmIndustrySuggestion(industrySuggestion.value))
+}
+
+function rejectSuggestedIndustry() {
+  if (!industrySuggestion.value) return
+  rejectedIndustrySuggestionKey.value = industrySuggestionKey(industrySuggestion.value)
+  industrySuggestion.value = null
+  profile.industryTagId = ''
+  readiness.value = null
+  scheduleReadiness()
+}
+
+function applyIndustrySelection(selection) {
+  if (!selection) return
+  profile.industryTagId = selection.industryTagId
+  profile.industry = selection.industry
+  industryQuery.value = selection.query
+  industrySuggestion.value = null
+  rejectedIndustrySuggestionKey.value = ''
+  industryResolutionError.value = ''
 }
 
 function restoreProfile() {
@@ -865,6 +1011,54 @@ function reducedMotion() {
   line-height: 1.5;
 }
 
+.assistant-industry-suggestion {
+  display: grid;
+  gap: 13px;
+  padding: 15px;
+  border: 1px solid #c7b991;
+  border-radius: 5px;
+  background: #f5f1e6;
+}
+
+.assistant-industry-suggestion > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.assistant-industry-suggestion span,
+.assistant-industry-suggestion small {
+  color: #695f45;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.assistant-industry-suggestion strong {
+  color: #292b28;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font-size: 1rem;
+}
+
+.assistant-suggestion-actions,
+.assistant-industry-resolution-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assistant-suggestion-actions .button,
+.assistant-industry-resolution-actions .button {
+  min-height: 34px;
+  padding: 7px 11px;
+  font-size: 0.74rem;
+}
+
+.assistant-industry-resolution-actions small {
+  flex-basis: 100%;
+  color: #742e26;
+  line-height: 1.5;
+}
+
 .assistant-form-pair {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -916,6 +1110,14 @@ function reducedMotion() {
   background: #426a4d;
 }
 
+.assistant-provider-note.is-partial > span {
+  background: #8a6b2f;
+}
+
+.assistant-provider-note.is-error > span {
+  background: #8a352e;
+}
+
 .assistant-provider-note div {
   display: grid;
   gap: 3px;
@@ -929,6 +1131,18 @@ function reducedMotion() {
   color: #686f69;
   font-family: 'Bookman Old Style', Georgia, serif;
   font-size: 0.72rem;
+}
+
+.assistant-provider-note small.is-error {
+  color: #742e26;
+}
+
+.assistant-readiness-warning {
+  margin: 0;
+  padding: 0 0 13px 19px;
+  color: #665b3d;
+  font-size: 0.76rem;
+  line-height: 1.55;
 }
 
 .assistant-submit {

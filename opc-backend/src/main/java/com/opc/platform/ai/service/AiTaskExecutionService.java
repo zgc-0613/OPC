@@ -8,6 +8,7 @@ import com.opc.platform.ai.provider.AiProviderRequest;
 import com.opc.platform.ai.provider.AiProviderResponse;
 import com.opc.platform.ai.provider.AiRuntimeSettings;
 import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
+import com.opc.platform.ai.provider.AiRuntimeSnapshot;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.userauth.AuthenticatedUser;
@@ -33,12 +34,18 @@ public class AiTaskExecutionService {
             AiProviderRequest providerRequest,
             Function<Execution, T> resultHandler
     ) {
-        AiProviderDescriptor descriptor = aiClient.descriptor();
+        AiRuntimeSnapshot runtime = settingsProvider.snapshot();
+        AiRuntimeSettings settings = runtime.settings();
+        AiProviderDescriptor descriptor = aiClient.descriptor(settings);
         if (!descriptor.available()) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "智能体模型尚未配置或未启用");
         }
-        AiRuntimeSettings settings = settingsProvider.current();
-        int reservedTokens = Math.max(1, settings.maxOutputTokens());
+        int estimatedPromptTokens = ConservativeTokenEstimator.estimate(providerRequest);
+        int maxOutputTokens = Math.max(1, settings.maxOutputTokens());
+        int reservedTokens = (int) Math.min(
+                Integer.MAX_VALUE,
+                (long) estimatedPromptTokens + maxOutputTokens
+        );
         long deadlineSeconds = Math.max(1, settings.timeout().toSeconds())
                 * Math.max(1, settings.retryCount() + 1L)
                 + DEADLINE_GRACE_SECONDS;
@@ -55,12 +62,15 @@ public class AiTaskExecutionService {
         run.setPromptVersion(task.promptVersion());
         run.setEvidenceHash(task.evidenceHash());
         run.setReservedTokens((long) reservedTokens);
+        run.setPromptTokens(estimatedPromptTokens);
+        run.setCompletionTokens(maxOutputTokens);
+        run.setTotalTokens(reservedTokens);
         run.setStartedAt(now);
         run.setDeadlineAt(now.plusSeconds(deadlineSeconds));
         run.setHeartbeatAt(now);
 
         try {
-            int inserted = runMapper.reserve(run, settingsProvider.dailyTokenQuota(), reservedTokens);
+            int inserted = runMapper.reserve(run, runtime.dailyTokenQuota(), reservedTokens);
             if (inserted != 1) {
                 throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, "今日智能体词元额度不足");
             }
@@ -70,7 +80,7 @@ public class AiTaskExecutionService {
 
         AiProviderResponse response = null;
         try {
-            response = aiClient.generate(providerRequest);
+            response = aiClient.generate(providerRequest, settings);
             T result = resultHandler.apply(new Execution(run, descriptor, response));
             settle(run, response, "completed", null, response.content());
             return result;
@@ -90,15 +100,23 @@ public class AiTaskExecutionService {
             String errorType,
             String resultJson
     ) {
-        int promptTokens = response == null ? 0 : response.promptTokens();
-        int completionTokens = response == null ? 0 : response.completionTokens();
-        int totalTokens = response == null ? 0 : response.totalTokens();
+        boolean hasUsage = response != null
+                && (response.totalTokens() > 0 || response.promptTokens() > 0 || response.completionTokens() > 0);
+        int promptTokens = hasUsage ? Math.max(0, response.promptTokens()) : safe(run.getPromptTokens());
+        int completionTokens = hasUsage ? Math.max(0, response.completionTokens()) : safe(run.getCompletionTokens());
+        int totalTokens = hasUsage
+                ? Math.max(response.totalTokens(), promptTokens + completionTokens)
+                : Math.toIntExact(Math.min(Integer.MAX_VALUE, Math.max(1L, run.getReservedTokens())));
         long latencyMs = response == null ? 0 : response.latencyMs();
         String requestId = response == null ? null : response.requestId();
         runMapper.settle(
                 run.getId(), status, errorType, promptTokens, completionTokens,
                 totalTokens, latencyMs, requestId, resultJson
         );
+    }
+
+    private int safe(Integer value) {
+        return value == null ? 0 : Math.max(0, value);
     }
 
     public record Task(

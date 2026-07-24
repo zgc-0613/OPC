@@ -29,7 +29,8 @@ class SourceAdminControllerTest {
 
     @BeforeEach
     void setUp() {
-        SourceService service = new SourceService(sourceMapper);
+        SourceService service = new SourceService(sourceMapper,
+                org.mockito.Mockito.mock(com.opc.platform.ai.service.EvidenceReviewService.class));
         mockMvc = MockMvcBuilders.standaloneSetup(new SourceAdminController(service)).build();
     }
 

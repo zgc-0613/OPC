@@ -9,6 +9,10 @@ import com.opc.platform.ai.entity.AiModelSettings;
 import com.opc.platform.ai.mapper.AiModelSettingsMapper;
 import com.opc.platform.ai.mapper.AiSettingsAuditMapper;
 import com.opc.platform.ai.provider.AiProviderFactory;
+import com.opc.platform.ai.provider.AiClient;
+import com.opc.platform.ai.provider.AiProviderRequest;
+import com.opc.platform.ai.provider.AiProviderResponse;
+import com.opc.platform.ai.provider.AiRuntimeSettings;
 import com.opc.platform.ai.provider.AiHttpRequest;
 import com.opc.platform.ai.provider.AiHttpResponse;
 import com.opc.platform.ai.provider.AiHttpTransport;
@@ -32,9 +36,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AiSettingsServiceTest {
 
@@ -205,6 +211,83 @@ class AiSettingsServiceTest {
         assertFalse(exception.getMessage().contains("sk-should-not-escape"));
     }
 
+    @Test
+    void connectionTestRequiresAndParsesCompleteJsonAcknowledgement() throws Exception {
+        AiModelSettingsMapper settingsMapper = mock(AiModelSettingsMapper.class);
+        AesGcmSecretCipher cipher = new AesGcmSecretCipher(masterKey());
+        AiModelSettings stored = runnableSettings(cipher);
+        when(settingsMapper.selectById(1L)).thenReturn(stored);
+        AiProviderFactory factory = mock(AiProviderFactory.class);
+        AiClient client = mock(AiClient.class);
+        when(factory.create(any(AiRuntimeSettings.class))).thenReturn(client);
+        when(client.generate(any(AiProviderRequest.class))).thenReturn(new AiProviderResponse("{\"ok\":true}"));
+        AiSettingsService service = new AiSettingsService(
+                settingsMapper, mock(AiSettingsAuditMapper.class), cipher, factory,
+                new ObjectMapper(), mock(AiHttpTransport.class), endpointPolicy()
+        );
+
+        var result = service.testConnection(new AuthenticatedAdmin(7L, "ACha_"));
+
+        assertTrue(result.isSuccess());
+        ArgumentCaptor<AiRuntimeSettings> runtime = ArgumentCaptor.forClass(AiRuntimeSettings.class);
+        verify(factory).create(runtime.capture());
+        assertTrue(runtime.getValue().maxOutputTokens() >= 32);
+        ArgumentCaptor<AiProviderRequest> request = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(client).generate(request.capture());
+        assertTrue(request.getValue().userPrompt().contains("{\"ok\":true}"));
+    }
+
+    @Test
+    void connectionTestRejectsEmptyMalformedAndIncorrectJson() throws Exception {
+        for (String content : List.of("", "not-json", "{\"ok\":false}", "{\"status\":\"ok\"}")) {
+            AiModelSettingsMapper settingsMapper = mock(AiModelSettingsMapper.class);
+            AesGcmSecretCipher cipher = new AesGcmSecretCipher(masterKey());
+            when(settingsMapper.selectById(1L)).thenReturn(runnableSettings(cipher));
+            AiProviderFactory factory = mock(AiProviderFactory.class);
+            AiClient client = mock(AiClient.class);
+            when(factory.create(any(AiRuntimeSettings.class))).thenReturn(client);
+            when(client.generate(any(AiProviderRequest.class))).thenReturn(new AiProviderResponse(content));
+            AiSettingsService service = new AiSettingsService(
+                    settingsMapper, mock(AiSettingsAuditMapper.class), cipher, factory,
+                    new ObjectMapper(), mock(AiHttpTransport.class), endpointPolicy()
+            );
+
+            assertThrows(
+                    BusinessException.class,
+                    () -> service.testConnection(new AuthenticatedAdmin(7L, "ACha_")),
+                    "Expected invalid acknowledgement to fail: " + content
+            );
+        }
+    }
+
+    @Test
+    void connectionTestSanitizesTimeoutAndRedirectErrors() throws Exception {
+        for (String upstreamMessage : List.of(
+                "timeout using Bearer sk-connection-secret",
+                "redirect rejected for sk-connection-secret"
+        )) {
+            AiModelSettingsMapper settingsMapper = mock(AiModelSettingsMapper.class);
+            AesGcmSecretCipher cipher = new AesGcmSecretCipher(masterKey());
+            when(settingsMapper.selectById(1L)).thenReturn(runnableSettings(cipher));
+            AiProviderFactory factory = mock(AiProviderFactory.class);
+            AiClient client = mock(AiClient.class);
+            when(factory.create(any(AiRuntimeSettings.class))).thenReturn(client);
+            when(client.generate(any(AiProviderRequest.class))).thenThrow(
+                    new BusinessException(com.opc.platform.common.enums.ErrorCode.SERVICE_UNAVAILABLE, upstreamMessage)
+            );
+            AiSettingsService service = new AiSettingsService(
+                    settingsMapper, mock(AiSettingsAuditMapper.class), cipher, factory,
+                    new ObjectMapper(), mock(AiHttpTransport.class), endpointPolicy()
+            );
+
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> service.testConnection(new AuthenticatedAdmin(7L, "ACha_"))
+            );
+            assertFalse(exception.getMessage().contains("sk-connection-secret"));
+        }
+    }
+
     private AiModelSettingsUpdateDTO dto(String apiKey) {
         return dto(apiKey, "https://api.example.com/v1");
     }
@@ -245,6 +328,18 @@ class AiSettingsServiceTest {
         settings.setApiKeyCiphertext(cipher.encrypt("sk-stored-key"));
         settings.setApiKeyProvider("deepseek");
         settings.setApiKeyOrigin("https://api.deepseek.com");
+        return settings;
+    }
+
+    private AiModelSettings runnableSettings(AesGcmSecretCipher cipher) {
+        AiModelSettings settings = stored(cipher, "https://api.deepseek.com/v1");
+        settings.setModelId("configured-model");
+        settings.setEnabled(true);
+        settings.setTemperature(0.2);
+        settings.setMaxOutputTokens(1200);
+        settings.setTimeoutSeconds(30);
+        settings.setRetryCount(1);
+        settings.setDailyTokenQuota(100_000L);
         return settings;
     }
 

@@ -341,3 +341,35 @@ Update this file after every two repository or browser inspection operations.
 - A real golden evidence set needs human review of source credibility and content. No historic production row was auto-promoted, and the golden-set count is `0` rather than fabricated.
 - Release `20260724-073422` is live with timestamped frontend/backend rollback artifacts and passed health, authorization, and secret-redaction checks.
 - The final republish completed as release `20260724-074745`. Server preflight confirmed active Nginx, MySQL, and backend services, one Java process, loopback-only backend binding, and the hardened `opc` process user.
+
+## First-Round AI Stabilization Findings (2026-07-24)
+- Debounced readiness had to remain deterministic: model-assisted industry classification is now a separate authenticated action and every paid request passes through `AiTaskExecutionService`.
+- Fuzzy and low-confidence AI matches are recommendations, not final profile state. The user must confirm them, and rejecting a recommendation prevents the watcher from silently restoring it.
+- Quota safety requires one immutable runtime snapshot. A task now reserves, audits, and calls the provider with the same provider/model/output limit/quota configuration even if an administrator edits settings concurrently.
+- A byte-based UTF-8 prompt estimate is intentionally conservative for prose, random ASCII identifiers, emoji, rare CJK, and mixed text. Missing provider usage retains the reservation instead of settling to zero.
+- Province requests treat descendant cities as in-province evidence; city requests separate exact city, broader province, national/unknown, and cross-region evidence. Ancestor traversal is multi-level and cycle-safe.
+- Readiness is now `sufficient`, `partial`, or `insufficient`. A verified source is a validity condition for a case or policy, not a third content category that must be independently filled.
+- Historical case CSV tags are backfilled through canonical names and aliases such as `AIGC`. Policy-side tags can be explicitly marked as industry tags in the existing administrator tag page; ambiguous policy tags remain in a manual-review queue.
+- Code review found no direct production model generation outside the administrator connection test and `AiTaskExecutionService`. Source status searches found no business `active` state after the migration boundary.
+- The production evidence audit remains a human decision. The prepared 湖北省 checklist contains real records only and does not promote them automatically.
+- Production release `20260724-232140` passed the expanded migration postcheck with zero failures. `/opt/opc/current` resolves to that release, all services are active, and no `active` source rows remain.
+- Current verified production evidence remains cases `0`, policies `0`, sources `0`; 30 ambiguous industry-tag candidates remain queued for administrator review.
+
+## Integrated Evidence Review Workbench Findings (2026-07-25)
+- Ordinary create/update payloads could previously carry `aiEvidenceStatus`; the backend trusted that value and verified content edits did not invalidate prior review. Evidence qualification is now owned only by `EvidenceReviewService`.
+- A timestamp alone is not a reliable review snapshot at MySQL `DATETIME` precision. Case, policy, and source rows now carry an independent monotonic `evidence_revision`, and review writes require status, revision, and update timestamp to match.
+- Case and policy verification now uses an atomic SQL join against the current source state. This serializes verification with source downgrade/edit and prevents a verified child from committing against an invalid source.
+- Source downgrade or critical edit invalidates verified dependencies under one operation ID; source deletion is blocked while dependencies remain, and all verified records must leave `verified` through the workbench before physical deletion.
+- Source URLs are accepted only as absolute HTTP/HTTPS addresses without user information. Unsafe schemes cannot be stored through ordinary source CRUD or approved as evidence.
+- Queue rows remain lightweight. Full content, checks, source chain, related records, audit history, and concurrency version load only after selection.
+- The workbench preserves filters, page, and selection in the URL; mobile uses queue-to-detail navigation, while batch review always performs a non-mutating preflight before an atomic submission.
+- No production row is automatically verified by this release. Golden evidence remains a human review outcome, not a migration side effect.
+- Release `/opt/opc/releases/20260725-014753` is live through `/opt/opc/current`; the timestamped database/config backup is `/opt/opc/backups/20260725-014753` and the prior release remains `/opt/opc/releases/20260725-001538`.
+- Production contains one historic case marked `verified` but no verified sources. It is excluded from valid AI evidence by the source-chain checks, so the effective golden evidence count is `0`; it was deliberately left for human review instead of being silently changed during deployment.
+
+## Production Evidence Review Findings (2026-07-25)
+- A conservative source-first review approved 38 of 130 sources and 36 of 68 policies. The 36 approved policies have verified source chains and source-page support for their stored summaries.
+- The previous historic verified case was moved back to `legacy_unverified`; valid verified cases are now `0`.
+- Pending sources consist of 9 unpublished drafts, 62 published rows without publisher metadata, and 21 published rows whose accessibility or content correspondence still needs human confirmation.
+- Pending policies consist of 9 drafts, 21 rows whose source remains unverified, and 2 rows whose summary/content evidence was not strong enough for automated approval.
+- All 106 cases remain pending because none currently has a verified source with complete publisher metadata. No evidence row was excluded.

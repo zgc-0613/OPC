@@ -29,6 +29,9 @@ MIGRATION = ROOT / "deploy" / "sql" / "20260719_admin_registration.sql"
 AI_MIGRATION = ROOT / "deploy" / "sql" / "20260724_ai_phase_one.sql"
 AI_CATALOG_MIGRATION = ROOT / "deploy" / "sql" / "20260724_ai_model_catalog.sql"
 AI_STABILIZATION_MIGRATION = ROOT / "deploy" / "sql" / "20260724_ai_stabilization.sql"
+AI_STABILIZATION_PRECHECK = ROOT / "deploy" / "sql" / "20260724_ai_stabilization_precheck.sql"
+AI_STABILIZATION_POSTCHECK = ROOT / "deploy" / "sql" / "20260724_ai_stabilization_postcheck.sql"
+EVIDENCE_WORKBENCH_MIGRATION = ROOT / "deploy" / "sql" / "20260725_evidence_workbench.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 
@@ -166,8 +169,9 @@ def preflight(client):
         "nginx": "nginx -t 2>&1",
         "processes": "ps -eo pid=,args= | awk '/[j]ava .*opc-backend/{count++} END{print count+0}'",
         "disk": "df -P /opt /var/www | tail -n +2 | awk '{print $6 \" \" $5}'",
-        "frontend": "test -f /var/www/opc/index.html && sha256sum /var/www/opc/index.html | awk '{print $1}'",
-        "backend": "test -f /opt/opc-backend.jar && sha256sum /opt/opc-backend.jar | awk '{print $1}'",
+        "frontend": "p=/var/www/opc/index.html; test -f /opt/opc/current/frontend/index.html && p=/opt/opc/current/frontend/index.html; sha256sum \"$p\" | awk '{print $1}'",
+        "backend": "p=/opt/opc-backend.jar; test -f /opt/opc/current/opc-backend.jar && p=/opt/opc/current/opc-backend.jar; sha256sum \"$p\" | awk '{print $1}'",
+        "current_release": "if test -L /opt/opc/current; then readlink -f /opt/opc/current; elif test -e /opt/opc/current; then echo non-symlink; else echo absent; fi",
         "backend_listener": "ss -lntH 'sport = :8082' | awk '{print $4}'",
         "backend_user": "pid=$(systemctl show -p MainPID --value opc-backend.service); ps -o user= -p \"$pid\" | xargs",
         "legacy_admin_secret": "if grep -q '^OPC_ADMIN_PASSWORD=' /etc/opc-backend.env; then echo present; else echo absent; fi",
@@ -195,6 +199,8 @@ def deploy(client):
         AI_MIGRATION,
         AI_CATALOG_MIGRATION,
         AI_STABILIZATION_MIGRATION,
+        AI_STABILIZATION_PRECHECK,
+        AI_STABILIZATION_POSTCHECK,
         NGINX,
         SYSTEMD,
     ]
@@ -205,19 +211,29 @@ def deploy(client):
     stamp = time.strftime("%Y%m%d-%H%M%S")
     release = f"/opt/opc/releases/{stamp}"
     backup = f"/opt/opc/backups/{stamp}"
-    rollback_frontend = f"/var/www/opc.rollback.{stamp}"
     backup_jar = f"/opt/opc-backend.rollback.{stamp}"
+    current_link = "/opt/opc/current"
     remote_nginx = "/etc/nginx/conf.d/opc.conf"
     remote_systemd = "/etc/systemd/system/opc-backend.service"
     uploaded_nginx = f"{release}/opc.conf"
     uploaded_systemd = f"{release}/opc-backend.service"
     mutated = False
+    database_mutated = False
     service_user_preexisting = False
+
+    _, previous_current, _ = run(
+        client,
+        f"if test -L '{current_link}'; then readlink -f '{current_link}'; fi",
+    )
 
     run(client, f"mkdir -p '{release}' '{backup}'")
     backup_command = f"""set -euo pipefail
-cp -a /var/www/opc '{backup}/frontend'
-cp -a /opt/opc-backend.jar '{backup}/opc-backend.jar'
+FRONTEND_SOURCE=/var/www/opc
+BACKEND_SOURCE=/opt/opc-backend.jar
+test -f /opt/opc/current/frontend/index.html && FRONTEND_SOURCE=/opt/opc/current/frontend
+test -f /opt/opc/current/opc-backend.jar && BACKEND_SOURCE=/opt/opc/current/opc-backend.jar
+cp -a "$FRONTEND_SOURCE" '{backup}/frontend'
+cp -a "$BACKEND_SOURCE" '{backup}/opc-backend.jar'
 cp -a /opt/opc/application.yaml '{backup}/application.yaml'
 cp -a /etc/opc-backend.env '{backup}/opc-backend.env'
 cp -a /etc/systemd/system/opc-backend.service '{backup}/opc-backend.service'
@@ -236,6 +252,9 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     sftp.put(str(AI_MIGRATION), f"{release}/ai-phase-one.sql")
     sftp.put(str(AI_CATALOG_MIGRATION), f"{release}/ai-model-catalog.sql")
     sftp.put(str(AI_STABILIZATION_MIGRATION), f"{release}/ai-stabilization.sql")
+    sftp.put(str(AI_STABILIZATION_PRECHECK), f"{release}/ai-stabilization-precheck.sql")
+    sftp.put(str(AI_STABILIZATION_POSTCHECK), f"{release}/ai-stabilization-postcheck.sql")
+    sftp.put(str(EVIDENCE_WORKBENCH_MIGRATION), f"{release}/evidence-workbench.sql")
     sftp.put(str(NGINX), uploaded_nginx)
     sftp.put(str(SYSTEMD), uploaded_systemd)
     sftp.close()
@@ -247,6 +266,9 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"{release}/ai-phase-one.sql": sha256(AI_MIGRATION),
         f"{release}/ai-model-catalog.sql": sha256(AI_CATALOG_MIGRATION),
         f"{release}/ai-stabilization.sql": sha256(AI_STABILIZATION_MIGRATION),
+        f"{release}/ai-stabilization-precheck.sql": sha256(AI_STABILIZATION_PRECHECK),
+        f"{release}/ai-stabilization-postcheck.sql": sha256(AI_STABILIZATION_POSTCHECK),
+        f"{release}/evidence-workbench.sql": sha256(EVIDENCE_WORKBENCH_MIGRATION),
         uploaded_nginx: sha256(NGINX),
         uploaded_systemd: sha256(SYSTEMD),
     }
@@ -255,18 +277,6 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         if remote_hash.lower() != local_hash.lower():
             raise RuntimeError(f"Upload checksum mismatch: {remote_path}")
 
-    run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/admin-registration.sql'")
-    run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-phase-one.sql'")
-    run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-model-catalog.sql'")
-    run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-stabilization.sql'")
-    run(
-        client,
-        "set -euo pipefail\n"
-        "if ! grep -q '^OPC_AI_SETTINGS_MASTER_KEY=' /etc/opc-backend.env; then\n"
-        "  umask 077\n"
-        "  printf 'OPC_AI_SETTINGS_MASTER_KEY=%s\\n' \"$(openssl rand -base64 32 | tr -d '\\n')\" >> /etc/opc-backend.env\n"
-        "fi",
-    )
     initial_hash = bcrypt.hashpw(
         os.environ["OPC_INITIAL_ADMIN_PASSWORD"].encode("utf-8"), bcrypt.gensalt(rounds=12)
     ).decode("ascii")
@@ -276,15 +286,43 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"('{initial_username}', '{initial_hash}', 'active') "
         "ON DUPLICATE KEY UPDATE username = VALUES(username);\n"
     )
-    database_command(client, seed_sql)
-
     try:
+        mutated = True
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/admin-registration.sql'")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-phase-one.sql'")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-model-catalog.sql'")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-stabilization-precheck.sql'")
+        database_mutated = True
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-stabilization.sql'")
+        _, postcheck_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/ai-stabilization-postcheck.sql'",
+        )
+        if postcheck_output.splitlines()[-1:] != ["0"]:
+            raise RuntimeError("AI stabilization database postcheck failed")
+        _, workbench_migration_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/evidence-workbench.sql'",
+        )
+        if workbench_migration_output.splitlines()[-1:] != ["3\t3\t1"]:
+            raise RuntimeError("Evidence workbench database migration verification failed")
+        run(
+            client,
+            "set -euo pipefail\n"
+            "if ! grep -q '^OPC_AI_SETTINGS_MASTER_KEY=' /etc/opc-backend.env; then\n"
+            "  umask 077\n"
+            "  printf 'OPC_AI_SETTINGS_MASTER_KEY=%s\\n' \"$(openssl rand -base64 32 | tr -d '\\n')\" >> /etc/opc-backend.env\n"
+            "fi",
+        )
+        database_command(client, seed_sql)
+
         _, service_user_state, _ = run(
             client,
             "if id -u opc >/dev/null 2>&1; then echo present; else echo absent; fi",
         )
         service_user_preexisting = service_user_state == "present"
-        mutated = True
         run(
             client,
             "set -euo pipefail\n"
@@ -301,10 +339,13 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
             "chmod 0640 /etc/opc-backend.env /opt/opc/application.yaml",
         )
         run(client, f"systemd-analyze verify '{uploaded_systemd}'")
-        run(client, f"cp -a /opt/opc-backend.jar '{backup_jar}'")
-        run(client, f"install -o root -g root -m 0644 '{release}/opc-backend.jar' /opt/opc-backend.jar")
+        run(client, f"cp -a '{backup}/opc-backend.jar' '{backup_jar}'")
         run(client, f"install -o root -g root -m 0644 '{uploaded_nginx}' '{remote_nginx}'")
         run(client, f"install -o root -g root -m 0644 '{uploaded_systemd}' '{remote_systemd}'")
+        run(
+            client,
+            f"ln -sfn '{release}' '{current_link}.next.{stamp}' && mv -Tf '{current_link}.next.{stamp}' '{current_link}'",
+        )
         run(client, "nginx -t")
         run(client, "systemctl daemon-reload")
         run(client, "systemctl restart opc-backend.service")
@@ -321,7 +362,6 @@ exit 1
         run(client, health_command, timeout=60)
         backend_runtime = assert_backend_runtime_hardened(client)
         assert_external_backend_closed()
-        run(client, f"mv /var/www/opc '{rollback_frontend}' && cp -a '{release}/frontend' /var/www/opc")
         run(client, "nginx -t && systemctl reload nginx")
 
         routes = [
@@ -332,6 +372,7 @@ exit 1
             "https://findopc.online/sources",
             "https://findopc.online/login",
             "https://admin.findopc.online/admin/login",
+            "https://admin.findopc.online/admin/evidence-reviews",
         ]
         for url in routes:
             request = urllib.request.Request(url, headers={"User-Agent": "SoloFirm deployment check"})
@@ -349,6 +390,47 @@ exit 1
             raise RuntimeError("Initial administrator login failed")
         token = login_body["data"]["token"]
         admin_headers = {"X-Admin-Token": token}
+
+        _, anonymous_evidence_queue = request_json(
+            "https://admin.findopc.online/api/admin/evidence-reviews?status=legacy_unverified",
+        )
+        if anonymous_evidence_queue.get("code") != 401:
+            raise RuntimeError("Anonymous evidence review queue request was not rejected")
+        _, evidence_queue_body = request_json(
+            "https://admin.findopc.online/api/admin/evidence-reviews?evidenceStatus=legacy_unverified&page=1&size=5",
+            headers=admin_headers,
+        )
+        if evidence_queue_body.get("code") != 200:
+            raise RuntimeError("Evidence review queue check failed")
+        evidence_items = (evidence_queue_body.get("data") or {}).get("items") or []
+        if evidence_items:
+            evidence_probe = evidence_items[0]
+            item_type = evidence_probe["itemType"]
+            item_id = evidence_probe["itemId"]
+            _, evidence_detail_body = request_json(
+                f"https://admin.findopc.online/api/admin/evidence-reviews/{item_type}/{item_id}",
+                headers=admin_headers,
+            )
+            evidence_detail = evidence_detail_body.get("data") or {}
+            if evidence_detail_body.get("code") != 200 or "checks" not in evidence_detail:
+                raise RuntimeError("Evidence review detail check failed")
+            _, evidence_preflight_body = request_json(
+                "https://admin.findopc.online/api/admin/evidence-reviews/batch/preflight",
+                method="POST",
+                headers=admin_headers,
+                payload={
+                    "items": [{
+                        "itemType": item_type,
+                        "itemId": item_id,
+                        "expectedEvidenceStatus": evidence_detail.get("evidenceStatus"),
+                        "expectedUpdatedAt": evidence_detail.get("updatedAt"),
+                        "expectedVersion": evidence_detail.get("version"),
+                    }],
+                    "evidenceStatus": "verified",
+                },
+            )
+            if evidence_preflight_body.get("code") != 200:
+                raise RuntimeError("Evidence review batch preflight check failed")
 
         _, anonymous_ai_settings = request_json(
             "https://admin.findopc.online/api/admin/ai-settings",
@@ -392,6 +474,14 @@ exit 1
         if anonymous_advice.get("code") != 401:
             raise RuntimeError("Anonymous entrepreneurship advice request was not rejected")
 
+        _, anonymous_industry_resolution = request_json(
+            "https://findopc.online/api/ai/industry-resolution",
+            method="POST",
+            payload={"industry": "deployment-probe"},
+        )
+        if anonymous_industry_resolution.get("code") != 401:
+            raise RuntimeError("Anonymous industry resolution request was not rejected")
+
         ai_qa_username = f"aiqa_{stamp.replace('-', '')[-10:]}"
         ai_qa_email = f"{ai_qa_username}@example.invalid"
         ai_qa_token = secrets.token_hex(32)
@@ -424,6 +514,15 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
             )
             if authorized_analysis.get("code") != 404:
                 raise RuntimeError("Authenticated case analysis route did not reach case validation")
+            if not expected_provider_available:
+                _, disabled_industry_resolution = request_json(
+                    "https://findopc.online/api/ai/industry-resolution",
+                    method="POST",
+                    payload={"industry": "deployment-probe"},
+                    headers=user_headers,
+                )
+                if disabled_industry_resolution.get("code") != 503:
+                    raise RuntimeError("Disabled provider did not return a controlled industry resolution state")
         finally:
             database_command(
                 client,
@@ -528,11 +627,12 @@ test "$(stat -c '%U:%G %a' /opt/opc/application.yaml)" = "root:opc 640"
         assert_external_backend_closed()
     except Exception:
         if mutated:
+            if previous_current:
+                current_rollback = f"ln -sfn '{previous_current}' '{current_link}.rollback.{stamp}' && mv -Tf '{current_link}.rollback.{stamp}' '{current_link}'"
+            else:
+                current_rollback = f"rm -f '{current_link}'"
             rollback = f"""set +e
-if test -d '{rollback_frontend}'; then
-  mv /var/www/opc /var/www/opc.failed.{stamp}
-  mv '{rollback_frontend}' /var/www/opc
-fi
+{current_rollback}
 cp -a '{backup}/opc-backend.jar' /opt/opc-backend.jar
 cp -a '{backup}/opc.conf' '{remote_nginx}'
 cp -a '{backup}/opc-backend.env' /etc/opc-backend.env
@@ -555,8 +655,12 @@ nginx -t && systemctl reload nginx
         "stamp": stamp,
         "release": release,
         "backup": backup,
-        "rollback_frontend": rollback_frontend,
+        "previous_current": previous_current,
+        "current": current_link,
+        "current_target": release,
         "rollback_backend": backup_jar,
+        "database_backup": f"{backup}/opc_platform.sql.gz",
+        "database_migrations_are_additive_and_resumable": database_mutated,
         "frontend_hash": sha256(FRONTEND / "index.html"),
         "backend_hash": sha256(BACKEND),
         "backend_listener": backend_runtime["listener"],
@@ -568,8 +672,9 @@ def deploy_frontend(client):
     if not (FRONTEND / "index.html").exists():
         raise RuntimeError("Missing frontend build")
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    release = f"/opt/opc/releases/{stamp}/frontend"
-    rollback = f"/var/www/opc.rollback.{stamp}"
+    release_root = f"/opt/opc/releases/{stamp}"
+    release = f"{release_root}/frontend"
+    current_link = "/opt/opc/current"
     run(client, f"mkdir -p '{release}'")
     sftp = client.open_sftp()
     upload_tree(sftp, FRONTEND, release)
@@ -578,9 +683,15 @@ def deploy_frontend(client):
     _, remote_hash, _ = run(client, f"sha256sum '{release}/index.html' | awk '{{print $1}}'")
     if remote_hash.lower() != local_hash.lower():
         raise RuntimeError("Frontend upload checksum mismatch")
+    _, previous_current, _ = run(
+        client,
+        f"if test -L '{current_link}'; then readlink -f '{current_link}'; fi",
+    )
+    backend_source = f"{previous_current}/opc-backend.jar" if previous_current else "/opt/opc-backend.jar"
+    run(client, f"cp -a '{backend_source}' '{release_root}/opc-backend.jar'")
     switched = False
     try:
-        run(client, f"mv /var/www/opc '{rollback}' && cp -a '{release}' /var/www/opc")
+        run(client, f"ln -sfn '{release_root}' '{current_link}.next.{stamp}' && mv -Tf '{current_link}.next.{stamp}' '{current_link}'")
         switched = True
         run(client, "nginx -t && systemctl reload nginx")
         for url in (
@@ -595,13 +706,21 @@ def deploy_frontend(client):
                     raise RuntimeError(f"Frontend route check failed: {url}")
     except Exception:
         if switched:
-            run(
-                client,
-                f"mv /var/www/opc /var/www/opc.failed.{stamp} && mv '{rollback}' /var/www/opc && nginx -t && systemctl reload nginx",
-                check=False,
+            rollback = (
+                f"ln -sfn '{previous_current}' '{current_link}.rollback.{stamp}' && "
+                f"mv -Tf '{current_link}.rollback.{stamp}' '{current_link}'"
+                if previous_current else f"rm -f '{current_link}'"
             )
+            run(client, rollback + " && nginx -t && systemctl reload nginx", check=False)
         raise
-    return {"stamp": stamp, "release": release, "rollback_frontend": rollback, "frontend_hash": local_hash}
+    return {
+        "stamp": stamp,
+        "release": release_root,
+        "previous_current": previous_current,
+        "current": current_link,
+        "current_target": release_root,
+        "frontend_hash": local_hash,
+    }
 
 
 def main():

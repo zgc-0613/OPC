@@ -334,3 +334,36 @@
 - No production data was silently promoted to the golden evidence set. Its current verified, human-reviewed count remains `0` until a reviewer selects and verifies real records.
 - Final stabilization republish: `/opt/opc/releases/20260724-074745`; backup: `/opt/opc/backups/20260724-074745`; frontend rollback: `/var/www/opc.rollback.20260724-074745`; backend rollback: `/opt/opc-backend.rollback.20260724-074745`.
 - Post-release checks: public root, `/assistant`, administrator login, and health return HTTP 200; anonymous AI capabilities, entrepreneurship advice, and administrator AI-settings calls each return the expected application-level 401.
+
+## First-Round AI Stabilization Fixes (2026-07-24)
+- **Status:** complete and deployed; human evidence review remains.
+- Added explicit industry recommendation confirmation, deterministic readiness, authenticated paid classification, stale-response guards, and three-state readiness presentation.
+- Added immutable AI runtime snapshots, conservative full-prompt reservation, bounded model/tag-aware classification caching, and a bounded region-tree cache.
+- Corrected multi-level geographic evidence classification and reduced readiness/evidence-review full-scan behavior.
+- Unified sources on `published`, exposed the existing industry flag in administrator tag management, and added alias-aware historical case-tag migration.
+- Stabilization migration now repairs each required column, primary key, unique key, and index independently; precheck/postcheck cover partial states and missed alias relations.
+- Nginx and systemd now share `/opt/opc/current`; deployment prepares a timestamped release and atomically switches the `current` symlink inside one guarded rollback boundary.
+- Verification passed: 118 backend tests, user-session test, assistant workflow test, 1,693-module frontend production build, 13 migration/deployment checks, Python syntax, CodeGraph sync, and `git diff --check`.
+- Production golden evidence remains `0` before manual review; no legacy record has been silently marked verified.
+- Production release: `/opt/opc/releases/20260724-232140`; current link: `/opt/opc/current`; database/config backup: `/opt/opc/backups/20260724-232140`; backend rollback artifact: `/opt/opc-backend.rollback.20260724-232140`.
+- Post-deployment migration check returned `0`; Nginx, MySQL, and backend are active; loopback health passed; public root, `/assistant`, and administrator login return HTTP 200.
+- Verified production evidence counts remain cases `0`, policies `0`, sources `0`; `active` source count is `0`. The 湖北省 + 人工智能应用 checklist remains the required administrator review input.
+
+## Integrated Evidence Review Workbench (2026-07-25)
+- **Status:** complete and deployed.
+- Added a dedicated queue/detail evidence workbench with source grouping, searchable server filters, URL-restored context, review checks, full content, safe original links, related records, history, sticky decisions, approve-next, in-place correction, mobile navigation, and batch preflight.
+- Closed ordinary evidence-status fields in case/policy/source DTOs and administrator forms. New records always start as `legacy_unverified`; verified content edits automatically invalidate and audit the affected evidence chain.
+- Added monotonic evidence revisions, atomic status/version checks, source-joined child verification, same-operation cascade invalidation, governed deletes, safe source URLs, and differentiated audit action types.
+- Added idempotent `20260725_evidence_workbench.sql` for evidence revisions and audit metadata, with deployment-time structure verification.
+- Verification passed: 140 backend tests, five frontend test scripts, 14 migration/deployment tests, Vite production build with 1,703 transformed modules, and two-axis correctness/security review with all task-specific P0/P1 findings fixed.
+- Production release: `/opt/opc/releases/20260725-014753`; current link: `/opt/opc/current`; database/config backup: `/opt/opc/backups/20260725-014753`; backend rollback artifact: `/opt/opc-backend.rollback.20260725-014753`; previous release: `/opt/opc/releases/20260725-001538`.
+- Post-deployment checks passed for Nginx, MySQL, backend health, one loopback-only Java process, public root, administrator workbench route, anonymous admin API rejection, authenticated queue/detail/preflight, and evidence-workbench schema verification.
+- Raw production evidence states are cases `verified=1 / pending=105 / excluded=0`, policies `0 / 68 / 0`, and sources `0 / 130 / 0`. The single verified case lacks a verified source chain, so the valid golden evidence set remains `0` and requires human review.
+
+## Production Evidence Review Pass (2026-07-25)
+- Reviewed the complete production inventory in source-first order: 130 sources, 68 policies, and 106 cases.
+- Approved 38 sources after confirming a named publisher, published status, safe reachable original URL, and page content corresponding to the stored title and OPC/AI subject.
+- Approved 36 policies after confirming the verified source relationship and matching the summary's key conclusions, dates, quantities, and monetary claims against the original page.
+- Moved the historic verified case back to pending because its source publisher metadata remains incomplete. No case currently has a fully verified source chain.
+- Retained all uncertain records as pending rather than excluding them: 92 sources, 32 policies, and 106 cases. No record was marked excluded.
+- Current effective evidence counts are verified sources `38`, verified policies `36`, and verified cases `0`. The audit produced two atomic batch operation IDs and one single-review operation ID under administrator `ACha_`.

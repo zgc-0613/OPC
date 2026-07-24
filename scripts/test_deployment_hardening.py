@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APPLICATION_CONFIG = ROOT / "opc-backend" / "src" / "main" / "resources" / "application.yaml"
 NGINX_CONFIG = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD_UNIT = ROOT / "deploy" / "systemd" / "opc-backend.service"
+DEPLOY_SCRIPT = ROOT / ".codex_deploy_opc.py"
 
 
 class DeploymentHardeningTest(unittest.TestCase):
@@ -81,6 +82,21 @@ class DeploymentHardeningTest(unittest.TestCase):
             self.assertIn("proxy_cache off;", location)
             self.assertNotIn("proxy_buffering off", location)
 
+    def test_paid_industry_resolution_has_a_rate_limited_exact_proxy_on_both_hosts(self):
+        config = NGINX_CONFIG.read_text(encoding="utf-8")
+        locations = re.findall(
+            r"location = /api/ai/industry-resolution \{(?P<body>.*?)\n\s*\}",
+            config,
+            flags=re.DOTALL,
+        )
+
+        self.assertEqual(2, len(locations))
+        for location in locations:
+            self.assertIn("limit_req zone=opc_ai_case burst=3 nodelay;", location)
+            self.assertIn("client_max_body_size 16k;", location)
+            self.assertIn("proxy_connect_timeout 5s;", location)
+            self.assertIn("proxy_read_timeout 60s;", location)
+
     def test_backend_systemd_unit_runs_as_a_restricted_service_account(self):
         unit = SYSTEMD_UNIT.read_text(encoding="utf-8")
 
@@ -101,6 +117,37 @@ class DeploymentHardeningTest(unittest.TestCase):
         ):
             self.assertIn(directive, unit)
         self.assertNotIn("MemoryDenyWriteExecute", unit)
+
+    def test_frontend_and_backend_are_served_from_one_atomic_release_link(self):
+        nginx = NGINX_CONFIG.read_text(encoding="utf-8")
+        unit = SYSTEMD_UNIT.read_text(encoding="utf-8")
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertEqual(3, nginx.count("root /opt/opc/current/frontend;"))
+        self.assertIn("-jar /opt/opc/current/opc-backend.jar", unit)
+        self.assertIn("mv -Tf", deploy)
+        self.assertNotIn("mv /var/www/opc", deploy)
+        self.assertIn("test -L", deploy)
+
+    def test_database_mutations_are_inside_the_guarded_deployment_boundary(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
+
+        backup_position = body.index("mysqldump --single-transaction")
+        guarded_position = body.index("    try:")
+        first_migration_position = body.index("admin-registration.sql'")
+        self.assertLess(backup_position, guarded_position)
+        self.assertGreater(first_migration_position, guarded_position)
+        self.assertIn("opc_platform.sql.gz", body)
+
+        for migration_name in (
+            "20260719_admin_registration.sql",
+            "20260724_ai_phase_one.sql",
+            "20260724_ai_model_catalog.sql",
+            "20260724_ai_stabilization.sql",
+        ):
+            migration = (ROOT / "deploy" / "sql" / migration_name).read_text(encoding="utf-8")
+            self.assertNotRegex(migration, r"(?im)^\s*(DROP|TRUNCATE|DELETE)\b")
 
 
 if __name__ == "__main__":

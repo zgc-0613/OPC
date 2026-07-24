@@ -1,6 +1,7 @@
 package com.opc.platform.ai.controller;
 
 import com.opc.platform.ai.config.AiWebMvcConfig;
+import com.opc.platform.ai.service.AiIndustryClassificationService;
 import com.opc.platform.ai.service.EntrepreneurshipAdvisorService;
 import com.opc.platform.common.config.SecurityConfig;
 import com.opc.platform.common.enums.ErrorCode;
@@ -46,11 +47,14 @@ class EntrepreneurshipAdvisorControllerTest {
     @Autowired
     private EntrepreneurshipAdvisorService advisorService;
 
+    @Autowired
+    private AiIndustryClassificationService classificationService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        reset(userAuthService, advisorService);
+        reset(userAuthService, advisorService, classificationService);
         mockMvc = MockMvcBuilders.webAppContextSetup(applicationContext)
                 .apply(springSecurity())
                 .build();
@@ -108,6 +112,31 @@ class EntrepreneurshipAdvisorControllerTest {
         verify(advisorService, never()).advise(any(), any());
     }
 
+    @Test
+    void authenticatedUserCanExplicitlyRequestIndustryClassification() throws Exception {
+        UserLoginVO user = new UserLoginVO();
+        user.setUserId(42L);
+        user.setUsername("ACha_");
+        user.setEmail("acha@example.com");
+        when(userAuthService.getCurrentUser("valid-user-token")).thenReturn(user);
+        when(classificationService.classify(any(), any())).thenReturn(
+                new com.opc.platform.tag.vo.IndustryResolution(
+                        703L, "人工智能应用", "common", "ai", 0.55, true
+                )
+        );
+
+        mockMvc.perform(post("/api/ai/industry-resolution")
+                        .header("Authorization", "Bearer valid-user-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"industry\":\"农业智能决策\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.method").value("ai"))
+                .andExpect(jsonPath("$.data.requiresConfirmation").value(true));
+
+        verify(classificationService).classify(any(), any());
+    }
+
     private String validRequest() {
         return """
                 {
@@ -142,6 +171,11 @@ class EntrepreneurshipAdvisorControllerTest {
         @Bean
         EntrepreneurshipAdvisorService entrepreneurshipAdvisorService() {
             return mock(EntrepreneurshipAdvisorService.class);
+        }
+
+        @Bean
+        AiIndustryClassificationService aiIndustryClassificationService() {
+            return mock(AiIndustryClassificationService.class);
         }
     }
 }

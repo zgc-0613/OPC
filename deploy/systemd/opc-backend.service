@@ -12,7 +12,7 @@ User=opc
 Group=opc
 WorkingDirectory=/opt/opc
 EnvironmentFile=/etc/opc-backend.env
-ExecStart=/usr/bin/java -Xms128m -Xmx512m -jar /opt/opc-backend.jar --spring.config.location=file:/opt/opc/application.yaml
+ExecStart=/usr/bin/java -Xms128m -Xmx512m -jar /opt/opc/current/opc-backend.jar --spring.config.location=file:/opt/opc/application.yaml
 SuccessExitStatus=143
 Restart=on-failure
 RestartSec=5
