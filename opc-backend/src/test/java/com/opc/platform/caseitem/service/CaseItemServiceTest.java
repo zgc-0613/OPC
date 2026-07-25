@@ -35,6 +35,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class CaseItemServiceTest {
@@ -109,6 +110,7 @@ class CaseItemServiceTest {
     @Test
     void ordinaryUpdateReportsConflictWhenTheLockedRowCannotBeUpdated() {
         CaseItem current = editableCase();
+        when(caseItemMapper.selectById(9L)).thenReturn(current);
         when(caseItemMapper.selectByIdForUpdate(9L)).thenReturn(current);
         when(regionMapper.selectById(1L)).thenReturn(new Region());
         when(sourceMapper.selectByIdForUpdate(2L)).thenReturn(new Source());
@@ -123,14 +125,50 @@ class CaseItemServiceTest {
     }
 
     @Test
+    void updateLocksTheSourceBeforeTheCaseRow() {
+        CaseItem current = editableCase();
+        current.setCategory(null);
+        when(caseItemMapper.selectById(9L)).thenReturn(current);
+        when(caseItemMapper.selectByIdForUpdate(9L)).thenReturn(current);
+        when(regionMapper.selectById(1L)).thenReturn(new Region());
+        when(sourceMapper.selectByIdForUpdate(2L)).thenReturn(new Source());
+        when(caseItemMapper.updateById(any(CaseItem.class))).thenReturn(1);
+
+        CaseItemUpdateDTO dto = updateDto();
+        dto.setCategory(null);
+        service.updateCaseItem(9L, dto, new AuthenticatedAdmin(7L, "reviewer"));
+
+        var order = inOrder(sourceMapper, caseItemMapper);
+        order.verify(sourceMapper).selectByIdForUpdate(2L);
+        order.verify(caseItemMapper).selectByIdForUpdate(9L);
+    }
+
+    @Test
+    void updateRejectsMissingConcurrencySnapshot() {
+        CaseItem current = editableCase();
+        when(caseItemMapper.selectById(9L)).thenReturn(current);
+        CaseItemUpdateDTO dto = updateDto();
+        dto.setExpectedEvidenceRevision(null);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.updateCaseItem(9L, dto, new AuthenticatedAdmin(7L, "reviewer"))
+        );
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
+    }
+
+    @Test
     void ordinaryDeleteReportsConflictWhenTheRowChangedAfterItWasRead() {
         CaseItem current = editableCase();
+        when(caseItemMapper.selectById(9L)).thenReturn(current);
         when(caseItemMapper.selectByIdForUpdate(9L)).thenReturn(current);
+        when(sourceMapper.selectByIdForUpdate(2L)).thenReturn(new Source());
         when(caseItemMapper.deleteById(9L)).thenReturn(0);
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> service.deleteCaseItem(9L)
+                () -> service.deleteCaseItem(9L, 3L, LocalDateTime.of(2026, 7, 25, 2, 0))
         );
 
         assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());

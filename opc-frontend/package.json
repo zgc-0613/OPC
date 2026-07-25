@@ -9,9 +9,12 @@
     "preview": "vite preview --host 0.0.0.0",
     "test:auth-session": "node scripts/test-user-session.mjs",
     "test:assistant": "node scripts/test-assistant-workflow.mjs",
+    "test:assistant-component": "vitest run src/views/__tests__/AssistantView.spec.js",
     "test:evidence-review-batch": "node scripts/test-evidence-review-batch.mjs",
     "test:evidence-review": "node scripts/test-evidence-review-query.mjs",
-    "test:evidence-workbench": "node scripts/test-evidence-workbench.mjs"
+    "test:evidence-workbench": "node scripts/test-evidence-workbench.mjs",
+    "test:admin-concurrency": "node scripts/test-admin-concurrency-snapshots.mjs",
+    "test:policy-applicability": "node scripts/test-policy-applicability.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^6.0.1",
@@ -21,5 +24,10 @@
     "vite": "^7.1.12",
     "vue": "^3.5.22",
     "vue-router": "^4.6.3"
+  },
+  "devDependencies": {
+    "@vue/test-utils": "^2.4.11",
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.10"
   }
 }

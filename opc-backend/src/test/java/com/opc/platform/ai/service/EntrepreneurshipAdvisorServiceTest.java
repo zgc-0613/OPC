@@ -1,7 +1,9 @@
 package com.opc.platform.ai.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.dto.EntrepreneurshipAdviceRequestDTO;
+import com.opc.platform.ai.exception.AiResponseValidationException;
 import com.opc.platform.ai.dto.EntrepreneurshipReadinessRequestDTO;
 import com.opc.platform.ai.entity.AiAnalysisRun;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
@@ -20,8 +22,8 @@ import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.policy.mapper.PolicyMapper;
 import com.opc.platform.policy.entity.Policy;
-import com.opc.platform.policytag.entity.PolicyTag;
-import com.opc.platform.policytag.mapper.PolicyTagMapper;
+import com.opc.platform.policyindustrytag.entity.PolicyIndustryTag;
+import com.opc.platform.policyindustrytag.mapper.PolicyIndustryTagMapper;
 import com.opc.platform.region.entity.Region;
 import com.opc.platform.region.mapper.RegionMapper;
 import com.opc.platform.source.mapper.SourceMapper;
@@ -40,6 +42,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -63,7 +66,7 @@ class EntrepreneurshipAdvisorServiceTest {
     private final AiClient aiClient = mock(AiClient.class);
     private final AiRuntimeSettingsProvider settingsProvider = mock(AiRuntimeSettingsProvider.class);
     private final CaseTagMapper caseTagMapper = mock(CaseTagMapper.class);
-    private final PolicyTagMapper policyTagMapper = mock(PolicyTagMapper.class);
+    private final PolicyIndustryTagMapper policyIndustryTagMapper = mock(PolicyIndustryTagMapper.class);
     private final IndustryTagService industryTagService = mock(IndustryTagService.class);
 
     private EntrepreneurshipAdvisorService service;
@@ -77,7 +80,7 @@ class EntrepreneurshipAdvisorServiceTest {
                 sourceMapper,
                 regionMapper,
                 caseTagMapper,
-                policyTagMapper,
+                policyIndustryTagMapper,
                 industryTagService,
                 aiClient,
                 objectMapper
@@ -99,7 +102,7 @@ class EntrepreneurshipAdvisorServiceTest {
                         .toList()
         );
         when(caseTagMapper.selectList(any())).thenReturn(List.of(caseTag(11L, 703L)));
-        when(policyTagMapper.selectList(any())).thenReturn(List.of(policyTag(21L, 703L)));
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of(policyTag(21L, 703L)));
         when(industryTagService.resolve(any(), any(), any(Boolean.class))).thenReturn(
                 new IndustryResolution(703L, "人工智能应用", "common", "tag_name", 1.0, false)
         );
@@ -121,7 +124,8 @@ class EntrepreneurshipAdvisorServiceTest {
             run.setId(101L);
             return 1;
         });
-        when(runMapper.settle(anyLong(), any(), any(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any()))
+        when(runMapper.settle(anyLong(), any(), any(), any(), anyInt(), anyInt(), anyInt(), anyLong(),
+                any(), any(), any(), any(), any()))
                 .thenReturn(1);
         when(caseItemMapper.selectById(anyLong())).thenAnswer(invocation -> {
             Long id = invocation.getArgument(0);
@@ -289,7 +293,107 @@ class EntrepreneurshipAdvisorServiceTest {
         );
 
         assertEquals(ErrorCode.UPSTREAM_ERROR, exception.getErrorCode());
-        assertEquals("AI 返回内容格式无效，请稍后重试", exception.getMessage());
+        assertEquals("UNKNOWN_SOURCE_ID", ((AiResponseValidationException) exception).getDiagnosticCode());
+    }
+
+    @Test
+    void promptContainsCompleteSchemaAllowedSourceIdsAndLegalExample() throws Exception {
+        givenVerifiedEvidence();
+        when(aiClient.generate(any(), eq(settings))).thenReturn(validProviderResponse("stop"));
+
+        service.advise(user(), request());
+
+        ArgumentCaptor<AiProviderRequest> captor = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(aiClient).generate(captor.capture(), eq(settings));
+        AiProviderRequest providerRequest = captor.getValue();
+        JsonNode schema = new ObjectMapper().readTree(providerRequest.responseSchema());
+        assertEquals("object", schema.path("type").asText());
+        assertFalse(schema.path("additionalProperties").asBoolean(true));
+        assertEquals(7, schema.path("required").size());
+        assertEquals("array", schema.path("properties").path("citations").path("type").asText());
+        assertFalse(schema.path("properties").path("citations").path("items")
+                .path("additionalProperties").asBoolean(true));
+        assertEquals("number", schema.path("properties").path("confidence").path("type").asText());
+        assertEquals(0.0, schema.path("properties").path("confidence").path("minimum").asDouble());
+        assertEquals(1.0, schema.path("properties").path("confidence").path("maximum").asDouble());
+        assertTrue(providerRequest.systemPrompt().contains("[8, 9]"));
+        assertTrue(providerRequest.systemPrompt().contains("\"sourceId\":8"));
+    }
+
+    @Test
+    void acceptsJsonWrappedInOneMarkdownCodeFence() {
+        givenVerifiedEvidence();
+        AiProviderResponse response = validProviderResponse("stop");
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
+                "```json\n" + response.content() + "\n```",
+                response.promptTokens(), response.completionTokens(), response.totalTokens(),
+                response.latencyMs(), response.requestId(), response.finishReason()
+        ));
+
+        var result = service.advise(user(), request());
+
+        assertEquals("验证需求", result.getSummary());
+    }
+
+    @Test
+    void missingRequiredFieldHasDedicatedDiagnostic() {
+        AiResponseValidationException exception = adviseWithResponse("""
+                {"summary":"验证需求","opportunities":[],"risks":[],"actionPlan":[],
+                 "citations":[{"sourceId":8,"claim":"案例显示可先验证需求"}],"confidence":0.7}
+                """, "stop");
+
+        assertEquals("MISSING_FIELD", exception.getDiagnosticCode());
+    }
+
+    @Test
+    void confidenceStringIsRejectedInsteadOfBeingCoerced() {
+        AiResponseValidationException exception = adviseWithResponse("""
+                {"summary":"验证需求","recommendedDirection":"先访谈客户","opportunities":[],"risks":[],
+                 "actionPlan":[],"citations":[{"sourceId":8,"claim":"案例显示可先验证需求"}],"confidence":"0.7"}
+                """, "stop");
+
+        assertEquals("INVALID_CONFIDENCE", exception.getDiagnosticCode());
+    }
+
+    @Test
+    void missingCitationsHasDedicatedDiagnostic() {
+        AiResponseValidationException exception = adviseWithResponse("""
+                {"summary":"验证需求","recommendedDirection":"先访谈客户","opportunities":[],"risks":[],
+                 "actionPlan":[],"citations":[],"confidence":0.7}
+                """, "stop");
+
+        assertEquals("MISSING_CITATIONS", exception.getDiagnosticCode());
+    }
+
+    @Test
+    void blankCitationClaimHasDedicatedDiagnostic() {
+        AiResponseValidationException exception = adviseWithResponse("""
+                {"summary":"验证需求","recommendedDirection":"先访谈客户","opportunities":[],"risks":[],
+                 "actionPlan":[],"citations":[{"sourceId":8,"claim":"  "}],"confidence":0.7}
+                """, "stop");
+
+        assertEquals("BLANK_CLAIM", exception.getDiagnosticCode());
+    }
+
+    @Test
+    void invalidJsonHasDedicatedDiagnostic() {
+        AiResponseValidationException exception = adviseWithResponse("{\"summary\":", "stop");
+
+        assertEquals("INVALID_JSON", exception.getDiagnosticCode());
+    }
+
+    @Test
+    void finishReasonLengthIsReportedAsTruncatedBeforeParsing() {
+        AiResponseValidationException exception = adviseWithResponse("{\"summary\":", "length");
+
+        assertEquals("TRUNCATED_RESPONSE", exception.getDiagnosticCode());
+    }
+
+    @Test
+    void unexpectedFinishReasonIsReportedSeparately() {
+        AiResponseValidationException exception = adviseWithResponse("{}", "content_filter");
+
+        assertEquals("ABNORMAL_FINISH_REASON", exception.getDiagnosticCode());
     }
 
     @Test
@@ -312,6 +416,30 @@ class EntrepreneurshipAdvisorServiceTest {
 
         assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
         assertTrue(exception.getMessage().contains("证据"));
+    }
+
+    private void givenVerifiedEvidence() {
+        when(caseItemMapper.selectList(any())).thenReturn(List.of(caseItem()));
+        when(policyMapper.selectList(any())).thenReturn(List.of(policy()));
+        when(sourceMapper.selectById(8L)).thenReturn(source());
+        when(sourceMapper.selectById(9L)).thenReturn(source(9L, "政策原文"));
+        when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
+    }
+
+    private AiProviderResponse validProviderResponse(String finishReason) {
+        return new AiProviderResponse("""
+                {"summary":"验证需求","recommendedDirection":"先访谈客户","opportunities":["需求明确"],
+                 "risks":["付费意愿未知"],"actionPlan":["访谈十名客户"],
+                 "citations":[{"sourceId":8,"claim":"案例显示可先验证需求"}],"confidence":0.7}
+                """, 200, 180, 380, 400, "req-advisor", finishReason);
+    }
+
+    private AiResponseValidationException adviseWithResponse(String content, String finishReason) {
+        givenVerifiedEvidence();
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
+                content, 200, 180, 380, 400, "req-advisor", finishReason
+        ));
+        return assertThrows(AiResponseValidationException.class, () -> service.advise(user(), request()));
     }
 
     private EntrepreneurshipAdviceRequestDTO request() {
@@ -397,6 +525,7 @@ class EntrepreneurshipAdvisorServiceTest {
         policy.setSupportMeasures("创业辅导与资源对接");
         policy.setStatus("published");
         policy.setAiEvidenceStatus("verified");
+        policy.setApplicabilityMode("specific");
         return policy;
     }
 
@@ -407,10 +536,10 @@ class EntrepreneurshipAdvisorServiceTest {
         return relation;
     }
 
-    private PolicyTag policyTag(Long policyId, Long tagId) {
-        PolicyTag relation = new PolicyTag();
+    private PolicyIndustryTag policyTag(Long policyId, Long tagId) {
+        PolicyIndustryTag relation = new PolicyIndustryTag();
         relation.setPolicyId(policyId);
-        relation.setTagId(tagId);
+        relation.setIndustryTagId(tagId);
         return relation;
     }
 }

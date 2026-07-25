@@ -111,6 +111,7 @@ public class OpenAiCompatibleAiClient implements AiClient {
                 throw new IllegalArgumentException("Missing completion content");
             }
             JsonNode usage = root.path("usage");
+            String finishReason = root.path("choices").path(0).path("finish_reason").asText(null);
             String requestId = firstHeader(response.headers(), "x-request-id");
             if (requestId == null || requestId.isBlank()) {
                 requestId = root.path("id").asText(null);
@@ -121,7 +122,8 @@ public class OpenAiCompatibleAiClient implements AiClient {
                     usage.path("completion_tokens").asInt(0),
                     usage.path("total_tokens").asInt(0),
                     latencyMs,
-                    requestId
+                    requestId,
+                    finishReason
             );
         } catch (Exception exception) {
             throw providerFailure(502);

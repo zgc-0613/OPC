@@ -15,8 +15,8 @@ import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.policy.entity.Policy;
 import com.opc.platform.policy.mapper.PolicyMapper;
-import com.opc.platform.policytag.entity.PolicyTag;
-import com.opc.platform.policytag.mapper.PolicyTagMapper;
+import com.opc.platform.policyindustrytag.entity.PolicyIndustryTag;
+import com.opc.platform.policyindustrytag.mapper.PolicyIndustryTagMapper;
 import com.opc.platform.region.entity.Region;
 import com.opc.platform.region.mapper.RegionMapper;
 import com.opc.platform.source.entity.Source;
@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -60,7 +61,7 @@ public class EntrepreneurshipEvidenceService {
     private final SourceMapper sourceMapper;
     private final RegionMapper regionMapper;
     private final CaseTagMapper caseTagMapper;
-    private final PolicyTagMapper policyTagMapper;
+    private final PolicyIndustryTagMapper policyIndustryTagMapper;
     private final IndustryTagService industryTagService;
     private final AiClient aiClient;
     private final ObjectMapper objectMapper;
@@ -108,6 +109,9 @@ public class EntrepreneurshipEvidenceService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toMap(Source::getId, Function.identity(), (left, right) -> left,
                         LinkedHashMap::new));
+        Map<Long, Set<Long>> currentPolicyIndustryTags = policyIndustryTagsByPolicyIds(
+                currentPolicies.stream().map(item -> item.item().getId()).toList()
+        );
 
         if (currentCases.size() != assessment.cases().size()
                 || currentPolicies.size() != assessment.policies().size()
@@ -118,7 +122,7 @@ public class EntrepreneurshipEvidenceService {
             throw new BusinessException(ErrorCode.CONFLICT, "分析期间证据已变更，请重新生成");
         }
         if (!Objects.equals(assessment.hash(), evidenceHash(
-                assessment.industry(), currentCases, currentPolicies, currentSources))) {
+                assessment.industry(), currentCases, currentPolicies, currentSources, currentPolicyIndustryTags))) {
             throw new BusinessException(ErrorCode.CONFLICT, "分析期间证据版本已变更，请重新生成");
         }
     }
@@ -152,6 +156,7 @@ public class EntrepreneurshipEvidenceService {
     private boolean sameVersion(Policy expected, Policy actual) {
         return Objects.equals(expected.getStatus(), actual.getStatus())
                 && Objects.equals(expected.getAiEvidenceStatus(), actual.getAiEvidenceStatus())
+                && Objects.equals(expected.getApplicabilityMode(), actual.getApplicabilityMode())
                 && Objects.equals(expected.getSourceId(), actual.getSourceId())
                 && Objects.equals(revision(expected.getEvidenceRevision()), revision(actual.getEvidenceRevision()))
                 && Objects.equals(expected.getUpdatedAt(), actual.getUpdatedAt());
@@ -184,7 +189,7 @@ public class EntrepreneurshipEvidenceService {
         Set<Long> relatedTagIds = new LinkedHashSet<>(industryTagService.relatedTagIds(resolution.tagId()));
         relatedTagIds.add(resolution.tagId());
         Map<Long, Set<Long>> caseTags = caseTagsByItem(relatedTagIds);
-        Map<Long, Set<Long>> policyTags = policyTagsByItem(relatedTagIds);
+        Map<Long, Set<Long>> policyTags = policyIndustryTagsByItem(relatedTagIds);
         String requestedText = StringUtils.hasText(industryText) ? industryText.trim() : resolution.name();
 
         LambdaQueryWrapper<CaseItem> caseQuery = new LambdaQueryWrapper<CaseItem>()
@@ -200,22 +205,24 @@ public class EntrepreneurshipEvidenceService {
                 .sorted(caseComparator())
                 .toList();
 
+        Set<Long> eligiblePolicyRegionIds = regions.values().stream()
+                .filter(region -> !"cross_region".equals(geography(
+                        region.getId(), regions, regionId
+                ).level()))
+                .map(Region::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
         LambdaQueryWrapper<Policy> policyQuery = new LambdaQueryWrapper<Policy>()
                 .eq(Policy::getStatus, PUBLISHED)
-                .eq(Policy::getAiEvidenceStatus, VERIFIED);
-        applyPolicyIndustryFilter(policyQuery, policyTags.keySet(), industryTerms(requestedText, resolution.name()));
+                .eq(Policy::getAiEvidenceStatus, VERIFIED)
+                .in(Policy::getRegionId, eligiblePolicyRegionIds);
+        applyPolicyApplicabilityFilter(policyQuery, policyTags.keySet());
 
-        List<ScoredPolicy> relevantPolicies = safe(policyMapper.selectList(
-                policyQuery
-        )).stream()
-                .map(item -> scorePolicy(item, resolution, requestedText, goal, relatedTagIds, policyTags, regions, regionId))
-                .filter(item -> item.relevance() > 0 && !"cross_region".equals(item.geographicLevel()))
-                .sorted(policyComparator())
-                .toList();
+        List<Policy> verifiedPolicyCandidates = safe(policyMapper.selectList(policyQuery));
+        int verifiedPolicyCandidateCount = verifiedPolicyCandidates.size();
 
         Set<Long> candidateSourceIds = new LinkedHashSet<>();
         relevantCases.stream().map(item -> item.item().getSourceId()).filter(Objects::nonNull).forEach(candidateSourceIds::add);
-        relevantPolicies.stream().map(item -> item.item().getSourceId()).filter(Objects::nonNull).forEach(candidateSourceIds::add);
+        verifiedPolicyCandidates.stream().map(Policy::getSourceId).filter(Objects::nonNull).forEach(candidateSourceIds::add);
         Map<Long, Source> candidateSources = candidateSourceIds.isEmpty()
                 ? Map.of()
                 : safe(sourceMapper.selectBatchIds(candidateSourceIds)).stream()
@@ -235,18 +242,65 @@ public class EntrepreneurshipEvidenceService {
                 sourceRejected++;
             }
         }
-        List<ScoredPolicy> policies = new ArrayList<>();
-        for (ScoredPolicy candidate : relevantPolicies) {
-            Source source = candidateSources.get(candidate.item().getSourceId());
-            if (source != null) {
-                if (policies.size() < POLICY_LIMIT) {
-                    policies.add(candidate);
-                    sources.put(source.getId(), source);
+        int sourceRejectedPolicyCount = 0;
+        int regionMatchedPolicyCount = 0;
+        int directIndustryPolicyCount = 0;
+        int generalPolicyCount = 0;
+        int unclassifiedPolicyCount = 0;
+        List<ScoredPolicy> selectablePolicies = new ArrayList<>();
+        for (Policy candidate : verifiedPolicyCandidates) {
+            Source source = candidateSources.get(candidate.getSourceId());
+            if (source == null) {
+                sourceRejectedPolicyCount++;
+                continue;
+            }
+            ScoredPolicy scored = scorePolicy(
+                    candidate, resolution, requestedText, goal, relatedTagIds, policyTags, regions, regionId
+            );
+            if ("cross_region".equals(scored.geographicLevel())) {
+                continue;
+            }
+            regionMatchedPolicyCount++;
+            switch (safe(candidate.getApplicabilityMode())) {
+                case "specific" -> {
+                    if (scored.relevance() > 0) {
+                        directIndustryPolicyCount++;
+                        selectablePolicies.add(scored);
+                    }
                 }
-            } else {
-                sourceRejected++;
+                case "general" -> {
+                    generalPolicyCount++;
+                    selectablePolicies.add(scored);
+                }
+                default -> {
+                    unclassifiedPolicyCount++;
+                    selectablePolicies.add(scored);
+                }
             }
         }
+        selectablePolicies.sort(policyComparator());
+        List<ScoredPolicy> policies = new ArrayList<>();
+        for (ScoredPolicy candidate : selectablePolicies) {
+            if (policies.size() >= POLICY_LIMIT) {
+                break;
+            }
+            policies.add(candidate);
+            Source source = candidateSources.get(candidate.item().getSourceId());
+            sources.put(source.getId(), source);
+        }
+        sourceRejected += sourceRejectedPolicyCount;
+        Map<Long, Set<Long>> selectedPolicyIndustryTags = policyIndustryTagsByPolicyIds(
+                policies.stream().map(item -> item.item().getId()).toList()
+        );
+        PolicyDiagnostics policyDiagnostics = new PolicyDiagnostics(
+                verifiedPolicyCandidateCount,
+                regionMatchedPolicyCount,
+                directIndustryPolicyCount,
+                generalPolicyCount,
+                unclassifiedPolicyCount,
+                sourceRejectedPolicyCount,
+                policies.size()
+        );
 
         List<String> reasons = new ArrayList<>();
         if (resolution.requiresConfirmation()) {
@@ -255,8 +309,19 @@ public class EntrepreneurshipEvidenceService {
         if (cases.isEmpty()) {
             reasons.add("无已核验案例");
         }
-        if (policies.isEmpty()) {
-            reasons.add("无已核验政策");
+        if (verifiedPolicyCandidateCount == 0) {
+            reasons.add("没有已核验政策");
+        } else {
+            if (directIndustryPolicyCount == 0) {
+                reasons.add("当前行业暂无直接匹配政策");
+            }
+            if (generalPolicyCount > 0) {
+                reasons.add("当前地区有通用创业政策可参考");
+            }
+            if (unclassifiedPolicyCount > 0) {
+                reasons.add("存在 " + unclassifiedPolicyCount
+                        + " 条尚未完成行业适用性分类的政策，将仅作为地区政策参考");
+            }
         }
         if (sourceRejected > 0) {
             reasons.add("存在 " + sourceRejected + " 条相关资料的来源未核验");
@@ -272,16 +337,18 @@ public class EntrepreneurshipEvidenceService {
             reasons.add("证据有限：将限制结论范围，不补造缺失事实");
         }
         boolean evidenceAvailable = !"insufficient".equals(readinessStatus);
-        String hash = evidenceHash(resolution, cases, policies, sources);
+        String hash = evidenceHash(resolution, cases, policies, sources, selectedPolicyIndustryTags);
         return new Assessment(
                 requestedRegion,
                 resolution,
                 List.copyOf(cases),
                 List.copyOf(policies),
                 Map.copyOf(sources),
+                copyRelations(selectedPolicyIndustryTags),
                 List.copyOf(reasons),
                 readinessStatus,
-                relevantCases.size() + relevantPolicies.size(),
+                relevantCases.size() + selectablePolicies.size(),
+                policyDiagnostics,
                 evidenceAvailable,
                 aiClient.descriptor().available(),
                 hash
@@ -290,8 +357,9 @@ public class EntrepreneurshipEvidenceService {
 
     private Assessment emptyAssessment(Region region, IndustryResolution resolution, List<String> reasons) {
         return new Assessment(
-                region, resolution, List.of(), List.of(), Map.of(), reasons,
-                "insufficient", 0, false, aiClient.descriptor().available(), sha256(region.getId() + ":unresolved")
+                region, resolution, List.of(), List.of(), Map.of(), Map.of(), reasons,
+                "insufficient", 0, PolicyDiagnostics.empty(), false,
+                aiClient.descriptor().available(), sha256(region.getId() + ":unresolved")
         );
     }
 
@@ -305,6 +373,13 @@ public class EntrepreneurshipEvidenceService {
         result.setConfidence(assessment.industry().confidence());
         result.setVerifiedCaseCount(assessment.cases().size());
         result.setVerifiedPolicyCount(assessment.policies().size());
+        result.setVerifiedPolicyCandidateCount(assessment.policyDiagnostics().verifiedPolicyCandidateCount());
+        result.setRegionMatchedPolicyCount(assessment.policyDiagnostics().regionMatchedPolicyCount());
+        result.setDirectIndustryPolicyCount(assessment.policyDiagnostics().directIndustryPolicyCount());
+        result.setGeneralPolicyCount(assessment.policyDiagnostics().generalPolicyCount());
+        result.setUnclassifiedPolicyCount(assessment.policyDiagnostics().unclassifiedPolicyCount());
+        result.setSourceRejectedPolicyCount(assessment.policyDiagnostics().sourceRejectedPolicyCount());
+        result.setSelectedPolicyCount(assessment.policyDiagnostics().selectedPolicyCount());
         result.setVerifiedSourceCount(assessment.sources().size());
         result.setTotalRelevantCount(assessment.totalRelevantCount());
         result.setSelectedEvidenceCount(assessment.cases().size() + assessment.policies().size());
@@ -362,16 +437,29 @@ public class EntrepreneurshipEvidenceService {
             Map<Long, Region> regions,
             Long requestedRegionId
     ) {
-        int relevance = relevance(
-                searchable(item.getTitle(), item.getPolicyType(), item.getSummary(), item.getTags(), item.getKeyPoints(), item.getSupportMeasures()),
+        Set<Long> explicitIndustryTags = relations.getOrDefault(item.getId(), Set.of());
+        boolean directIndustry = explicitIndustryTags.stream().anyMatch(relatedTagIds::contains);
+        int textRelevance = textScore(
+                searchable(item.getTitle(), item.getPolicyType(), item.getSummary(), item.getTags(),
+                        item.getKeyPoints(), item.getSupportMeasures()),
                 industryText,
-                resolution.name(),
-                goal,
-                relations.getOrDefault(item.getId(), Set.of()),
-                relatedTagIds
+                20
         );
+        if (!Objects.equals(industryText, resolution.name())) {
+            textRelevance += textScore(searchable(item.getTitle(), item.getSummary(), item.getKeyPoints()), resolution.name(), 20);
+        }
+        textRelevance += textScore(searchable(item.getTitle(), item.getSummary(), item.getSupportMeasures()), goal, 2);
+        int relevance = switch (safe(item.getApplicabilityMode())) {
+            case "specific" -> directIndustry ? 100 + textRelevance : 0;
+            case "general" -> 20 + textRelevance;
+            default -> 5 + textRelevance;
+        };
         Geographic geographic = geography(item.getRegionId(), regions, requestedRegionId);
-        return new ScoredPolicy(item, relevance, geographic.rank(), geographic.level(), geographic.reason(), geographic.regionName());
+        String applicabilityReason = directIndustry
+                ? "指定行业政策"
+                : "general".equals(item.getApplicabilityMode()) ? "通用创业政策" : "行业适用性未分类";
+        return new ScoredPolicy(item, relevance, geographic.rank(), geographic.level(),
+                applicabilityReason + " · " + geographic.reason(), geographic.regionName());
     }
 
     private int relevance(
@@ -485,14 +573,34 @@ public class EntrepreneurshipEvidenceService {
                 ));
     }
 
-    private Map<Long, Set<Long>> policyTagsByItem(Set<Long> relatedTagIds) {
-        return safe(policyTagMapper.selectList(
-                new LambdaQueryWrapper<PolicyTag>().in(PolicyTag::getTagId, relatedTagIds)
+    private Map<Long, Set<Long>> policyIndustryTagsByItem(Set<Long> relatedTagIds) {
+        return safe(policyIndustryTagMapper.selectList(
+                new LambdaQueryWrapper<PolicyIndustryTag>().in(PolicyIndustryTag::getIndustryTagId, relatedTagIds)
         )).stream()
                 .collect(Collectors.groupingBy(
-                        PolicyTag::getPolicyId,
-                        Collectors.mapping(PolicyTag::getTagId, Collectors.toSet())
+                        PolicyIndustryTag::getPolicyId,
+                        Collectors.mapping(PolicyIndustryTag::getIndustryTagId, Collectors.toSet())
                 ));
+    }
+
+    private Map<Long, Set<Long>> policyIndustryTagsByPolicyIds(Collection<Long> policyIds) {
+        if (policyIds == null || policyIds.isEmpty()) {
+            return Map.of();
+        }
+        return safe(policyIndustryTagMapper.selectList(
+                new LambdaQueryWrapper<PolicyIndustryTag>().in(PolicyIndustryTag::getPolicyId, policyIds)
+        )).stream()
+                .collect(Collectors.groupingBy(
+                        PolicyIndustryTag::getPolicyId,
+                        Collectors.mapping(PolicyIndustryTag::getIndustryTagId, Collectors.toCollection(TreeSet::new))
+                ));
+    }
+
+    private Map<Long, Set<Long>> copyRelations(Map<Long, Set<Long>> relations) {
+        return relations.entrySet().stream().collect(Collectors.toUnmodifiableMap(
+                Map.Entry::getKey,
+                entry -> Set.copyOf(entry.getValue())
+        ));
     }
 
     private Set<String> industryTerms(String requestedText, String canonicalName) {
@@ -530,26 +638,18 @@ public class EntrepreneurshipEvidenceService {
         });
     }
 
-    private void applyPolicyIndustryFilter(
+    private void applyPolicyApplicabilityFilter(
             LambdaQueryWrapper<Policy> wrapper,
-            Set<Long> taggedItemIds,
-            Set<String> terms
+            Set<Long> directlyRelatedPolicyIds
     ) {
-        wrapper.and(group -> {
-            boolean hasPrevious = false;
-            if (!taggedItemIds.isEmpty()) {
-                group.in(Policy::getId, taggedItemIds);
-                hasPrevious = true;
-            }
-            for (String term : terms) {
-                if (hasPrevious) group.or();
-                group.and(text -> text.like(Policy::getTitle, term)
-                        .or().like(Policy::getPolicyType, term)
-                        .or().like(Policy::getSummary, term)
-                        .or().like(Policy::getTags, term)
-                        .or().like(Policy::getKeyPoints, term)
-                        .or().like(Policy::getSupportMeasures, term));
-                hasPrevious = true;
+        wrapper.and(scope -> {
+            scope.eq(Policy::getApplicabilityMode, "general")
+                    .or()
+                    .eq(Policy::getApplicabilityMode, "unclassified");
+            if (!directlyRelatedPolicyIds.isEmpty()) {
+                scope.or(branch -> branch
+                        .eq(Policy::getApplicabilityMode, "specific")
+                        .in(Policy::getId, directlyRelatedPolicyIds));
             }
         });
     }
@@ -593,10 +693,19 @@ public class EntrepreneurshipEvidenceService {
     }
 
     private Comparator<ScoredPolicy> policyComparator() {
-        return Comparator.comparingInt(ScoredPolicy::relevance).reversed()
-                .thenComparing(Comparator.comparingInt(ScoredPolicy::geographicRank).reversed())
+        return Comparator.comparingInt(ScoredPolicy::geographicRank).reversed()
+                .thenComparing(Comparator.comparingInt(this::policyApplicabilityRank).reversed())
+                .thenComparing(Comparator.comparingInt(ScoredPolicy::relevance).reversed())
                 .thenComparing(item -> date(item.item().getPublishDate()), Comparator.reverseOrder())
                 .thenComparing(item -> item.item().getId(), Comparator.reverseOrder());
+    }
+
+    private int policyApplicabilityRank(ScoredPolicy policy) {
+        return switch (safe(policy.item().getApplicabilityMode())) {
+            case "specific" -> 3;
+            case "general" -> 2;
+            default -> 1;
+        };
     }
 
     private LocalDate date(LocalDate value) {
@@ -607,7 +716,8 @@ public class EntrepreneurshipEvidenceService {
             IndustryResolution industry,
             List<ScoredCase> cases,
             List<ScoredPolicy> policies,
-            Map<Long, Source> sources
+            Map<Long, Source> sources,
+            Map<Long, Set<Long>> policyIndustryTags
     ) {
         try {
             Map<String, Object> content = new LinkedHashMap<>();
@@ -624,6 +734,8 @@ public class EntrepreneurshipEvidenceService {
                     item.item().getId(), safe(item.item().getTitle()), safe(item.item().getSummary()),
                     safe(item.item().getKeyPoints()), safe(item.item().getSupportMeasures()),
                     safe(item.item().getStatus()), safe(item.item().getAiEvidenceStatus()),
+                    safe(item.item().getApplicabilityMode()),
+                    policyIndustryTags.getOrDefault(item.item().getId(), Set.of()).stream().sorted().toList(),
                     revision(item.item().getEvidenceRevision()),
                     item.item().getSourceId(),
                     safe(item.item().getUpdatedAt() == null ? null : item.item().getUpdatedAt().toString())
@@ -678,13 +790,29 @@ public class EntrepreneurshipEvidenceService {
             List<ScoredCase> cases,
             List<ScoredPolicy> policies,
             Map<Long, Source> sources,
+            Map<Long, Set<Long>> policyIndustryTags,
             List<String> reasons,
             String readinessStatus,
             int totalRelevantCount,
+            PolicyDiagnostics policyDiagnostics,
             boolean evidenceAvailable,
             boolean modelAvailable,
             String hash
     ) {
+    }
+
+    public record PolicyDiagnostics(
+            int verifiedPolicyCandidateCount,
+            int regionMatchedPolicyCount,
+            int directIndustryPolicyCount,
+            int generalPolicyCount,
+            int unclassifiedPolicyCount,
+            int sourceRejectedPolicyCount,
+            int selectedPolicyCount
+    ) {
+        private static PolicyDiagnostics empty() {
+            return new PolicyDiagnostics(0, 0, 0, 0, 0, 0, 0);
+        }
     }
 
     public record ScoredCase(

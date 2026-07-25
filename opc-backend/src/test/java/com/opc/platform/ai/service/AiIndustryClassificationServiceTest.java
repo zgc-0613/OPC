@@ -10,7 +10,7 @@ import com.opc.platform.ai.provider.AiRuntimeSettings;
 import com.opc.platform.ai.provider.AiRuntimeSnapshot;
 import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.casetag.mapper.CaseTagMapper;
-import com.opc.platform.policytag.mapper.PolicyTagMapper;
+import com.opc.platform.policyindustrytag.mapper.PolicyIndustryTagMapper;
 import com.opc.platform.tag.entity.Tag;
 import com.opc.platform.tag.mapper.TagMapper;
 import com.opc.platform.tag.service.IndustryTagService;
@@ -42,7 +42,7 @@ class AiIndustryClassificationServiceTest {
     private final TagMapper tagMapper = mock(TagMapper.class);
     private final TagAliasMapper aliasMapper = mock(TagAliasMapper.class);
     private final CaseTagMapper caseTagMapper = mock(CaseTagMapper.class);
-    private final PolicyTagMapper policyTagMapper = mock(PolicyTagMapper.class);
+    private final PolicyIndustryTagMapper policyIndustryTagMapper = mock(PolicyIndustryTagMapper.class);
     private final AiAnalysisRunMapper runMapper = mock(AiAnalysisRunMapper.class);
     private final AiClient aiClient = mock(AiClient.class);
     private final AiRuntimeSettingsProvider settingsProvider = mock(AiRuntimeSettingsProvider.class);
@@ -52,7 +52,7 @@ class AiIndustryClassificationServiceTest {
     @BeforeEach
     void setUp() {
         IndustryTagService industryTags = new IndustryTagService(
-                tagMapper, aliasMapper, caseTagMapper, policyTagMapper
+                tagMapper, aliasMapper, caseTagMapper, policyIndustryTagMapper
         );
         when(tagMapper.selectList(any())).thenReturn(List.of(
                 industry(703L, "人工智能应用"),
@@ -60,7 +60,7 @@ class AiIndustryClassificationServiceTest {
         ));
         when(aliasMapper.selectList(any())).thenReturn(List.of());
         when(caseTagMapper.selectList(any())).thenReturn(List.of());
-        when(policyTagMapper.selectList(any())).thenReturn(List.of());
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of());
         when(tagMapper.selectById(703L)).thenReturn(industry(703L, "人工智能应用"));
         when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
         settings = new AiRuntimeSettings(
@@ -80,7 +80,8 @@ class AiIndustryClassificationServiceTest {
             run.setId(88L);
             return 1;
         });
-        when(runMapper.settle(anyLong(), any(), any(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any()))
+        when(runMapper.settle(anyLong(), any(), any(), any(), anyInt(), anyInt(), anyInt(), anyLong(),
+                any(), any(), any(), any(), any()))
                 .thenReturn(1);
         service = new AiIndustryClassificationService(
                 industryTags,

@@ -5,8 +5,8 @@ import com.opc.platform.casetag.entity.CaseTag;
 import com.opc.platform.casetag.mapper.CaseTagMapper;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
-import com.opc.platform.policytag.entity.PolicyTag;
-import com.opc.platform.policytag.mapper.PolicyTagMapper;
+import com.opc.platform.policyindustrytag.entity.PolicyIndustryTag;
+import com.opc.platform.policyindustrytag.mapper.PolicyIndustryTagMapper;
 import com.opc.platform.tag.entity.Tag;
 import com.opc.platform.tag.mapper.TagMapper;
 import com.opc.platform.tag.vo.IndustryResolution;
@@ -34,15 +34,15 @@ public class IndustryTagService {
     private final TagMapper tagMapper;
     private final TagAliasMapper aliasMapper;
     private final CaseTagMapper caseTagMapper;
-    private final PolicyTagMapper policyTagMapper;
+    private final PolicyIndustryTagMapper policyIndustryTagMapper;
 
     public List<IndustryTagVO> listIndustries() {
         List<Tag> tags = industryTags();
         List<Long> industryTagIds = tags.stream().map(Tag::getId).toList();
         Map<Long, Long> caseCounts = safeCaseTags(industryTagIds).stream()
                 .collect(Collectors.groupingBy(CaseTag::getTagId, Collectors.counting()));
-        Map<Long, Long> policyCounts = safePolicyTags(industryTagIds).stream()
-                .collect(Collectors.groupingBy(PolicyTag::getTagId, Collectors.counting()));
+        Map<Long, Long> policyCounts = safePolicyIndustryTags(industryTagIds).stream()
+                .collect(Collectors.groupingBy(PolicyIndustryTag::getIndustryTagId, Collectors.counting()));
         return tags.stream()
                 .map(tag -> new IndustryTagVO(
                         tag.getId(),
@@ -199,10 +199,10 @@ public class IndustryTagService {
         return values == null ? List.of() : values;
     }
 
-    private List<PolicyTag> safePolicyTags(List<Long> tagIds) {
+    private List<PolicyIndustryTag> safePolicyIndustryTags(List<Long> tagIds) {
         if (tagIds.isEmpty()) return List.of();
-        List<PolicyTag> values = policyTagMapper.selectList(
-                new LambdaQueryWrapper<PolicyTag>().in(PolicyTag::getTagId, tagIds)
+        List<PolicyIndustryTag> values = policyIndustryTagMapper.selectList(
+                new LambdaQueryWrapper<PolicyIndustryTag>().in(PolicyIndustryTag::getIndustryTagId, tagIds)
         );
         return values == null ? List.of() : values;
     }

@@ -24,6 +24,6 @@ export function updateCase(id, data) {
   return request.put(`/admin/cases/${id}`, data)
 }
 
-export function deleteCase(id) {
-  return request.delete(`/admin/cases/${id}`)
+export function deleteCase(id, snapshot) {
+  return request.delete(`/admin/cases/${id}`, { params: snapshot })
 }

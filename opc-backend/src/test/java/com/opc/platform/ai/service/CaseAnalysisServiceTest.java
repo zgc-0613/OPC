@@ -15,6 +15,7 @@ import com.opc.platform.caseitem.mapper.CaseItemMapper;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.policy.mapper.PolicyMapper;
+import com.opc.platform.policy.entity.Policy;
 import com.opc.platform.source.entity.Source;
 import com.opc.platform.source.mapper.SourceMapper;
 import com.opc.platform.userauth.AuthenticatedUser;
@@ -23,7 +24,6 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -56,7 +56,6 @@ class CaseAnalysisServiceTest {
                 caseItemMapper,
                 sourceMapper,
                 policyMapper,
-                runMapper,
                 new ObjectMapper(),
                 new AiTaskExecutionService(runMapper, aiClient, settingsProvider)
         );
@@ -78,7 +77,8 @@ class CaseAnalysisServiceTest {
             run.setId(99L);
             return 1;
         });
-        when(runMapper.settle(anyLong(), any(), any(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any()))
+        when(runMapper.settle(anyLong(), any(), any(), any(), anyInt(), anyInt(), anyInt(), anyLong(),
+                any(), any(), any(), any(), any()))
                 .thenReturn(1);
     }
 
@@ -105,27 +105,48 @@ class CaseAnalysisServiceTest {
         assertEquals("insufficient", response.getEvidenceStatus());
         assertEquals("证据不足", response.getSummary());
         assertTrue(response.getCitations().isEmpty());
-        assertEquals(99L, response.getAnalysisId());
+        assertEquals(null, response.getAnalysisId());
         verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
     }
 
     @Test
-    void repeatedEvidenceInsufficientRequestsReuseTheRecentRun() {
+    void evidenceInsufficientRequestsAreNotPersisted() {
         when(caseItemMapper.selectById(1L)).thenReturn(caseItem("published", "legacy_unverified"));
-        AtomicReference<AiAnalysisRun> stored = new AtomicReference<>();
-        when(runMapper.findRecentEvidenceInsufficient(anyLong(), eq("case_analysis"), eq(1L), any()))
-                .thenAnswer(invocation -> stored.get());
-        when(runMapper.insert(any(AiAnalysisRun.class))).thenAnswer(invocation -> {
-            AiAnalysisRun run = invocation.getArgument(0);
-            run.setId(99L);
-            stored.set(run);
-            return 1;
-        });
 
         service.analyze(user(), request());
         service.analyze(user(), request());
 
-        verify(runMapper, org.mockito.Mockito.times(1)).insert(any(AiAnalysisRun.class));
+        verify(runMapper, never()).insert(any(AiAnalysisRun.class));
+        verify(runMapper, never()).findRecentEvidenceInsufficient(anyLong(), any(), anyLong(), any());
+    }
+
+    @Test
+    void policyDeletedWhileModelRunsReturnsConflictInsteadOfUpstreamError() {
+        CaseItem item = caseItem("published", "verified");
+        Source source = source("published", "verified");
+        Policy policy = new Policy();
+        policy.setId(21L);
+        policy.setSourceId(8L);
+        policy.setStatus("published");
+        policy.setAiEvidenceStatus("verified");
+        policy.setEvidenceRevision(1L);
+        when(caseItemMapper.selectById(1L)).thenReturn(item);
+        when(sourceMapper.selectById(8L)).thenReturn(source, source);
+        when(policyMapper.selectList(any())).thenReturn(List.of(policy));
+        when(policyMapper.selectById(21L)).thenReturn(null);
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
+                "{\"summary\":\"Summary\",\"businessModel\":\"Model\",\"technicalAssessment\":\"Assessment\","
+                        + "\"opportunities\":[],\"risks\":[],\"recommendedActions\":[],"
+                        + "\"citations\":[{\"sourceId\":8,\"claim\":\"Claim\"}],\"confidence\":0.7}",
+                10, 10, 20, 5, "req-policy-deleted"
+        ));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.analyze(user(), request())
+        );
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
     }
 
     @Test

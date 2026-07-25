@@ -8,6 +8,8 @@ import com.opc.platform.policy.dto.PolicyQueryDTO;
 import com.opc.platform.policy.entity.Policy;
 import com.opc.platform.policy.mapper.PolicyMapper;
 import com.opc.platform.policytag.mapper.PolicyTagMapper;
+import com.opc.platform.policyindustrytag.mapper.PolicyIndustryTagMapper;
+import com.opc.platform.policyindustrytag.entity.PolicyIndustryTag;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.region.mapper.RegionMapper;
@@ -37,6 +39,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class PolicyServiceTest {
@@ -65,6 +68,9 @@ class PolicyServiceTest {
     private PolicyTagMapper policyTagMapper;
 
     @Mock
+    private PolicyIndustryTagMapper policyIndustryTagMapper;
+
+    @Mock
     private EvidenceReviewService evidenceReviewService;
 
     private PolicyService service;
@@ -72,6 +78,7 @@ class PolicyServiceTest {
     @BeforeEach
     void setUp() {
         service = new PolicyService(policyMapper, regionMapper, sourceMapper, tagMapper, policyTagMapper,
+                policyIndustryTagMapper,
                 evidenceReviewService);
     }
 
@@ -125,8 +132,10 @@ class PolicyServiceTest {
         current.setAccessedAt(LocalDate.of(2026, 7, 25));
         current.setStatus("published");
         current.setAiEvidenceStatus("verified");
-        when(policyMapper.selectByIdForUpdate(11L)).thenReturn(current);
+        current.setEvidenceRevision(0L);
+        current.setUpdatedAt(java.time.LocalDateTime.of(2026, 7, 25, 1, 0));
         when(policyMapper.selectById(11L)).thenReturn(current);
+        when(policyMapper.selectByIdForUpdate(11L)).thenReturn(current);
         when(regionMapper.selectById(1L)).thenReturn(new Region());
         when(sourceMapper.selectByIdForUpdate(2L)).thenReturn(new Source());
         when(policyMapper.updateById(current)).thenReturn(1);
@@ -140,6 +149,8 @@ class PolicyServiceTest {
         dto.setSummary("Summary");
         dto.setAccessedAt(LocalDate.of(2026, 7, 25));
         dto.setStatus("published");
+        dto.setExpectedEvidenceRevision(0L);
+        dto.setExpectedUpdatedAt(java.time.LocalDateTime.of(2026, 7, 25, 1, 0));
         AuthenticatedAdmin admin = new AuthenticatedAdmin(7L, "reviewer");
 
         service.updatePolicy(11L, dto, admin);
@@ -151,6 +162,7 @@ class PolicyServiceTest {
     @Test
     void ordinaryPolicyUpdateReportsConflictWhenNoRowIsUpdated() {
         Policy current = editablePolicy();
+        when(policyMapper.selectById(11L)).thenReturn(current);
         when(policyMapper.selectByIdForUpdate(11L)).thenReturn(current);
         when(regionMapper.selectById(1L)).thenReturn(new Region());
         when(sourceMapper.selectByIdForUpdate(2L)).thenReturn(new Source());
@@ -165,12 +177,56 @@ class PolicyServiceTest {
     }
 
     @Test
+    void updateLocksTheSourceBeforeThePolicyRow() {
+        Policy current = editablePolicy();
+        when(policyMapper.selectById(11L)).thenReturn(current);
+        when(policyMapper.selectByIdForUpdate(11L)).thenReturn(current);
+        when(regionMapper.selectById(1L)).thenReturn(new Region());
+        when(sourceMapper.selectByIdForUpdate(2L)).thenReturn(new Source());
+        when(policyMapper.updateById(any(Policy.class))).thenReturn(1);
+
+        service.updatePolicy(11L, updateDto(), new AuthenticatedAdmin(7L, "reviewer"));
+
+        var order = inOrder(sourceMapper, policyMapper);
+        order.verify(sourceMapper).selectByIdForUpdate(2L);
+        order.verify(policyMapper).selectByIdForUpdate(11L);
+    }
+
+    @Test
+    void updateFromEvidenceWorkbenchPreservesSpecificIndustryRelationsWhenIdsAreOmitted() {
+        Policy current = editablePolicy();
+        current.setApplicabilityMode("specific");
+        PolicyIndustryTag relation = new PolicyIndustryTag();
+        relation.setPolicyId(11L);
+        relation.setIndustryTagId(703L);
+        when(policyMapper.selectById(11L)).thenReturn(current);
+        when(policyMapper.selectByIdForUpdate(11L)).thenReturn(current);
+        when(regionMapper.selectById(1L)).thenReturn(new Region());
+        when(sourceMapper.selectByIdForUpdate(2L)).thenReturn(new Source());
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of(relation));
+        when(policyMapper.updateById(any(Policy.class))).thenReturn(1);
+        PolicyUpdateDTO dto = updateDto();
+        dto.setTitle("Policy");
+        dto.setApplicabilityMode("specific");
+        dto.setIndustryTagIds(null);
+
+        service.updatePolicy(11L, dto, new AuthenticatedAdmin(7L, "reviewer"));
+
+        verify(policyIndustryTagMapper).insert(argThat(
+                (PolicyIndustryTag item) -> item.getIndustryTagId().equals(703L)
+        ));
+    }
+
+    @Test
     void ordinaryPolicyDeleteReportsConflictWhenNoRowIsDeleted() {
         Policy current = editablePolicy();
+        when(policyMapper.selectById(11L)).thenReturn(current);
         when(policyMapper.selectByIdForUpdate(11L)).thenReturn(current);
+        when(sourceMapper.selectByIdForUpdate(2L)).thenReturn(new Source());
         when(policyMapper.deleteById(11L)).thenReturn(0);
 
-        BusinessException exception = assertThrows(BusinessException.class, () -> service.deletePolicy(11L));
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.deletePolicy(11L, 2L, java.time.LocalDateTime.of(2026, 7, 25, 2, 0)));
 
         assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
     }

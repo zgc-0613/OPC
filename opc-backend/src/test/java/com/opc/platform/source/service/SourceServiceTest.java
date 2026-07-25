@@ -225,10 +225,13 @@ class SourceServiceTest {
     @Test
     void ordinarySourceDeleteReportsConflictWhenNoRowIsDeleted() {
         Source current = source(7L, "Source");
+        current.setEvidenceRevision(0L);
+        current.setUpdatedAt(java.time.LocalDateTime.of(2026, 7, 25, 2, 0));
         when(sourceMapper.selectByIdForUpdate(7L)).thenReturn(current);
         when(sourceMapper.deleteById(7L)).thenReturn(0);
 
-        BusinessException exception = assertThrows(BusinessException.class, () -> service.deleteSource(7L));
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.deleteSource(7L, 0L, java.time.LocalDateTime.of(2026, 7, 25, 2, 0)));
 
         assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
     }
@@ -248,6 +251,8 @@ class SourceServiceTest {
         dto.setSourceType("web");
         dto.setAccessedAt(LocalDate.of(2026, 7, 23));
         dto.setStatus("published");
+        dto.setExpectedEvidenceRevision(0L);
+        dto.setExpectedUpdatedAt(java.time.LocalDateTime.of(2026, 7, 25, 1, 0));
         return dto;
     }
 
@@ -258,6 +263,8 @@ class SourceServiceTest {
         source.setSourceType("web");
         source.setAccessedAt(LocalDate.of(2026, 7, 23));
         source.setStatus("published");
+        source.setEvidenceRevision(0L);
+        source.setUpdatedAt(java.time.LocalDateTime.of(2026, 7, 25, 1, 0));
         return source;
     }
 

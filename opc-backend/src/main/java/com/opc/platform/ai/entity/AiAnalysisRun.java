@@ -31,7 +31,10 @@ public class AiAnalysisRun {
     private LocalDateTime heartbeatAt;
     private Long latencyMs;
     private String providerRequestId;
+    private String finishReason;
+    private String responseHash;
     private String errorType;
+    private String diagnosticCode;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

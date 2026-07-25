@@ -1,6 +1,7 @@
 package com.opc.platform.ai.mapper;
 
 import com.opc.platform.ai.dto.EvidenceReviewQueryDTO;
+import com.opc.platform.ai.service.EvidenceUrlPolicy;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
@@ -96,7 +97,7 @@ public class EvidenceReviewQueueSqlProvider {
     private String sourceCompleteExpression(String alias) {
         return "(NULLIF(TRIM(" + alias + ".title), '') IS NOT NULL"
                 + " AND NULLIF(TRIM(" + alias + ".publisher), '') IS NOT NULL"
-                + " AND (LOWER(" + alias + ".url) LIKE 'https://%' OR LOWER(" + alias + ".url) LIKE 'http://%'))";
+                + " AND " + EvidenceUrlPolicy.sqlPredicate(alias + ".url") + ")";
     }
 
     private String whereClause(

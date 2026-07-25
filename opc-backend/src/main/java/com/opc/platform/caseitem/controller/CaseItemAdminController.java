@@ -19,8 +19,11 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.format.annotation.DateTimeFormat;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static com.opc.platform.adminauth.AdminAuthInterceptor.AUTHENTICATED_ADMIN_ATTRIBUTE;
@@ -57,8 +60,12 @@ public class CaseItemAdminController {
     }
 
     @DeleteMapping("/{id}")
-    public Result<Void> deleteCaseItem(@PathVariable Long id) {
-        caseItemService.deleteCaseItem(id);
+    public Result<Void> deleteCaseItem(
+            @PathVariable Long id,
+            @RequestParam Long expectedEvidenceRevision,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime expectedUpdatedAt
+    ) {
+        caseItemService.deleteCaseItem(id, expectedEvidenceRevision, expectedUpdatedAt);
         return Result.success();
     }
 }

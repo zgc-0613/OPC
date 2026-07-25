@@ -73,6 +73,27 @@
           </select>
         </label>
         <label>
+          <span>政策适用范围 *</span>
+          <select v-model="form.applicabilityMode" required @change="handleApplicabilityModeChange">
+            <option value="unclassified">未分类</option>
+            <option value="general">通用创业政策</option>
+            <option value="specific">指定行业</option>
+          </select>
+        </label>
+        <fieldset v-if="form.applicabilityMode === 'specific'" class="policy-industry-field span-2">
+          <legend>适用行业 *</legend>
+          <div class="policy-industry-options">
+            <label v-for="industry in industries" :key="industry.tagId">
+              <input v-model="form.industryTagIds" type="checkbox" :value="industry.tagId" />
+              <span>{{ industry.name }}</span>
+            </label>
+          </div>
+          <small>仅表示政策经审核后明确适用的行业，不等同于下方支持措施标签。</small>
+        </fieldset>
+        <p v-if="applicabilityValidationError" class="error span-3" role="alert">
+          {{ applicabilityValidationError }}
+        </p>
+        <label>
           <span>发布日期</span>
           <input v-model="form.publishDate" type="date" />
         </label>
@@ -114,7 +135,7 @@
           <textarea v-model.trim="form.supportMeasures" rows="4"></textarea>
         </label>
         <label class="span-3">
-          <span>标签</span>
+          <span>支持措施标签</span>
           <input v-model.trim="form.tags" placeholder="多个标签用中文逗号隔开，例如：资金补贴，算力支持" />
         </label>
         <label class="span-2">
@@ -130,9 +151,12 @@
           <input v-model.trim="form.evidenceUrl" placeholder="https://..." />
         </label>
         <div class="admin-actions span-3">
-          <button class="button" type="submit">{{ editingId ? '保存政策' : '新增政策' }}</button>
-          <button v-if="editingId" class="button button-ghost" type="button" @click="resetForm">取消编辑</button>
+          <button class="button" type="submit" :disabled="formSubmitting">
+            {{ formSubmitting ? '正在保存...' : editingId ? '保存政策' : '新增政策' }}
+          </button>
+          <button v-if="editingId" class="button button-ghost" type="button" :disabled="formSubmitting" @click="resetForm">取消编辑</button>
         </div>
+        <p v-if="formError" class="error span-3" role="alert">{{ formError }}</p>
       </form>
     </section>
 
@@ -154,6 +178,29 @@
         @apply="applyBulkStatus"
         @clear="clearPolicySelection"
       />
+      <div v-if="policies.length && selectedPolicyCount" class="policy-applicability-bulk">
+        <div class="policy-applicability-bulk__summary">
+          <strong>批量设置适用范围</strong>
+          <span>已选择 {{ selectedPolicyCount }} 条政策；变更后，已核验政策会自动移回待审。</span>
+        </div>
+        <button class="button button-ghost" type="button" :disabled="applicabilityUpdating" @click="applyBulkApplicability('general')">
+          批量设为通用
+        </button>
+        <div class="policy-applicability-bulk__specific">
+          <div class="policy-industry-options is-compact">
+            <label v-for="industry in industries" :key="`bulk-${industry.tagId}`">
+              <input v-model="batchIndustryTagIds" type="checkbox" :value="industry.tagId" />
+              <span>{{ industry.name }}</span>
+            </label>
+          </div>
+          <button class="button" type="button" :disabled="applicabilityUpdating || !batchIndustryTagIds.length" @click="applyBulkApplicability('specific')">
+            批量关联行业
+          </button>
+        </div>
+        <button class="button button-ghost" type="button" :disabled="applicabilityUpdating" @click="applyBulkApplicability('unclassified')">
+          移回未分类
+        </button>
+      </div>
       <p v-if="bulkMessage" class="success admin-bulk-notice" role="status">{{ bulkMessage }}</p>
       <p v-if="bulkError" class="error admin-bulk-notice" role="alert">{{ bulkError }}</p>
 
@@ -210,6 +257,14 @@
               <td>{{ policy.regionName || '-' }}</td>
               <td>{{ policy.issuingBody || '-' }}</td>
               <td>{{ policy.publishDate || '-' }}</td>
+              <td>
+                <span class="status-pill" :class="`is-${policy.applicabilityMode || 'unclassified'}`">
+                  {{ applicabilityLabel(policy) }}
+                </span>
+                <small v-if="policy.applicabilityMode === 'specific'" class="policy-industry-names">
+                  {{ policy.industryTagNames?.join('、') || '未关联行业' }}
+                </small>
+              </td>
               <td><span class="status-pill">{{ policy.status || '-' }}</span></td>
               <td>
                 <div class="row-actions">
@@ -230,9 +285,17 @@ import { onMounted, reactive, ref } from 'vue'
 import { ArrowUpRight } from 'lucide-vue-next'
 import AdminBulkStatusToolbar from '@/components/AdminBulkStatusToolbar.vue'
 import SortableTableHeader from '@/components/SortableTableHeader.vue'
-import { createPolicy, deletePolicy, getAdminPolicies, getAdminPolicyDetail, updatePolicy } from '@/api/policy'
+import {
+  createPolicy,
+  deletePolicy,
+  getAdminPolicies,
+  getAdminPolicyDetail,
+  updatePolicy,
+  updatePolicyApplicabilityBatch,
+} from '@/api/policy'
 import { getRegions } from '@/api/region'
 import { getAdminSources, resolveSourcePlaceholder } from '@/api/source'
+import { getIndustryTags } from '@/api/tag'
 import { useAdminTableControls } from '@/composables/useAdminTableControls'
 import { useResizableColumns } from '@/composables/useResizableColumns'
 
@@ -242,12 +305,18 @@ const error = ref('')
 const policies = ref([])
 const regions = ref([])
 const sources = ref([])
+const industries = ref([])
 const editingId = ref(null)
 const sourceValidationError = ref('')
+const applicabilityValidationError = ref('')
+const formError = ref('')
+const formSubmitting = ref(false)
 const bulkStatus = ref('')
 const bulkUpdating = ref(false)
 const bulkMessage = ref('')
 const bulkError = ref('')
+const applicabilityUpdating = ref(false)
+const batchIndustryTagIds = ref([])
 
 const policyStatusOptions = [
   { value: 'published', label: '已发布' },
@@ -261,6 +330,7 @@ const policySortableColumns = [
   { key: 'regionName', label: '地区', width: 120, minWidth: 90, maxWidth: 260 },
   { key: 'issuingBody', label: '发文单位', width: 280, minWidth: 160, maxWidth: 520 },
   { key: 'publishDate', label: '发布日期', width: 132, minWidth: 110, maxWidth: 220 },
+  { key: 'applicabilityMode', label: '适用范围', width: 170, minWidth: 140, maxWidth: 300 },
   { key: 'status', label: '状态', width: 112, minWidth: 90, maxWidth: 220 },
 ]
 const policyTableColumns = [
@@ -281,6 +351,8 @@ const defaultForm = () => ({
   sourceTitle: '',
   policyLevel: 'provincial',
   policyType: 'comprehensive',
+  applicabilityMode: 'unclassified',
+  industryTagIds: [],
   summary: '',
   keyPoints: '',
   supportMeasures: '',
@@ -329,6 +401,8 @@ async function loadPolicies() {
 function resetForm() {
   editingId.value = null
   sourceValidationError.value = ''
+  applicabilityValidationError.value = ''
+  formError.value = ''
   Object.assign(form, defaultForm())
 }
 
@@ -342,7 +416,14 @@ async function startEdit(policy) {
     publishDate: detail.publishDate || '',
     effectiveDate: detail.effectiveDate || '',
     accessedAt: detail.accessedAt || today,
+    applicabilityMode: detail.applicabilityMode || 'unclassified',
+    industryTagIds: (detail.industryTagIds || []).map(Number),
   })
+}
+
+function handleApplicabilityModeChange() {
+  if (form.applicabilityMode !== 'specific') form.industryTagIds = []
+  applicabilityValidationError.value = ''
 }
 
 function toPayload(sourceId) {
@@ -353,6 +434,8 @@ function toPayload(sourceId) {
     sourceId,
     publishDate: form.publishDate || null,
     effectiveDate: form.effectiveDate || null,
+    applicabilityMode: form.applicabilityMode,
+    industryTagIds: form.applicabilityMode === 'specific' ? form.industryTagIds.map(Number) : [],
   }
   if (editingId.value) {
     payload.expectedEvidenceRevision = Number(form.evidenceRevision ?? 0)
@@ -385,25 +468,38 @@ function handleSourceTitleInput() {
 }
 
 async function submitForm() {
-  let sourceResolution
-  try {
-    sourceResolution = await resolveSourceId()
-  } catch (err) {
-    sourceValidationError.value = err.message || '来源关联失败，请检查来源名称'
+  if (formSubmitting.value) return
+  if (form.applicabilityMode === 'specific' && !form.industryTagIds.length) {
+    applicabilityValidationError.value = '指定行业政策必须至少选择一个适用行业。'
     return
   }
-  const payload = toPayload(sourceResolution.sourceId)
-  if (editingId.value) {
-    await updatePolicy(editingId.value, payload)
-  } else {
-    await createPolicy(payload)
-  }
-  resetForm()
-  await loadPolicies()
-  if (sourceResolution.created) {
-    window.alert(
-      `已创建待补充来源“${sourceResolution.source.title}”（ID: ${sourceResolution.source.id}），请到来源管理完善其余信息。`,
-    )
+  applicabilityValidationError.value = ''
+  formError.value = ''
+  formSubmitting.value = true
+  try {
+    const sourceResolution = await resolveSourceId()
+    const payload = toPayload(sourceResolution.sourceId)
+    if (editingId.value) {
+      await updatePolicy(editingId.value, payload)
+    } else {
+      await createPolicy(payload)
+    }
+    resetForm()
+    await loadPolicies()
+    if (sourceResolution.created) {
+      window.alert(
+        `已创建待补充来源“${sourceResolution.source.title}”（ID: ${sourceResolution.source.id}），请到来源管理完善其余信息。`,
+      )
+    }
+  } catch (err) {
+    if (err?.businessCode === 409) {
+      formError.value = '政策已被其他管理员修改。列表已刷新，请重新打开该政策后再保存。'
+      await loadPolicies()
+    } else {
+      formError.value = err.message || '政策保存失败'
+    }
+  } finally {
+    formSubmitting.value = false
   }
 }
 
@@ -411,7 +507,18 @@ async function removePolicy(policy) {
   if (!window.confirm(`确认删除政策「${policy.title}」吗？`)) {
     return
   }
-  await deletePolicy(policy.id)
+  try {
+    await deletePolicy(policy.id, {
+      expectedEvidenceRevision: Number(policy.evidenceRevision ?? 0),
+      expectedUpdatedAt: policy.updatedAt,
+    })
+  } catch (err) {
+    error.value = err?.businessCode === 409
+      ? '政策已被其他操作修改，列表已重新加载，请确认后重试。'
+      : (err.message || '政策删除失败')
+    await loadPolicies()
+    return
+  }
   await loadPolicies()
 }
 
@@ -427,6 +534,8 @@ function policyDetailPayload(detail, status) {
     sourceId: Number(detail.sourceId),
     policyLevel: detail.policyLevel,
     policyType: detail.policyType,
+    applicabilityMode: detail.applicabilityMode || 'unclassified',
+    industryTagIds: (detail.industryTagIds || []).map(Number),
     summary: detail.summary,
     keyPoints: detail.keyPoints || '',
     supportMeasures: detail.supportMeasures || '',
@@ -439,6 +548,49 @@ function policyDetailPayload(detail, status) {
     reviewer: detail.reviewer || '',
     expectedEvidenceRevision: Number(detail.evidenceRevision ?? 0),
     expectedUpdatedAt: detail.updatedAt || null,
+  }
+}
+
+function applicabilityLabel(policy) {
+  const labels = {
+    general: '通用政策',
+    specific: '指定行业',
+    unclassified: '未分类',
+  }
+  return labels[policy.applicabilityMode] || labels.unclassified
+}
+
+async function applyBulkApplicability(mode) {
+  if (!selectedPolicyCount.value || applicabilityUpdating.value) return
+  if (mode === 'specific' && !batchIndustryTagIds.value.length) {
+    bulkError.value = '请先选择至少一个适用行业。'
+    return
+  }
+  const selected = policies.value.filter((policy) => selectedPolicyIds.value.has(policy.id))
+  applicabilityUpdating.value = true
+  bulkMessage.value = ''
+  bulkError.value = ''
+  try {
+    await updatePolicyApplicabilityBatch({
+      applicabilityMode: mode,
+      industryTagIds: mode === 'specific' ? batchIndustryTagIds.value.map(Number) : [],
+      items: selected.map((policy) => ({
+        policyId: Number(policy.id),
+        expectedEvidenceRevision: Number(policy.evidenceRevision ?? 0),
+        expectedUpdatedAt: policy.updatedAt,
+      })),
+    })
+    bulkMessage.value = `已更新 ${selected.length} 条政策的适用范围；需要复核的政策已移回待审。`
+    batchIndustryTagIds.value = []
+    clearPolicySelection()
+    await loadPolicies()
+  } catch (err) {
+    bulkError.value = err?.businessCode === 409
+      ? '部分政策已被其他管理员修改，列表已重新加载；原选择仍保留，请核对后重试。'
+      : (err.message || '批量设置政策适用范围失败')
+    await loadPolicies()
+  } finally {
+    applicabilityUpdating.value = false
   }
 }
 
@@ -474,10 +626,13 @@ onMounted(async () => {
   loading.value = true
   error.value = ''
   try {
-    const [regionList, sourceList, policyList] = await Promise.all([getRegions(), getAdminSources(), getAdminPolicies()])
+    const [regionList, sourceList, policyList, industryList] = await Promise.all([
+      getRegions(), getAdminSources(), getAdminPolicies(), getIndustryTags(),
+    ])
     regions.value = regionList
     sources.value = sourceList
     policies.value = policyList
+    industries.value = industryList
   } catch (err) {
     error.value = err.message || '政策加载失败'
   } finally {
@@ -485,3 +640,118 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+.policy-industry-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.policy-industry-field legend {
+  margin-bottom: 8px;
+  color: #4b514c;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.policy-industry-field > small {
+  display: block;
+  margin-top: 8px;
+  color: #626862;
+}
+
+.policy-industry-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 12px;
+  max-height: 176px;
+  overflow: auto;
+  padding: 10px 0;
+  border-top: 1px solid #d0d4cf;
+  border-bottom: 1px solid #d0d4cf;
+}
+
+.policy-industry-options label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: #303431;
+  font-size: 0.78rem;
+}
+
+.policy-industry-options input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.policy-applicability-bulk {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(320px, 1.4fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin: -8px 0 18px;
+  padding: 14px 0;
+  border-bottom: 1px solid #d0d4cf;
+}
+
+.policy-applicability-bulk__summary {
+  display: grid;
+  gap: 4px;
+}
+
+.policy-applicability-bulk__summary span,
+.policy-industry-names {
+  color: #626862;
+  font-size: 0.72rem;
+}
+
+.policy-applicability-bulk__specific {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.policy-industry-options.is-compact {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  max-height: 108px;
+  padding: 8px 0;
+}
+
+.policy-industry-names {
+  display: block;
+  margin-top: 5px;
+  line-height: 1.4;
+}
+
+.status-pill.is-unclassified {
+  border-color: #c8cbc7;
+  color: #626862;
+}
+
+@media (max-width: 1100px) {
+  .policy-applicability-bulk {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .policy-applicability-bulk__summary,
+  .policy-applicability-bulk__specific {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .policy-applicability-bulk,
+  .policy-applicability-bulk__specific {
+    grid-template-columns: 1fr;
+  }
+
+  .policy-applicability-bulk .button {
+    width: 100%;
+  }
+}
+</style>

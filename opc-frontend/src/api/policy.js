@@ -24,6 +24,10 @@ export function updatePolicy(id, data) {
   return request.put(`/admin/policies/${id}`, data)
 }
 
-export function deletePolicy(id) {
-  return request.delete(`/admin/policies/${id}`)
+export function updatePolicyApplicabilityBatch(data) {
+  return request.put('/admin/policies/applicability/batch', data)
+}
+
+export function deletePolicy(id, snapshot) {
+  return request.delete(`/admin/policies/${id}`, { params: snapshot })
 }

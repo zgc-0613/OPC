@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.adminauth.AuthenticatedAdmin;
 import com.opc.platform.ai.service.EvidenceReviewService;
+import com.opc.platform.ai.service.EvidenceUrlPolicy;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.source.dto.SourceCreateDTO;
 import com.opc.platform.source.dto.SourceUpdateDTO;
@@ -18,7 +19,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
-import java.net.URI;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -63,11 +63,13 @@ public class SourceService {
     }
 
     @Transactional
-    public void deleteSource(Long id) {
+    public void deleteSource(Long id, Long expectedEvidenceRevision, java.time.LocalDateTime expectedUpdatedAt) {
         Source source = sourceMapper.selectByIdForUpdate(id);
         if (source == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Source not found");
         }
+        requireEditSnapshot(source.getEvidenceRevision(), source.getUpdatedAt(),
+                expectedEvidenceRevision, expectedUpdatedAt);
         evidenceReviewService.requireSourceDeletionAllowed(source);
         requireSingleWrite(sourceMapper.deleteById(id));
     }
@@ -149,17 +151,7 @@ public class SourceService {
 
     private void validateSourceUrl(String value) {
         if (!StringUtils.hasText(value)) return;
-        try {
-            URI uri = URI.create(value.trim());
-            if (uri.isAbsolute()
-                    && uri.getUserInfo() == null
-                    && StringUtils.hasText(uri.getHost())
-                    && ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
-                return;
-            }
-        } catch (IllegalArgumentException ignored) {
-            // Return the same public validation error for malformed and unsafe URLs.
-        }
+        if (EvidenceUrlPolicy.isSafe(value)) return;
         throw new BusinessException(ErrorCode.BAD_REQUEST, "来源链接必须是安全的 HTTP/HTTPS 绝对地址");
     }
 
@@ -196,8 +188,9 @@ public class SourceService {
             Long expectedRevision,
             java.time.LocalDateTime expectedUpdatedAt
     ) {
-        if ((expectedRevision != null && !Objects.equals(actualRevision == null ? 0L : actualRevision, expectedRevision))
-                || (expectedUpdatedAt != null && !Objects.equals(actualUpdatedAt, expectedUpdatedAt))) {
+        if (expectedRevision == null || expectedUpdatedAt == null
+                || !Objects.equals(actualRevision == null ? 0L : actualRevision, expectedRevision)
+                || !Objects.equals(actualUpdatedAt, expectedUpdatedAt)) {
             throw new BusinessException(ErrorCode.CONFLICT, "来源已被其他操作修改，请重新加载后再保存");
         }
     }

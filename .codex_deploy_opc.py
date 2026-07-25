@@ -33,6 +33,8 @@ AI_STABILIZATION_PRECHECK = ROOT / "deploy" / "sql" / "20260724_ai_stabilization
 AI_STABILIZATION_POSTCHECK = ROOT / "deploy" / "sql" / "20260724_ai_stabilization_postcheck.sql"
 EVIDENCE_WORKBENCH_MIGRATION = ROOT / "deploy" / "sql" / "20260725_evidence_workbench.sql"
 PHASE_ONE_FINALIZATION_MIGRATION = ROOT / "deploy" / "sql" / "20260725_phase_one_finalization.sql"
+POLICY_APPLICABILITY_MIGRATION = ROOT / "deploy" / "sql" / "20260725_policy_applicability.sql"
+AI_RESPONSE_DIAGNOSTICS_MIGRATION = ROOT / "deploy" / "sql" / "20260725_ai_response_diagnostics.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 
@@ -121,7 +123,7 @@ def database_command(client, sql):
     return run(client, command, stdin_text=sql, timeout=180)
 
 
-def request_json(url, method="GET", payload=None, headers=None, expected_code=200):
+def request_json(url, method="GET", payload=None, headers=None, expected_code=200, timeout=20):
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     request_headers = {"Accept": "application/json"}
     if body is not None:
@@ -131,7 +133,7 @@ def request_json(url, method="GET", payload=None, headers=None, expected_code=20
     request = urllib.request.Request(url, data=body, method=method, headers=request_headers)
     context = ssl.create_default_context()
     try:
-        with urllib.request.urlopen(request, timeout=20, context=context) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
             raw = response.read().decode("utf-8")
             status = response.status
     except urllib.error.HTTPError as error:
@@ -192,6 +194,17 @@ def preflight(client):
         "SELECT COUNT(*) FROM admin_accounts WHERE username = 'ACha_' AND status = 'active';\n",
     )
     result["admin_counts"] = admin_counts
+    _, evidence_counts, _ = database_command(
+        client,
+        "SELECT CONCAT('verified_sources=', SUM(ai_evidence_status='verified')) FROM sources;\n"
+        "SELECT CONCAT('effective_verified_policies=', COUNT(*)) FROM policies p "
+        "JOIN sources s ON s.id=p.source_id WHERE p.ai_evidence_status='verified' AND p.status='published' "
+        "AND s.ai_evidence_status='verified' AND s.status='published';\n"
+        "SELECT CONCAT('effective_verified_cases=', COUNT(*)) FROM case_items c "
+        "JOIN sources s ON s.id=c.source_id WHERE c.ai_evidence_status='verified' AND c.status='published' "
+        "AND s.ai_evidence_status='verified' AND s.status='published';\n",
+    )
+    result["evidence_counts"] = evidence_counts
     return result
 
 
@@ -209,6 +222,8 @@ def deploy(client):
         SYSTEMD,
         EVIDENCE_WORKBENCH_MIGRATION,
         PHASE_ONE_FINALIZATION_MIGRATION,
+        POLICY_APPLICABILITY_MIGRATION,
+        AI_RESPONSE_DIAGNOSTICS_MIGRATION,
     ]
     for path in required:
         if not path.exists():
@@ -226,6 +241,8 @@ def deploy(client):
     mutated = False
     database_mutated = False
     service_user_preexisting = False
+    assistant_probe = None
+    unclassified_policy_count = None
 
     _, previous_current, _ = run(
         client,
@@ -262,6 +279,8 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     sftp.put(str(AI_STABILIZATION_POSTCHECK), f"{release}/ai-stabilization-postcheck.sql")
     sftp.put(str(EVIDENCE_WORKBENCH_MIGRATION), f"{release}/evidence-workbench.sql")
     sftp.put(str(PHASE_ONE_FINALIZATION_MIGRATION), f"{release}/phase-one-finalization.sql")
+    sftp.put(str(POLICY_APPLICABILITY_MIGRATION), f"{release}/policy-applicability.sql")
+    sftp.put(str(AI_RESPONSE_DIAGNOSTICS_MIGRATION), f"{release}/ai-response-diagnostics.sql")
     sftp.put(str(NGINX), uploaded_nginx)
     sftp.put(str(SYSTEMD), uploaded_systemd)
     sftp.close()
@@ -277,6 +296,8 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"{release}/ai-stabilization-postcheck.sql": sha256(AI_STABILIZATION_POSTCHECK),
         f"{release}/evidence-workbench.sql": sha256(EVIDENCE_WORKBENCH_MIGRATION),
         f"{release}/phase-one-finalization.sql": sha256(PHASE_ONE_FINALIZATION_MIGRATION),
+        f"{release}/policy-applicability.sql": sha256(POLICY_APPLICABILITY_MIGRATION),
+        f"{release}/ai-response-diagnostics.sql": sha256(AI_RESPONSE_DIAGNOSTICS_MIGRATION),
         uploaded_nginx: sha256(NGINX),
         uploaded_systemd: sha256(SYSTEMD),
     }
@@ -329,6 +350,22 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         )
         if foreign_key_count.splitlines()[-1:] != ["2"]:
             raise RuntimeError("Phase-one source foreign-key migration verification failed")
+        _, applicability_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/policy-applicability.sql'",
+        )
+        applicability_result = applicability_output.splitlines()[-1].split("\t")
+        if len(applicability_result) != 3 or applicability_result[:2] != ["1", "2"]:
+            raise RuntimeError("Policy applicability database migration verification failed")
+        unclassified_policy_count = int(applicability_result[2])
+        _, diagnostics_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/ai-response-diagnostics.sql'",
+        )
+        if diagnostics_output.splitlines()[-1:] != ["3"]:
+            raise RuntimeError("AI response diagnostics database migration verification failed")
         run(
             client,
             "set -euo pipefail\n"
@@ -527,6 +564,84 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 or provider_state.get("available") is not expected_provider_available
             ):
                 raise RuntimeError("AI provider capabilities do not match the saved administrator configuration")
+
+            _, regions_body = request_json("https://findopc.online/api/public/regions")
+            hubei = next(
+                (region for region in (regions_body.get("data") or []) if region.get("name") == "湖北省"),
+                None,
+            )
+            if regions_body.get("code") != 200 or hubei is None:
+                raise RuntimeError("Production assistant probe cannot resolve the Hubei region")
+            readiness_payload = {
+                "regionId": hubei["id"],
+                "industry": "人工智能应用",
+            }
+            _, readiness_body = request_json(
+                "https://findopc.online/api/ai/entrepreneurship-readiness",
+                method="POST",
+                payload=readiness_payload,
+                headers=user_headers,
+                timeout=60,
+            )
+            if readiness_body.get("code") != 200:
+                raise RuntimeError("Authenticated entrepreneurship readiness probe failed")
+            readiness_data = readiness_body.get("data") or {}
+            advice_payload = {
+                "ventureType": "solo_company",
+                "regionId": hubei["id"],
+                "industryTagId": (readiness_data.get("resolvedIndustryTag") or {}).get("tagId"),
+                "industry": "人工智能应用",
+                "stage": "validation",
+                "budgetRange": "100k_500k",
+                "goal": "评估在湖北省开展人工智能应用一人公司的创业可行性",
+                "existingResources": "预算 10-50 万元，计划由一人公司起步",
+                "userQuestion": "请结合本地案例和政策给出优先行动建议",
+            }
+            _, advice_body = request_json(
+                "https://findopc.online/api/ai/entrepreneurship-advice",
+                method="POST",
+                payload=advice_payload,
+                headers=user_headers,
+                timeout=200,
+            )
+            advice_data = advice_body.get("data") or {}
+            _, analysis_run_output, _ = database_command(
+                client,
+                "SELECT r.status, COALESCE(r.finish_reason, ''), r.total_tokens, "
+                "COALESCE(r.diagnostic_code, ''), COALESCE(r.provider_request_id, '') "
+                "FROM ai_analysis_runs r JOIN platform_users u ON u.id = r.user_id "
+                f"WHERE u.username = '{ai_qa_username}' AND r.task_type = 'entrepreneurship_advice' "
+                "ORDER BY r.id DESC LIMIT 1;\n",
+            )
+            analysis_run_lines = analysis_run_output.splitlines()
+            analysis_run = analysis_run_lines[-1].split("\t") if len(analysis_run_lines) > 1 else []
+            if advice_body.get("code") != 200:
+                diagnostic = analysis_run[3] if len(analysis_run) == 5 and analysis_run[3] else "none"
+                finish_reason = analysis_run[1] if len(analysis_run) == 5 and analysis_run[1] else "none"
+                raise RuntimeError(
+                    "Authenticated entrepreneurship advice probe did not complete "
+                    f"(diagnostic={diagnostic}, finish_reason={finish_reason})"
+                )
+            if not (advice_data.get("summary") or advice_data.get("recommendedDirection")):
+                raise RuntimeError("Authenticated entrepreneurship advice probe returned no visible result")
+            if len(analysis_run) != 5 or analysis_run[0] != "completed":
+                raise RuntimeError("Authenticated entrepreneurship advice analysis record is not completed")
+            assistant_probe = {
+                "readiness_code": readiness_body.get("code"),
+                "readiness_status": readiness_data.get("readinessStatus"),
+                "readiness_reason_count": len(readiness_data.get("reasons") or []),
+                "advice_code": advice_body.get("code"),
+                "advice_evidence_status": advice_data.get("evidenceStatus"),
+                "advice_has_visible_result": bool(
+                    advice_data.get("summary") or advice_data.get("recommendedDirection")
+                ),
+                "advice_message": advice_body.get("message"),
+                "analysis_run_status": analysis_run[0],
+                "analysis_run_finish_reason": analysis_run[1],
+                "analysis_run_total_tokens": int(analysis_run[2]),
+                "analysis_run_diagnostic_code": analysis_run[3] or None,
+                "analysis_run_request_id": analysis_run[4] or None,
+            }
             _, authorized_analysis = request_json(
                 "https://findopc.online/api/ai/case-analysis",
                 method="POST",
@@ -548,6 +663,8 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
             database_command(
                 client,
                 f"DELETE FROM user_sessions WHERE token = '{ai_qa_token}';\n"
+                f"DELETE FROM ai_analysis_runs WHERE user_id IN "
+                f"(SELECT id FROM platform_users WHERE username = '{ai_qa_username}');\n"
                 f"DELETE FROM platform_users WHERE username = '{ai_qa_username}';\n",
             )
 
@@ -686,6 +803,8 @@ nginx -t && systemctl reload nginx
         "backend_hash": sha256(BACKEND),
         "backend_listener": backend_runtime["listener"],
         "backend_user": backend_runtime["user"],
+        "assistant_probe": assistant_probe,
+        "unclassified_policy_count": unclassified_policy_count,
     }
 
 

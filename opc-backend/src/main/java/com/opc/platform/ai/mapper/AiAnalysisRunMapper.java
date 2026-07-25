@@ -87,22 +87,45 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
                 reserved_tokens = 0,
                 latency_ms = #{latencyMs},
                 provider_request_id = #{providerRequestId},
+                finish_reason = #{finishReason},
+                response_hash = #{responseHash},
+                diagnostic_code = #{diagnosticCode},
                 result_json = #{resultJson},
                 heartbeat_at = CURRENT_TIMESTAMP
             WHERE id = #{id}
               AND status = 'running'
+              AND (deadline_at IS NULL OR deadline_at >= #{settledAt})
             """)
     int settle(
             @Param("id") Long id,
             @Param("status") String status,
             @Param("errorType") String errorType,
+            @Param("diagnosticCode") String diagnosticCode,
             @Param("promptTokens") int promptTokens,
             @Param("completionTokens") int completionTokens,
             @Param("totalTokens") int totalTokens,
             @Param("latencyMs") long latencyMs,
             @Param("providerRequestId") String providerRequestId,
-            @Param("resultJson") String resultJson
+            @Param("finishReason") String finishReason,
+            @Param("responseHash") String responseHash,
+            @Param("resultJson") String resultJson,
+            @Param("settledAt") LocalDateTime settledAt
     );
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET status = 'failed',
+                error_type = 'TASK_TIMEOUT',
+                prompt_tokens = CASE WHEN total_tokens = 0 THEN LEAST(reserved_tokens, 2147483647) ELSE prompt_tokens END,
+                total_tokens = CASE WHEN total_tokens = 0 THEN LEAST(reserved_tokens, 2147483647) ELSE total_tokens END,
+                reserved_tokens = 0,
+                heartbeat_at = #{now}
+            WHERE id = #{id}
+              AND status = 'running'
+              AND deadline_at IS NOT NULL
+              AND deadline_at < #{now}
+            """)
+    int failExpiredRun(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     @Update("""
             UPDATE ai_analysis_runs

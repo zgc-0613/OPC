@@ -23,7 +23,7 @@ class OpenAiCompatibleAiClientTest {
     void mapsChatCompletionRequestAndCapturesSafeUsageMetadata() {
         CapturingTransport transport = new CapturingTransport(new AiHttpResponse(
                 200,
-                "{\"id\":\"req-body-1\",\"choices\":[{\"message\":{\"content\":\"{\\\"summary\\\":\\\"ok\\\"}\"}}],"
+                "{\"id\":\"req-body-1\",\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"{\\\"summary\\\":\\\"ok\\\"}\"}}],"
                         + "\"usage\":{\"prompt_tokens\":19,\"completion_tokens\":7,\"total_tokens\":26}}",
                 HttpHeaders.of(Map.of("x-request-id", List.of("req-header-1")), (a, b) -> true)
         ));
@@ -38,11 +38,31 @@ class OpenAiCompatibleAiClientTest {
         assertEquals(7, response.completionTokens());
         assertEquals(26, response.totalTokens());
         assertEquals("req-header-1", response.requestId());
+        assertEquals("stop", response.finishReason());
         assertEquals("https://api.example.com/v1/chat/completions", transport.request.uri().toString());
         assertEquals("Bearer sk-provider-secret", transport.request.headers().firstValue("Authorization").orElseThrow());
         assertTrue(transport.request.body().contains("case-analysis-v1"));
         assertTrue(transport.request.body().contains("json_object"));
         assertFalse(transport.request.body().contains("sk-provider-secret"));
+    }
+
+    @Test
+    void capturesLengthFinishReasonWithoutDiscardingUsage() {
+        CapturingTransport transport = new CapturingTransport(new AiHttpResponse(
+                200,
+                "{\"id\":\"req-length\",\"choices\":[{\"finish_reason\":\"length\","
+                        + "\"message\":{\"content\":\"partial\"}}],"
+                        + "\"usage\":{\"prompt_tokens\":3513,\"completion_tokens\":1199,\"total_tokens\":4712}}",
+                HttpHeaders.of(Map.of(), (a, b) -> true)
+        ));
+        OpenAiCompatibleAiClient client = new OpenAiCompatibleAiClient(settings(), transport, objectMapper);
+
+        AiProviderResponse response = client.generate(request());
+
+        assertEquals("length", response.finishReason());
+        assertEquals(3513, response.promptTokens());
+        assertEquals(1199, response.completionTokens());
+        assertEquals("req-length", response.requestId());
     }
 
     @Test

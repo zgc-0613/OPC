@@ -35,4 +35,17 @@ class EvidenceReviewQueueSqlProviderTest {
         assertTrue(sql.contains("UNION ALL"));
         assertTrue(sql.contains("WHERE reviewable = 1"));
     }
+
+    @Test
+    void queueUsesTheSharedConservativeUrlGrammar() {
+        EvidenceReviewQueryDTO query = new EvidenceReviewQueryDTO();
+
+        String sql = new EvidenceReviewQueueSqlProvider().count(
+                new HashMap<>(java.util.Map.of("query", query))
+        );
+
+        assertTrue(sql.contains("REGEXP"));
+        assertTrue(sql.contains("^[[:space:]]*https?://"));
+        assertTrue(!sql.contains("LIKE 'https://%'") && !sql.contains("LIKE 'http://%'"));
+    }
 }

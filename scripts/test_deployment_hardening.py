@@ -158,6 +158,18 @@ class DeploymentHardeningTest(unittest.TestCase):
         )
         self.assertIn("phase-one-finalization.sql", deploy)
 
+    def test_real_assistant_probe_is_a_hard_release_gate(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
+
+        self.assertIn('if advice_body.get("code") != 200:', body)
+        self.assertIn('advice_data.get("summary") or advice_data.get("recommendedDirection")', body)
+        self.assertIn("FROM ai_analysis_runs", body)
+        self.assertIn('analysis_run_status', body)
+        self.assertIn('analysis_run_finish_reason', body)
+        self.assertIn('analysis_run_total_tokens', body)
+        self.assertIn("DELETE FROM ai_analysis_runs", body)
+
 
 if __name__ == "__main__":
     unittest.main()

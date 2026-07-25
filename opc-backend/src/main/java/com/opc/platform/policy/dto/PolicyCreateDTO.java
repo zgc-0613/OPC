@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Data
 public class PolicyCreateDTO {
@@ -34,6 +35,10 @@ public class PolicyCreateDTO {
 
     @NotBlank
     private String policyType;
+
+    private String applicabilityMode;
+
+    private List<Long> industryTagIds;
 
     @NotBlank
     private String summary;

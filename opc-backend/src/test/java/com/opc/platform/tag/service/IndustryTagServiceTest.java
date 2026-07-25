@@ -2,8 +2,8 @@ package com.opc.platform.tag.service;
 
 import com.opc.platform.casetag.mapper.CaseTagMapper;
 import com.opc.platform.casetag.entity.CaseTag;
-import com.opc.platform.policytag.entity.PolicyTag;
-import com.opc.platform.policytag.mapper.PolicyTagMapper;
+import com.opc.platform.policyindustrytag.entity.PolicyIndustryTag;
+import com.opc.platform.policyindustrytag.mapper.PolicyIndustryTagMapper;
 import com.opc.platform.tag.entity.Tag;
 import com.opc.platform.tag.mapper.TagMapper;
 import com.opc.platform.tagalias.entity.TagAlias;
@@ -25,7 +25,7 @@ class IndustryTagServiceTest {
     private final TagMapper tagMapper = mock(TagMapper.class);
     private final TagAliasMapper aliasMapper = mock(TagAliasMapper.class);
     private final CaseTagMapper caseTagMapper = mock(CaseTagMapper.class);
-    private final PolicyTagMapper policyTagMapper = mock(PolicyTagMapper.class);
+    private final PolicyIndustryTagMapper policyIndustryTagMapper = mock(PolicyIndustryTagMapper.class);
     private IndustryTagService service;
 
     @BeforeEach
@@ -34,7 +34,7 @@ class IndustryTagServiceTest {
                 tagMapper,
                 aliasMapper,
                 caseTagMapper,
-                policyTagMapper
+                policyIndustryTagMapper
         );
         when(tagMapper.selectList(any())).thenReturn(List.of(industry(703L, "人工智能应用"), industry(517L, "智能零售")));
         when(aliasMapper.selectList(any())).thenReturn(List.of(alias(703L, "AI应用"), alias(703L, "AIGC")));
@@ -84,14 +84,14 @@ class IndustryTagServiceTest {
         CaseTag caseTag = new CaseTag();
         caseTag.setCaseId(11L);
         caseTag.setTagId(703L);
-        PolicyTag firstPolicyTag = new PolicyTag();
+        PolicyIndustryTag firstPolicyTag = new PolicyIndustryTag();
         firstPolicyTag.setPolicyId(21L);
-        firstPolicyTag.setTagId(703L);
-        PolicyTag secondPolicyTag = new PolicyTag();
+        firstPolicyTag.setIndustryTagId(703L);
+        PolicyIndustryTag secondPolicyTag = new PolicyIndustryTag();
         secondPolicyTag.setPolicyId(22L);
-        secondPolicyTag.setTagId(703L);
+        secondPolicyTag.setIndustryTagId(703L);
         when(caseTagMapper.selectList(any())).thenReturn(List.of(caseTag));
-        when(policyTagMapper.selectList(any())).thenReturn(List.of(firstPolicyTag, secondPolicyTag));
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of(firstPolicyTag, secondPolicyTag));
 
         var industries = service.listIndustries();
 

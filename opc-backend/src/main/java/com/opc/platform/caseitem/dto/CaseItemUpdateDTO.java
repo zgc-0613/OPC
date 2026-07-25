@@ -47,8 +47,10 @@ public class CaseItemUpdateDTO {
 
     private String reviewer;
 
+    @NotNull
     private Long expectedEvidenceRevision;
 
+    @NotNull
     private LocalDateTime expectedUpdatedAt;
 
 }

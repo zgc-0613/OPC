@@ -32,8 +32,10 @@ public class SourceUpdateDTO {
     @Pattern(regexp = "draft|pending|published|archived")
     private String status;
 
+    @NotNull
     private Long expectedEvidenceRevision;
 
+    @NotNull
     private LocalDateTime expectedUpdatedAt;
 
 }

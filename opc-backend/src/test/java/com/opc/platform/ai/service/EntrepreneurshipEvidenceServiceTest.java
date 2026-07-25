@@ -10,8 +10,8 @@ import com.opc.platform.casetag.entity.CaseTag;
 import com.opc.platform.casetag.mapper.CaseTagMapper;
 import com.opc.platform.policy.entity.Policy;
 import com.opc.platform.policy.mapper.PolicyMapper;
-import com.opc.platform.policytag.entity.PolicyTag;
-import com.opc.platform.policytag.mapper.PolicyTagMapper;
+import com.opc.platform.policyindustrytag.entity.PolicyIndustryTag;
+import com.opc.platform.policyindustrytag.mapper.PolicyIndustryTagMapper;
 import com.opc.platform.region.entity.Region;
 import com.opc.platform.region.mapper.RegionMapper;
 import com.opc.platform.source.entity.Source;
@@ -43,7 +43,7 @@ class EntrepreneurshipEvidenceServiceTest {
     private final SourceMapper sourceMapper = mock(SourceMapper.class);
     private final RegionMapper regionMapper = mock(RegionMapper.class);
     private final CaseTagMapper caseTagMapper = mock(CaseTagMapper.class);
-    private final PolicyTagMapper policyTagMapper = mock(PolicyTagMapper.class);
+    private final PolicyIndustryTagMapper policyIndustryTagMapper = mock(PolicyIndustryTagMapper.class);
     private final IndustryTagService industryTagService = mock(IndustryTagService.class);
     private final AiClient aiClient = mock(AiClient.class);
 
@@ -57,7 +57,7 @@ class EntrepreneurshipEvidenceServiceTest {
                 sourceMapper,
                 regionMapper,
                 caseTagMapper,
-                policyTagMapper,
+                policyIndustryTagMapper,
                 industryTagService,
                 aiClient,
                 new ObjectMapper()
@@ -72,7 +72,7 @@ class EntrepreneurshipEvidenceServiceTest {
         when(caseItemMapper.selectList(any())).thenReturn(List.of());
         when(policyMapper.selectList(any())).thenReturn(List.of());
         when(caseTagMapper.selectList(any())).thenReturn(List.of());
-        when(policyTagMapper.selectList(any())).thenReturn(List.of());
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of());
         when(sourceMapper.selectBatchIds(any())).thenAnswer(invocation ->
                 ((Collection<Long>) invocation.getArgument(0)).stream()
                         .map(sourceMapper::selectById)
@@ -98,7 +98,7 @@ class EntrepreneurshipEvidenceServiceTest {
                 policy(203L, 1L, 303L),
                 policy(204L, 32L, 304L)
         ));
-        when(policyTagMapper.selectList(any())).thenReturn(List.of(
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of(
                 policyTag(201L, 703L), policyTag(202L, 703L),
                 policyTag(203L, 703L), policyTag(204L, 703L)
         ));
@@ -124,9 +124,27 @@ class EntrepreneurshipEvidenceServiceTest {
 
         assertFalse(readiness.isEvidenceAvailable());
         assertTrue(readiness.getReasons().contains("无已核验案例"));
-        assertTrue(readiness.getReasons().contains("无已核验政策"));
+        assertTrue(readiness.getReasons().contains("没有已核验政策"));
         assertEquals(0, readiness.getVerifiedSourceCount());
         verify(aiClient, never()).generate(any());
+    }
+
+    @Test
+    void verifiedPolicyCandidateCountOnlyIncludesCurrentRegionCandidates() {
+        when(policyMapper.selectCount(any())).thenReturn(57L);
+        when(policyMapper.selectList(any())).thenReturn(List.of(
+                policy(201L, 42L, 301L),
+                policy(202L, 1L, 302L)
+        ));
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of(
+                policyTag(201L, 703L), policyTag(202L, 703L)
+        ));
+        when(sourceMapper.selectById(any())).thenAnswer(invocation -> source(invocation.getArgument(0), true));
+
+        var readiness = service.readiness(request(), false);
+
+        assertEquals(2, readiness.getVerifiedPolicyCandidateCount());
+        assertEquals(2, readiness.getRegionMatchedPolicyCount());
     }
 
     @Test
@@ -142,7 +160,7 @@ class EntrepreneurshipEvidenceServiceTest {
         when(caseItemMapper.selectList(any())).thenReturn(List.of(caseItem(99L, 4201L, 199L, "软件工具", "人工智能应用")));
         when(policyMapper.selectList(any())).thenReturn(List.of(policy(201L, 4201L, 301L)));
         when(caseTagMapper.selectList(any())).thenReturn(List.of(caseTag(99L, 703L)));
-        when(policyTagMapper.selectList(any())).thenReturn(List.of(policyTag(201L, 703L)));
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of(policyTag(201L, 703L)));
         when(sourceMapper.selectById(any())).thenAnswer(invocation -> source(invocation.getArgument(0), false));
 
         var readiness = service.readiness(request(), true);
@@ -164,7 +182,7 @@ class EntrepreneurshipEvidenceServiceTest {
         when(caseTagMapper.selectList(any())).thenReturn(List.of(
                 caseTag(91L, 703L), caseTag(92L, 703L), caseTag(93L, 703L)
         ));
-        when(policyTagMapper.selectList(any())).thenReturn(List.of(policyTag(201L, 703L)));
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of(policyTag(201L, 703L)));
         when(sourceMapper.selectById(any())).thenAnswer(invocation -> source(invocation.getArgument(0), true));
 
         var readiness = service.readiness(request(42L), false);
@@ -216,7 +234,7 @@ class EntrepreneurshipEvidenceServiceTest {
         when(caseTagMapper.selectList(any())).thenReturn(List.of(
                 caseTag(91L, 703L), caseTag(92L, 703L), caseTag(93L, 703L)
         ));
-        when(policyTagMapper.selectList(any())).thenReturn(List.of(
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of(
                 policyTag(201L, 703L), policyTag(202L, 703L)
         ));
         when(sourceMapper.selectById(any())).thenAnswer(invocation -> source(invocation.getArgument(0), true));
@@ -245,7 +263,7 @@ class EntrepreneurshipEvidenceServiceTest {
         ));
         when(policyMapper.selectList(any())).thenReturn(List.of(policy(201L, 42L, 301L)));
         when(caseTagMapper.selectList(any())).thenReturn(List.of(caseTag(91L, 703L), caseTag(92L, 703L)));
-        when(policyTagMapper.selectList(any())).thenReturn(List.of(policyTag(201L, 703L)));
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of(policyTag(201L, 703L)));
         when(sourceMapper.selectById(any())).thenAnswer(invocation -> source(invocation.getArgument(0), true));
 
         var readiness = service.readiness(request(42L), false);
@@ -314,6 +332,7 @@ class EntrepreneurshipEvidenceServiceTest {
         item.setSummary("支持人工智能应用创业项目");
         item.setStatus("published");
         item.setAiEvidenceStatus("verified");
+        item.setApplicabilityMode("specific");
         return item;
     }
 
@@ -335,10 +354,10 @@ class EntrepreneurshipEvidenceServiceTest {
         return relation;
     }
 
-    private PolicyTag policyTag(Long policyId, Long tagId) {
-        PolicyTag relation = new PolicyTag();
+    private PolicyIndustryTag policyTag(Long policyId, Long tagId) {
+        PolicyIndustryTag relation = new PolicyIndustryTag();
         relation.setPolicyId(policyId);
-        relation.setTagId(tagId);
+        relation.setIndustryTagId(tagId);
         return relation;
     }
 }

@@ -5,7 +5,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.dto.CaseAnalysisRequestDTO;
 import com.opc.platform.ai.entity.AiAnalysisRun;
-import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
 import com.opc.platform.ai.provider.AiProviderDescriptor;
 import com.opc.platform.ai.provider.AiProviderRequest;
 import com.opc.platform.ai.provider.AiProviderResponse;
@@ -50,7 +49,6 @@ public class CaseAnalysisService {
     private final CaseItemMapper caseItemMapper;
     private final SourceMapper sourceMapper;
     private final PolicyMapper policyMapper;
-    private final AiAnalysisRunMapper runMapper;
     private final ObjectMapper objectMapper;
     private final AiTaskExecutionService taskExecutionService;
 
@@ -61,12 +59,12 @@ public class CaseAnalysisService {
         }
 
         if (!VERIFIED.equals(caseItem.getAiEvidenceStatus())) {
-            return insufficient(user, caseItem, "legacy_unverified");
+            return insufficient(caseItem);
         }
 
         EvidenceBundle evidence = loadEvidence(caseItem);
         if (evidence.sources().isEmpty()) {
-            return insufficient(user, caseItem, "insufficient");
+            return insufficient(caseItem);
         }
 
         return taskExecutionService.execute(
@@ -128,29 +126,8 @@ public class CaseAnalysisService {
         return new EvidenceBundle(sources, usablePolicies, hash);
     }
 
-    private CaseAnalysisVO insufficient(AuthenticatedUser user, CaseItem caseItem, String evidenceStatus) {
-        String hash = evidenceHash(caseItem, Map.of(), List.of(), evidenceStatus);
-        AiAnalysisRun run = runMapper.findRecentEvidenceInsufficient(
-                user.userId(), "case_analysis", caseItem.getId(), hash);
-        if (run == null) {
-            run = new AiAnalysisRun();
-            run.setUserId(user.userId());
-            run.setTaskType("case_analysis");
-            run.setCaseId(caseItem.getId());
-            run.setStatus("evidence_insufficient");
-            run.setProvider("not_called");
-            run.setModelId("not_called");
-            run.setPromptVersion(PROMPT_VERSION);
-            run.setEvidenceHash(hash);
-            run.setResultJson("{\"evidenceStatus\":\"insufficient\"}");
-            run.setPromptTokens(0);
-            run.setCompletionTokens(0);
-            run.setTotalTokens(0);
-            runMapper.insert(run);
-        }
-
+    private CaseAnalysisVO insufficient(CaseItem caseItem) {
         CaseAnalysisVO result = new CaseAnalysisVO();
-        result.setAnalysisId(run.getId());
         result.setCaseId(caseItem.getId());
         result.setSummary("证据不足");
         result.setBusinessModel("当前案例尚未完成 AI 证据核验。");
@@ -255,12 +232,16 @@ public class CaseAnalysisService {
             throw new BusinessException(ErrorCode.CONFLICT, "分析期间案例证据已变更，请重新生成");
         }
 
-        List<Policy> currentPolicies = evidence.policies().stream()
-                .map(policy -> policyMapper.selectById(policy.getId()))
-                .sorted(java.util.Comparator.comparing(Policy::getId))
-                .toList();
-        if (currentPolicies.size() != evidence.policies().size()
-                || !samePolicyVersions(evidence.policies(), currentPolicies)
+        List<Policy> currentPolicies = new ArrayList<>(evidence.policies().size());
+        for (Policy expectedPolicy : evidence.policies()) {
+            Policy currentPolicy = policyMapper.selectById(expectedPolicy.getId());
+            if (currentPolicy == null) {
+                throw new BusinessException(ErrorCode.CONFLICT, "分析期间政策证据已删除，请重新生成");
+            }
+            currentPolicies.add(currentPolicy);
+        }
+        currentPolicies.sort(java.util.Comparator.comparing(Policy::getId));
+        if (!samePolicyVersions(evidence.policies(), currentPolicies)
                 || currentPolicies.stream().anyMatch(policy -> !PUBLISHED.equals(policy.getStatus())
                 || !VERIFIED.equals(policy.getAiEvidenceStatus()))) {
             throw new BusinessException(ErrorCode.CONFLICT, "分析期间政策证据已变更，请重新生成");

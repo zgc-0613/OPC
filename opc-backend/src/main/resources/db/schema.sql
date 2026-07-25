@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS policies (
     source_id BIGINT NOT NULL COMMENT 'Main source ID',
     policy_level VARCHAR(30) NOT NULL COMMENT 'national/provincial/city/district',
     policy_type VARCHAR(50) NOT NULL COMMENT 'comprehensive/computing_support/space_station/funding_subsidy/scenario_demand/talent_service/investment/other',
+    applicability_mode VARCHAR(20) NOT NULL DEFAULT 'unclassified' COMMENT 'general/specific/unclassified',
     summary TEXT NOT NULL COMMENT '100-300 word summary',
     key_points TEXT NULL COMMENT 'Key points',
     support_measures TEXT NULL COMMENT 'Support measures',
@@ -120,6 +121,22 @@ CREATE TABLE IF NOT EXISTS policy_tags (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
   COMMENT='Policy tag relation table';
+
+CREATE TABLE IF NOT EXISTS policy_industry_tags (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
+    policy_id BIGINT NOT NULL COMMENT 'Policy ID',
+    industry_tag_id BIGINT NOT NULL COMMENT 'Reviewed industry tag ID',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created time',
+
+    UNIQUE KEY uk_policy_industry_policy_tag (policy_id, industry_tag_id),
+    INDEX idx_policy_industry_policy_id (policy_id),
+    INDEX idx_policy_industry_tag_id (industry_tag_id),
+    CONSTRAINT fk_policy_industry_policy FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_policy_industry_tag FOREIGN KEY (industry_tag_id) REFERENCES tags(id) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='Reviewed policy industry applicability relations';
 
 CREATE TABLE IF NOT EXISTS case_tags (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
@@ -353,7 +370,10 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     heartbeat_at DATETIME NULL,
     latency_ms BIGINT NOT NULL DEFAULT 0,
     provider_request_id VARCHAR(191) NULL,
+    finish_reason VARCHAR(40) NULL,
+    response_hash CHAR(64) NULL,
     error_type VARCHAR(80) NULL,
+    diagnostic_code VARCHAR(80) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_ai_analysis_running_user (active_guard),

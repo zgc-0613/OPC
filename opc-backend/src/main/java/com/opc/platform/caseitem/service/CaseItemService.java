@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -66,13 +67,21 @@ public class CaseItemService {
 
     @Transactional
     public CaseItemDetailVO updateCaseItem(Long id, CaseItemUpdateDTO dto, AuthenticatedAdmin admin) {
+        CaseItem snapshot = caseItemMapper.selectById(id);
+        if (snapshot == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
+        }
+        requireEditSnapshot(snapshot.getEvidenceRevision(), snapshot.getUpdatedAt(),
+                dto.getExpectedEvidenceRevision(), dto.getExpectedUpdatedAt());
+        validateRegion(dto.getRegionId());
+        lockSources(snapshot.getSourceId(), dto.getSourceId());
+
         CaseItem caseItem = caseItemMapper.selectByIdForUpdate(id);
         if (caseItem == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
         }
         requireEditSnapshot(caseItem.getEvidenceRevision(), caseItem.getUpdatedAt(),
                 dto.getExpectedEvidenceRevision(), dto.getExpectedUpdatedAt());
-        validateRegionAndSource(dto.getRegionId(), dto.getSourceId());
 
         boolean evidenceChanged = evidenceRelevantFieldsChanged(caseItem, dto);
         copyUpdateFields(dto, caseItem);
@@ -86,11 +95,20 @@ public class CaseItemService {
     }
 
     @Transactional
-    public void deleteCaseItem(Long id) {
+    public void deleteCaseItem(Long id, Long expectedEvidenceRevision, java.time.LocalDateTime expectedUpdatedAt) {
+        CaseItem snapshot = caseItemMapper.selectById(id);
+        if (snapshot == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
+        }
+        requireEditSnapshot(snapshot.getEvidenceRevision(), snapshot.getUpdatedAt(),
+                expectedEvidenceRevision, expectedUpdatedAt);
+        lockSources(snapshot.getSourceId());
         CaseItem caseItem = caseItemMapper.selectByIdForUpdate(id);
         if (caseItem == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Case item not found");
         }
+        requireEditSnapshot(caseItem.getEvidenceRevision(), caseItem.getUpdatedAt(),
+                expectedEvidenceRevision, expectedUpdatedAt);
         evidenceReviewService.requireReviewedItemDeletionAllowed("case", caseItem.getAiEvidenceStatus());
         caseTagMapper.delete(new LambdaQueryWrapper<CaseTag>().eq(CaseTag::getCaseId, id));
         requireSingleWrite(caseItemMapper.deleteById(id));
@@ -143,11 +161,24 @@ public class CaseItemService {
     }
 
     private void validateRegionAndSource(Long regionId, Long sourceId) {
+        validateRegion(regionId);
+        lockSources(sourceId);
+    }
+
+    private void validateRegion(Long regionId) {
         if (regionMapper.selectById(regionId) == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Region not found");
         }
-        if (sourceMapper.selectByIdForUpdate(sourceId) == null) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "Source not found");
+    }
+
+    private void lockSources(Long... sourceIds) {
+        TreeSet<Long> orderedIds = Arrays.stream(sourceIds)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(TreeSet::new));
+        for (Long sourceId : orderedIds) {
+            if (sourceMapper.selectByIdForUpdate(sourceId) == null) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "Source not found");
+            }
         }
     }
 
@@ -157,8 +188,9 @@ public class CaseItemService {
             Long expectedRevision,
             java.time.LocalDateTime expectedUpdatedAt
     ) {
-        if ((expectedRevision != null && !Objects.equals(actualRevision == null ? 0L : actualRevision, expectedRevision))
-                || (expectedUpdatedAt != null && !Objects.equals(actualUpdatedAt, expectedUpdatedAt))) {
+        if (expectedRevision == null || expectedUpdatedAt == null
+                || !Objects.equals(actualRevision == null ? 0L : actualRevision, expectedRevision)
+                || !Objects.equals(actualUpdatedAt, expectedUpdatedAt)) {
             throw new BusinessException(ErrorCode.CONFLICT, "案例已被其他操作修改，请重新加载后再保存");
         }
     }

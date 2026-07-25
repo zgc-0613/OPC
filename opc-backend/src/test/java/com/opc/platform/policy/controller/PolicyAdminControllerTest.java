@@ -4,6 +4,7 @@ import com.opc.platform.policy.entity.Policy;
 import com.opc.platform.policy.mapper.PolicyMapper;
 import com.opc.platform.policy.service.PolicyService;
 import com.opc.platform.policytag.mapper.PolicyTagMapper;
+import com.opc.platform.policyindustrytag.mapper.PolicyIndustryTagMapper;
 import com.opc.platform.region.mapper.RegionMapper;
 import com.opc.platform.source.mapper.SourceMapper;
 import com.opc.platform.tag.mapper.TagMapper;
@@ -48,6 +49,7 @@ class PolicyAdminControllerTest {
     @BeforeEach
     void setUp() {
         PolicyService service = new PolicyService(policyMapper, regionMapper, sourceMapper, tagMapper, policyTagMapper,
+                org.mockito.Mockito.mock(PolicyIndustryTagMapper.class),
                 org.mockito.Mockito.mock(com.opc.platform.ai.service.EvidenceReviewService.class));
         mockMvc = MockMvcBuilders.standaloneSetup(new PolicyAdminController(service)).build();
     }

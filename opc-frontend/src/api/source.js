@@ -16,8 +16,8 @@ export function updateSource(id, data) {
   return request.put(`/admin/sources/${id}`, data)
 }
 
-export function deleteSource(id) {
-  return request.delete(`/admin/sources/${id}`)
+export function deleteSource(id, snapshot) {
+  return request.delete(`/admin/sources/${id}`, { params: snapshot })
 }
 
 function normalizeSourceTitle(value) {

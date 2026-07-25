@@ -35,6 +35,8 @@ public class Policy {
 
     private String policyType;
 
+    private String applicabilityMode;
+
     private String summary;
 
     private String keyPoints;

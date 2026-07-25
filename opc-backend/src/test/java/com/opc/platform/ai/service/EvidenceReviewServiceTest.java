@@ -28,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -53,6 +55,12 @@ class EvidenceReviewServiceTest {
         when(sourceMapper.update(any(), any())).thenReturn(1);
         when(caseItemMapper.verifyEvidenceWithEligibleSource(any(), any(), any(), any())).thenReturn(1);
         when(policyMapper.verifyEvidenceWithEligibleSource(any(), any(), any(), any())).thenReturn(1);
+        lenient().when(sourceMapper.selectByIdForUpdate(anyLong()))
+                .thenAnswer(invocation -> sourceMapper.selectById(invocation.getArgument(0)));
+        lenient().when(caseItemMapper.selectByIdForUpdate(anyLong()))
+                .thenAnswer(invocation -> caseItemMapper.selectById(invocation.getArgument(0)));
+        lenient().when(policyMapper.selectByIdForUpdate(anyLong()))
+                .thenAnswer(invocation -> policyMapper.selectById(invocation.getArgument(0)));
     }
 
     @Test

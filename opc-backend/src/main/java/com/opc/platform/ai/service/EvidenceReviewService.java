@@ -42,7 +42,6 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.time.LocalDateTime;
-import java.net.URI;
 import java.util.UUID;
 
 @Service
@@ -101,14 +100,7 @@ public class EvidenceReviewService {
     }
 
     private boolean safeEvidenceUrl(String value) {
-        if (!StringUtils.hasText(value)) return false;
-        try {
-            URI uri = URI.create(value.trim());
-            return uri.getUserInfo() == null && uri.getHost() != null
-                    && ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()));
-        } catch (IllegalArgumentException ignored) {
-            return false;
-        }
+        return EvidenceUrlPolicy.isSafe(value);
     }
 
     public EvidenceReviewDetailVO detail(String itemType, Long itemId) {
@@ -473,6 +465,7 @@ public class EvidenceReviewService {
                         : ("source".equals(target.getItemType()) ? 0 : 1))
                 .thenComparing(EvidenceReviewBatchItemDTO::getItemType)
                 .thenComparing(EvidenceReviewBatchItemDTO::getItemId));
+        lockBatchSources(targets);
 
         String operationId = UUID.randomUUID().toString();
         List<EvidenceReviewItemVO> reviewedItems = new ArrayList<>(targets.size());
@@ -541,14 +534,21 @@ public class EvidenceReviewService {
             String operationId,
             String actionType
     ) {
-        CaseItem item = caseItemMapper.selectById(id);
+        CaseItem snapshot = caseItemMapper.selectById(id);
+        if (snapshot == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Case not found");
+        }
+        Source source = snapshot.getSourceId() == null ? null : sourceMapper.selectByIdForUpdate(snapshot.getSourceId());
+        CaseItem item = caseItemMapper.selectByIdForUpdate(id);
         if (item == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Case not found");
         }
         requireExpectedState(item.getAiEvidenceStatus(), item.getEvidenceRevision(), item.getUpdatedAt(), dto);
         requireStatusChange(item.getAiEvidenceStatus(), dto.getEvidenceStatus());
         requireDecisionReason(dto.getEvidenceStatus(), dto.getReason());
-        Source source = item.getSourceId() == null ? null : sourceMapper.selectById(item.getSourceId());
+        if (!java.util.Objects.equals(snapshot.getSourceId(), item.getSourceId())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "资料来源已发生变化，请刷新后重试");
+        }
         requireVerifiable(dto.getEvidenceStatus(), item.getStatus(), source);
         String previous = item.getAiEvidenceStatus();
         transitionCaseEvidence(item, dto.getEvidenceStatus());
@@ -566,14 +566,21 @@ public class EvidenceReviewService {
             String operationId,
             String actionType
     ) {
-        Policy item = policyMapper.selectById(id);
+        Policy snapshot = policyMapper.selectById(id);
+        if (snapshot == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
+        }
+        Source source = snapshot.getSourceId() == null ? null : sourceMapper.selectByIdForUpdate(snapshot.getSourceId());
+        Policy item = policyMapper.selectByIdForUpdate(id);
         if (item == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
         }
         requireExpectedState(item.getAiEvidenceStatus(), item.getEvidenceRevision(), item.getUpdatedAt(), dto);
         requireStatusChange(item.getAiEvidenceStatus(), dto.getEvidenceStatus());
         requireDecisionReason(dto.getEvidenceStatus(), dto.getReason());
-        Source source = item.getSourceId() == null ? null : sourceMapper.selectById(item.getSourceId());
+        if (!java.util.Objects.equals(snapshot.getSourceId(), item.getSourceId())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "资料来源已发生变化，请刷新后重试");
+        }
         requireVerifiable(dto.getEvidenceStatus(), item.getStatus(), source);
         String previous = item.getAiEvidenceStatus();
         transitionPolicyEvidence(item, dto.getEvidenceStatus());
@@ -591,7 +598,7 @@ public class EvidenceReviewService {
             String operationId,
             String actionType
     ) {
-        Source item = sourceMapper.selectById(id);
+        Source item = sourceMapper.selectByIdForUpdate(id);
         if (item == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Source not found");
         }
@@ -621,6 +628,58 @@ public class EvidenceReviewService {
         }
         Source refreshed = sourceMapper.selectById(item.getId());
         return source(refreshed == null ? item : refreshed);
+    }
+
+    private void lockBatchSources(List<EvidenceReviewBatchItemDTO> targets) {
+        Set<Long> sourceIds = new java.util.TreeSet<>();
+        Map<String, Long> sourceSnapshots = new java.util.HashMap<>();
+        for (EvidenceReviewBatchItemDTO target : targets) {
+            switch (target.getItemType()) {
+                case "source" -> {
+                    sourceIds.add(target.getItemId());
+                    sourceSnapshots.put(targetKey(target), target.getItemId());
+                }
+                case "case" -> {
+                    CaseItem item = caseItemMapper.selectById(target.getItemId());
+                    if (item != null && item.getSourceId() != null) {
+                        sourceIds.add(item.getSourceId());
+                        sourceSnapshots.put(targetKey(target), item.getSourceId());
+                    }
+                }
+                case "policy" -> {
+                    Policy item = policyMapper.selectById(target.getItemId());
+                    if (item != null && item.getSourceId() != null) {
+                        sourceIds.add(item.getSourceId());
+                        sourceSnapshots.put(targetKey(target), item.getSourceId());
+                    }
+                }
+                default -> throw new BusinessException(ErrorCode.BAD_REQUEST, "Unsupported evidence item type");
+            }
+        }
+        for (Long sourceId : sourceIds) {
+            sourceMapper.selectByIdForUpdate(sourceId);
+        }
+        for (EvidenceReviewBatchItemDTO target : targets) {
+            if ("case".equals(target.getItemType())) {
+                CaseItem item = caseItemMapper.selectById(target.getItemId());
+                if (item == null) throw new BusinessException(ErrorCode.NOT_FOUND, "Case not found");
+                requireStableBatchSource(target, sourceSnapshots.get(targetKey(target)), item.getSourceId());
+            } else if ("policy".equals(target.getItemType())) {
+                Policy item = policyMapper.selectById(target.getItemId());
+                if (item == null) throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
+                requireStableBatchSource(target, sourceSnapshots.get(targetKey(target)), item.getSourceId());
+            }
+        }
+    }
+
+    private String targetKey(EvidenceReviewBatchItemDTO target) {
+        return target.getItemType() + ":" + target.getItemId();
+    }
+
+    private void requireStableBatchSource(EvidenceReviewBatchItemDTO target, Long expectedSourceId, Long actualSourceId) {
+        if (!java.util.Objects.equals(expectedSourceId, actualSourceId)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "批量审核期间资料来源已发生变化，请刷新后重试");
+        }
     }
 
     private void transitionCaseEvidence(CaseItem item, String targetStatus) {
@@ -927,15 +986,6 @@ public class EvidenceReviewService {
     }
 
     private boolean isSafeEvidenceUrl(String value) {
-        if (!StringUtils.hasText(value)) return false;
-        try {
-            URI uri = URI.create(value.trim());
-            return uri.isAbsolute()
-                    && uri.getUserInfo() == null
-                    && StringUtils.hasText(uri.getHost())
-                    && ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()));
-        } catch (IllegalArgumentException ignored) {
-            return false;
-        }
+        return EvidenceUrlPolicy.isSafe(value);
     }
 }

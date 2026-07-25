@@ -1,7 +1,7 @@
 package com.opc.platform.tag.service;
 
 import com.opc.platform.casetag.mapper.CaseTagMapper;
-import com.opc.platform.policytag.mapper.PolicyTagMapper;
+import com.opc.platform.policyindustrytag.mapper.PolicyIndustryTagMapper;
 import com.opc.platform.tag.dto.TagUpdateDTO;
 import com.opc.platform.tag.entity.Tag;
 import com.opc.platform.tag.mapper.TagMapper;
@@ -24,7 +24,7 @@ class TagServiceTest {
         TagMapper tagMapper = mock(TagMapper.class);
         TagAliasMapper aliasMapper = mock(TagAliasMapper.class);
         CaseTagMapper caseTagMapper = mock(CaseTagMapper.class);
-        PolicyTagMapper policyTagMapper = mock(PolicyTagMapper.class);
+        PolicyIndustryTagMapper policyIndustryTagMapper = mock(PolicyIndustryTagMapper.class);
         AtomicReference<Tag> stored = new AtomicReference<>(tag(27L, false));
         when(tagMapper.selectById(27L)).thenAnswer(invocation -> stored.get());
         when(tagMapper.selectCount(any())).thenReturn(0L);
@@ -35,7 +35,7 @@ class TagServiceTest {
         when(tagMapper.selectList(any())).thenAnswer(invocation -> List.of(stored.get()));
         when(aliasMapper.selectList(any())).thenReturn(List.of());
         when(caseTagMapper.selectList(any())).thenReturn(List.of());
-        when(policyTagMapper.selectList(any())).thenReturn(List.of());
+        when(policyIndustryTagMapper.selectList(any())).thenReturn(List.of());
 
         TagUpdateDTO update = new TagUpdateDTO();
         update.setName("人工智能政策");
@@ -45,7 +45,7 @@ class TagServiceTest {
         new TagService(tagMapper).updateTag(27L, update);
 
         IndustryTagService industryTags = new IndustryTagService(
-                tagMapper, aliasMapper, caseTagMapper, policyTagMapper
+                tagMapper, aliasMapper, caseTagMapper, policyIndustryTagMapper
         );
         var publicIndustries = industryTags.listIndustries();
 

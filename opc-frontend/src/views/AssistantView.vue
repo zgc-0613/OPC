@@ -200,7 +200,13 @@
               <div>
                 <strong>{{ readinessTitle }}</strong>
                 <small v-if="readiness">
-                  已选 {{ readiness.selectedEvidenceCount || 0 }} · 案例 {{ readiness.verifiedCaseCount || 0 }} · 政策 {{ readiness.verifiedPolicyCount || 0 }} · 来源 {{ readiness.verifiedSourceCount || 0 }}
+                  已选 {{ readiness.selectedEvidenceCount || 0 }} · 案例 {{ readiness.verifiedCaseCount || 0 }} · 选入政策 {{ readiness.selectedPolicyCount ?? readiness.verifiedPolicyCount ?? 0 }} · 来源 {{ readiness.verifiedSourceCount || 0 }}
+                </small>
+                <small v-if="readiness" class="assistant-policy-composition">
+                  可用：直接行业政策 {{ readiness.directIndustryPolicyCount || 0 }} · 通用政策 {{ readiness.generalPolicyCount || 0 }}
+                </small>
+                <small v-if="readiness?.unclassifiedPolicyCount" class="assistant-policy-composition is-pending">
+                  地区参考政策 {{ readiness.unclassifiedPolicyCount }} 条，尚未标注适用行业
                 </small>
                 <small v-else-if="readinessError" class="is-error">{{ readinessError }}</small>
                 <small v-else>选择地区和行业后自动检查</small>
@@ -242,7 +248,25 @@
           </div>
         </section>
 
-        <section v-else-if="!turns.length && !submitting" class="assistant-empty-state">
+        <section v-else-if="submitting" class="assistant-thinking" role="status">
+          <span class="assistant-spinner" aria-hidden="true"></span>
+          <div><strong>正在核对本地资料</strong><p>检索案例与政策，并验证模型引用。</p></div>
+        </section>
+
+        <section
+          v-else-if="requestError"
+          class="assistant-request-error"
+          role="alert"
+          :data-diagnostic="requestErrorDiagnostic || undefined"
+        >
+          <AlertTriangle :size="20" aria-hidden="true" />
+          <div><strong>{{ requestErrorTitle }}</strong><p>{{ requestError }}</p></div>
+          <button class="button button-ghost" type="button" @click="retryLastRequest">
+            <RefreshCw :size="15" />重试
+          </button>
+        </section>
+
+        <section v-else-if="!turns.length" class="assistant-empty-state">
           <Sparkles :size="30" aria-hidden="true" />
           <div>
             <span class="caption">READY WHEN YOU ARE</span>
@@ -348,7 +372,7 @@
                         <span><strong>{{ item.title }}</strong><small>{{ item.matchReason || item.policyType || item.regionName }}</small></span>
                         <ArrowRight :size="15" aria-hidden="true" />
                       </RouterLink>
-                      <p v-if="!turn.result.matchedPolicies?.length" class="assistant-library-empty">暂无已核验政策</p>
+                      <p v-if="!turn.result.matchedPolicies?.length" class="assistant-library-empty">本次未选入可用政策</p>
                     </div>
                   </div>
                 </section>
@@ -382,18 +406,6 @@
             </section>
           </article>
 
-          <section v-if="submitting" class="assistant-thinking" role="status">
-            <span class="assistant-spinner" aria-hidden="true"></span>
-            <div><strong>正在核对本地资料</strong><p>检索案例与政策，并验证模型引用。</p></div>
-          </section>
-
-          <section v-else-if="requestError" class="assistant-request-error" role="alert">
-            <AlertTriangle :size="20" aria-hidden="true" />
-            <div><strong>本次研究未完成</strong><p>{{ requestError }}</p></div>
-            <button class="button button-ghost" type="button" @click="retryLastRequest">
-              <RefreshCw :size="15" />重试
-            </button>
-          </section>
         </div>
 
         <form v-if="turns.length && providerReady" class="assistant-followup" @submit.prevent="requestAdvice('followup')">
@@ -486,6 +498,7 @@ const readinessChecking = ref(false)
 const readinessError = ref('')
 const submitting = ref(false)
 const requestError = ref('')
+const requestErrorDiagnostic = ref('')
 const turns = ref([])
 const followup = ref('')
 const lastMode = ref('initial')
@@ -522,6 +535,17 @@ const providerReady = computed(() => Boolean(
 const providerLabel = computed(() => {
   if (!providerReady.value) return '等待管理员完成模型配置'
   return `${capabilities.value.provider.provider} / ${capabilities.value.provider.model}`
+})
+const requestErrorTitle = computed(() => {
+  if (requestErrorDiagnostic.value === 'TRUNCATED_RESPONSE') return '模型输出被截断'
+  if (['MISSING_CITATIONS', 'UNKNOWN_SOURCE_ID', 'BLANK_CLAIM'].includes(requestErrorDiagnostic.value)) {
+    return '模型引用未通过核验'
+  }
+  if (['INVALID_JSON', 'MISSING_FIELD', 'INVALID_CONFIDENCE', 'ABNORMAL_FINISH_REASON']
+    .includes(requestErrorDiagnostic.value)) {
+    return '模型返回格式错误'
+  }
+  return '本次研究未完成'
 })
 
 const readinessUi = computed(() => readinessPresentation(
@@ -608,13 +632,14 @@ async function loadPage() {
 async function requestAdvice(mode) {
   if (submitting.value || !providerReady.value) return
   if (mode === 'followup' && !followup.value.trim()) return
+  requestErrorDiagnostic.value = ''
 
   if (mode === 'initial' || !readiness.value?.evidenceAvailable) {
     const ready = await checkReadiness()
     if (!ready) {
-      requestError.value = readinessReasons.value.length
+      requestError.value = readinessError.value || (readinessReasons.value.length
         ? `当前证据尚未就绪：${readinessReasons.value.join('；')}`
-        : '当前证据尚未就绪，请调整地区或行业后重试。'
+        : '当前证据尚未就绪，请调整地区或行业后重试。')
       return
     }
   }
@@ -653,6 +678,9 @@ async function requestAdvice(mode) {
     await nextTick()
     document.querySelector('.assistant-turn:last-of-type')?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' })
   } catch (err) {
+    requestErrorDiagnostic.value = err.diagnosticCode
+      || err.response?.data?.data?.diagnosticCode
+      || ''
     requestError.value = err.message || '创业研究请求失败，请稍后重试。'
   } finally {
     submitting.value = false
@@ -750,7 +778,8 @@ async function checkReadiness() {
       return false
     }
     industrySuggestion.value = decision.suggestion
-    return readinessUi.value.canSubmit && !industrySuggestion.value && Boolean(profile.industryTagId)
+    const readinessDecision = readinessPresentation(result?.readinessStatus)
+    return readinessDecision.canSubmit && !industrySuggestion.value && Boolean(profile.industryTagId)
   } catch (err) {
     if (!readinessGate.isCurrent(requestId)) return false
     readiness.value = null

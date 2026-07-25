@@ -6,6 +6,7 @@ import lombok.Data;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class PolicyUpdateDTO {
@@ -36,6 +37,10 @@ public class PolicyUpdateDTO {
     @NotBlank
     private String policyType;
 
+    private String applicabilityMode;
+
+    private List<Long> industryTagIds;
+
     @NotBlank
     private String summary;
 
@@ -59,8 +64,10 @@ public class PolicyUpdateDTO {
 
     private String reviewer;
 
+    @NotNull
     private Long expectedEvidenceRevision;
 
+    @NotNull
     private LocalDateTime expectedUpdatedAt;
 
 }

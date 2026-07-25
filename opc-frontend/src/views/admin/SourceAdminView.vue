@@ -243,6 +243,8 @@ function resetForm() {
     accessedAt: today,
     notes: '',
     status: 'published',
+    evidenceRevision: null,
+    updatedAt: null,
   })
 }
 
@@ -258,6 +260,8 @@ function startEdit(source) {
     accessedAt: source.accessedAt || today,
     notes: source.notes || '',
     status: source.status || 'published',
+    evidenceRevision: Number(source.evidenceRevision ?? 0),
+    updatedAt: source.updatedAt || null,
   })
 }
 
@@ -313,7 +317,18 @@ async function removeSource(source) {
   if (!window.confirm(`确认删除来源「${source.title}」吗？`)) {
     return
   }
-  await deleteSource(source.id)
+  try {
+    await deleteSource(source.id, {
+      expectedEvidenceRevision: Number(source.evidenceRevision ?? 0),
+      expectedUpdatedAt: source.updatedAt,
+    })
+  } catch (err) {
+    error.value = err?.businessCode === 409
+      ? '来源已被其他操作修改，列表已重新加载，请确认后重试。'
+      : (err.message || '来源删除失败')
+    await loadSources()
+    return
+  }
   await loadSources()
 }
 

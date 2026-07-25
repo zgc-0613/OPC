@@ -10,6 +10,7 @@ POSTCHECK = ROOT / "deploy" / "sql" / "20260724_ai_stabilization_postcheck.sql"
 DEPLOY_SCRIPT = ROOT / ".codex_deploy_opc.py"
 EVIDENCE_WORKBENCH = ROOT / "deploy" / "sql" / "20260725_evidence_workbench.sql"
 PHASE_ONE_FINALIZATION = ROOT / "deploy" / "sql" / "20260725_phase_one_finalization.sql"
+AI_RESPONSE_DIAGNOSTICS = ROOT / "deploy" / "sql" / "20260725_ai_response_diagnostics.sql"
 
 
 class AiStabilizationMigrationTest(unittest.TestCase):
@@ -123,6 +124,21 @@ class AiStabilizationMigrationTest(unittest.TestCase):
         deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("PHASE_ONE_FINALIZATION_MIGRATION", deploy)
         self.assertIn("phase-one-finalization.sql", deploy)
+
+    def test_ai_response_diagnostics_are_independently_guarded_and_deployed(self):
+        sql = AI_RESPONSE_DIAGNOSTICS.read_text(encoding="utf-8")
+        for column in ("finish_reason", "response_hash", "diagnostic_code"):
+            self.assertRegex(
+                sql,
+                rf"table_name\s*=\s*'ai_analysis_runs'\s+AND column_name\s*=\s*'{column}'",
+            )
+            self.assertEqual(1, len(re.findall(rf"ADD COLUMN {column}\b", sql)))
+        self.assertNotRegex(sql, r"(?im)^\s*(DROP|TRUNCATE|DELETE)\b")
+        self.assertIn("result_json = NULL", sql)
+        self.assertIn("SHA2(CAST(result_json AS CHAR), 256)", sql)
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("AI_RESPONSE_DIAGNOSTICS_MIGRATION", deploy)
+        self.assertIn("ai-response-diagnostics.sql", deploy)
 
 
 if __name__ == "__main__":

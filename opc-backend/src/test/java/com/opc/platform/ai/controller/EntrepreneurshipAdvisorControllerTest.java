@@ -1,6 +1,7 @@
 package com.opc.platform.ai.controller;
 
 import com.opc.platform.ai.config.AiWebMvcConfig;
+import com.opc.platform.ai.exception.AiResponseValidationException;
 import com.opc.platform.ai.service.AiIndustryClassificationService;
 import com.opc.platform.ai.service.EntrepreneurshipAdvisorService;
 import com.opc.platform.common.config.SecurityConfig;
@@ -110,6 +111,26 @@ class EntrepreneurshipAdvisorControllerTest {
                 .andExpect(jsonPath("$.code").value(400));
 
         verify(advisorService, never()).advise(any(), any());
+    }
+
+    @Test
+    void truncatedModelResponseReturnsSafeDiagnosticCode() throws Exception {
+        UserLoginVO user = new UserLoginVO();
+        user.setUserId(42L);
+        user.setUsername("ACha_");
+        user.setEmail("acha@example.com");
+        when(userAuthService.getCurrentUser("valid-user-token")).thenReturn(user);
+        doThrow(new AiResponseValidationException("TRUNCATED_RESPONSE"))
+                .when(advisorService).advise(any(), any());
+
+        mockMvc.perform(post("/api/ai/entrepreneurship-advice")
+                        .header("Authorization", "Bearer valid-user-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validRequest()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(502))
+                .andExpect(jsonPath("$.data.diagnosticCode").value("TRUNCATED_RESPONSE"))
+                .andExpect(jsonPath("$.message").value("模型输出被截断，请重试或联系管理员提高最大输出词元"));
     }
 
     @Test

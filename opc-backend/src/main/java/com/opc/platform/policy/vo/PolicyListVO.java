@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class PolicyListVO {
@@ -33,6 +34,12 @@ public class PolicyListVO {
     private String policyLevel;
 
     private String policyType;
+
+    private String applicabilityMode;
+
+    private List<Long> industryTagIds;
+
+    private List<String> industryTagNames;
 
     private String summary;
 

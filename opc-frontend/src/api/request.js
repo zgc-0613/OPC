@@ -24,6 +24,7 @@ request.interceptors.response.use(
       if (body.code !== 200) {
         const requestError = new Error(body.message || 'Request failed')
         requestError.businessCode = body.code
+        requestError.diagnosticCode = body.data?.diagnosticCode || ''
         requestError.response = { ...response, data: body }
         return Promise.reject(requestError)
       }
@@ -34,6 +35,7 @@ request.interceptors.response.use(
   (error) => {
     if (error?.response?.data?.code !== undefined) {
       error.businessCode = error.response.data.code
+      error.diagnosticCode = error.response.data.data?.diagnosticCode || ''
     }
     return Promise.reject(error)
   },

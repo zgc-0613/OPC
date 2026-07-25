@@ -1,6 +1,7 @@
 package com.opc.platform.ai.service;
 
 import com.opc.platform.ai.entity.AiAnalysisRun;
+import com.opc.platform.ai.exception.AiResponseValidationException;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
 import com.opc.platform.ai.provider.AiClient;
 import com.opc.platform.ai.provider.AiProviderDescriptor;
@@ -16,7 +17,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.function.Function;
 
 @Service
@@ -82,19 +87,22 @@ public class AiTaskExecutionService {
         try {
             response = aiClient.generate(providerRequest, settings);
             T result = resultHandler.apply(new Execution(run, descriptor, response));
-            if (settle(run, response, "completed", null, response.content()) != 1) {
+            if (settle(run, response, "completed", null, null) != 1) {
                 throw new TaskNoLongerRunningException();
             }
             return result;
         } catch (TaskNoLongerRunningException exception) {
             throw taskExpired();
         } catch (BusinessException exception) {
-            if (settle(run, response, "failed", exception.getErrorCode().name(), null) != 1) {
+            String diagnosticCode = exception instanceof AiResponseValidationException validation
+                    ? validation.getDiagnosticCode()
+                    : exception.getErrorCode().name();
+            if (settle(run, response, "failed", exception.getErrorCode().name(), diagnosticCode) != 1) {
                 throw taskExpired();
             }
             throw exception;
         } catch (RuntimeException exception) {
-            if (settle(run, response, "failed", "UNEXPECTED_PROVIDER_RESPONSE", null) != 1) {
+            if (settle(run, response, "failed", "UPSTREAM_ERROR", "UNEXPECTED_PROVIDER_RESPONSE") != 1) {
                 throw taskExpired();
             }
             throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "AI 返回内容格式无效，请稍后重试");
@@ -106,7 +114,7 @@ public class AiTaskExecutionService {
             AiProviderResponse response,
             String status,
             String errorType,
-            String resultJson
+            String diagnosticCode
     ) {
         boolean hasUsage = response != null
                 && (response.totalTokens() > 0 || response.promptTokens() > 0 || response.completionTokens() > 0);
@@ -117,10 +125,18 @@ public class AiTaskExecutionService {
                 : Math.toIntExact(Math.min(Integer.MAX_VALUE, Math.max(1L, run.getReservedTokens())));
         long latencyMs = response == null ? 0 : response.latencyMs();
         String requestId = response == null ? null : response.requestId();
-        return runMapper.settle(
-                run.getId(), status, errorType, promptTokens, completionTokens,
-                totalTokens, latencyMs, requestId, resultJson
+        String finishReason = response == null ? null : response.finishReason();
+        String responseHash = response == null ? null : sha256(response.content());
+        LocalDateTime settledAt = LocalDateTime.now();
+        int updated = runMapper.settle(
+                run.getId(), status, errorType, diagnosticCode, promptTokens, completionTokens,
+                totalTokens, latencyMs, requestId, finishReason, responseHash, null, settledAt
         );
+        if (updated == 1) {
+            return 1;
+        }
+        runMapper.failExpiredRun(run.getId(), settledAt);
+        return 0;
     }
 
     private BusinessException taskExpired() {
@@ -129,6 +145,17 @@ public class AiTaskExecutionService {
 
     private int safe(Integer value) {
         return value == null ? 0 : Math.max(0, value);
+    }
+
+    private String sha256(String value) {
+        if (value == null) return null;
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 
     public record Task(

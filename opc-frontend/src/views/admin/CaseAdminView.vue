@@ -368,7 +368,18 @@ async function removeCase(item) {
   if (!window.confirm(`确认删除案例「${item.title}」吗？`)) {
     return
   }
-  await deleteCase(item.id)
+  try {
+    await deleteCase(item.id, {
+      expectedEvidenceRevision: Number(item.evidenceRevision ?? 0),
+      expectedUpdatedAt: item.updatedAt,
+    })
+  } catch (err) {
+    error.value = err?.businessCode === 409
+      ? '案例已被其他操作修改，列表已重新加载，请确认后重试。'
+      : (err.message || '案例删除失败')
+    await loadCases()
+    return
+  }
   await loadCases()
 }
 

@@ -17,6 +17,13 @@ public class EntrepreneurshipReadinessVO {
     private double confidence;
     private int verifiedCaseCount;
     private int verifiedPolicyCount;
+    private int verifiedPolicyCandidateCount;
+    private int regionMatchedPolicyCount;
+    private int directIndustryPolicyCount;
+    private int generalPolicyCount;
+    private int unclassifiedPolicyCount;
+    private int sourceRejectedPolicyCount;
+    private int selectedPolicyCount;
     private int verifiedSourceCount;
     private int totalRelevantCount;
     private int selectedEvidenceCount;
