@@ -1,6 +1,8 @@
 package com.opc.platform.tag.service;
 
 import com.opc.platform.casetag.mapper.CaseTagMapper;
+import com.opc.platform.common.enums.ErrorCode;
+import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.policyindustrytag.mapper.PolicyIndustryTagMapper;
 import com.opc.platform.tag.dto.TagUpdateDTO;
 import com.opc.platform.tag.entity.Tag;
@@ -12,12 +14,30 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TagServiceTest {
+
+    @Test
+    void deletingTagReferencedByCaseOrPolicyReturnsConflict() {
+        TagMapper tagMapper = mock(TagMapper.class);
+        when(tagMapper.selectById(27L)).thenReturn(tag(27L, true));
+        when(tagMapper.countCaseOrPolicyReferences(27L)).thenReturn(1L);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> new TagService(tagMapper).deleteTag(27L)
+        );
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
+        verify(tagMapper, never()).deleteById(27L);
+    }
 
     @Test
     void administratorIndustryFlagMakesAPolicyTagAvailableToThePublicIndustryList() {

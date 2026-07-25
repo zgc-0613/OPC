@@ -373,3 +373,29 @@ Update this file after every two repository or browser inspection operations.
 - Pending sources consist of 9 unpublished drafts, 62 published rows without publisher metadata, and 21 published rows whose accessibility or content correspondence still needs human confirmation.
 - Pending policies consist of 9 drafts, 21 rows whose source remains unverified, and 2 rows whose summary/content evidence was not strong enough for automated approval.
 - All 106 cases remain pending because none currently has a verified source with complete publisher metadata. No evidence row was excluded.
+
+## Agent Runtime Phase Two Baseline Findings (2026-07-25)
+- The repository is clean on `main` at `ecb4c21`, and `main` exactly matches `origin/main` before phase-two edits.
+- CodeGraph is current at 292 files, 5,972 nodes, and 12,085 edges; `.codegraph/` remains excluded by the root `.gitignore`.
+- `AiProviderRequest` and `AiProviderResponse` currently model one structured completion only; the OpenAI-compatible adapter does not yet expose provider-neutral tool definitions or tool calls.
+- `AiTaskExecutionService` already provides an atomic per-user active guard, quota reservation, late-result rejection, usage settlement, and secret-free auditing, but its lifecycle currently assumes one provider call per run.
+- `CaseAnalysisService` still parses content without checking `finish_reason`, uses a minimal response schema, collapses response diagnostics, and returns no audited `analysisId` when evidence is insufficient.
+- The evidence service already enforces published and verified case/policy/source chains, policy applicability semantics, versioned evidence hashes, and conflict checks suitable for the Agent tool boundary.
+- Production credentials are not present in this local process environment, so live provider/model capability inspection and deployment cannot run until the existing secure credential path is available; no secret value was read or printed.
+- Current production evidence recorded by the last completed review is 38 verified sources, 36 verified policies, and 0 verified cases. Policy search can be probed safely, while successful case comparison requires later human-verified cases.
+
+## Agent Runtime Phase Two Implementation Findings (2026-07-25)
+- The existing `ai_analysis_runs` table is sufficient as the unified quota and audit ledger when extended with session/message links, idempotency, stage counters, visible progress, cancellation/completion timestamps, and a generated per-session active guard.
+- A controlled `json_plan` mode is the safe default because the production model's official native tool-call capability has not been verified. Native OpenAI-compatible tool calls are available only through the explicit administrator setting.
+- Agent enablement must be checked before opening the message/run transaction. A red test proved that checking it only in the run lifecycle allowed clarification messages while Agent Runtime was disabled; configuration is now validated before any persistence.
+- Tool arguments are deserialized into strong DTOs, Bean-validated, bounded, and audited before execution. Unknown tools and malformed arguments never reach the evidence mapper.
+- Every final answer replays each tool deterministically and compares its SHA-256 evidence hash. A changed case, policy, or source therefore produces `EVIDENCE_CHANGED` instead of completing against stale evidence.
+- `get_source` and `compare_cases` use run-local allowlists populated by prior tools. They cannot be used to enumerate arbitrary source or case IDs.
+- Clarification is deterministic and limited to one question; insufficient region, industry, or research objective does not call the provider or evidence tools.
+- User messages are stored only for session continuity, capped at 2,000 characters; assistant messages are capped at 12,000. History is capped by the administrator setting, default 12 messages. No chain-of-thought or raw provider response is persisted.
+- `DELETE /api/ai/research/sessions/{id}` is an archive operation. Automatic retention expiry and physical purge are not implemented, so a retention policy and purge job remain an explicit follow-up.
+- Administrator run records expose operational metadata and bounded tool summaries, not complete private user questions, provider secrets, raw model responses, or hidden reasoning.
+- The complete backend suite passes 247 tests, including 36 real MySQL Testcontainers cases. Frontend Vitest passes 13 tests, all eight package test scripts pass, the production build transforms 1,705 modules, and 13 Python deployment tests pass.
+- The deterministic 20-question evaluation achieved task completion 1.0, legal citations 1.0, citation/claim consistency 1.0, unknown accepted source IDs 0, tool success 1.0, evidence-insufficient refusal 1.0, average 2.1 model rounds, 1.1 tool calls, and 31.5 tokens, with P50 40 ms and P95 60 ms.
+- Production still runs provider `deepseek`, model `deepseek-v4-flash`, with provider enabled, a configured encrypted API key, and a successful prior connection test. Agent settings are absent until the migration is deployed.
+- HTTPS administrator authentication confirmed the production settings and was immediately logged out. The available credential does not authenticate `root` SSH, and neither an SSH agent/key nor `OPC_SSH_PASSWORD` is available locally, so no production mutation was attempted.

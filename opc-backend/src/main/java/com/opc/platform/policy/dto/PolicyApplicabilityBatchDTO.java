@@ -3,6 +3,7 @@ package com.opc.platform.policy.dto;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.util.List;
@@ -17,5 +18,6 @@ public class PolicyApplicabilityBatchDTO {
 
     @Valid
     @NotEmpty
+    @Size(max = 100)
     private List<PolicyApplicabilityBatchItemDTO> items;
 }

@@ -2,9 +2,12 @@ package com.opc.platform.ai.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.dto.CaseAnalysisRequestDTO;
 import com.opc.platform.ai.entity.AiAnalysisRun;
+import com.opc.platform.ai.exception.AiResponseValidationException;
+import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
 import com.opc.platform.ai.provider.AiProviderDescriptor;
 import com.opc.platform.ai.provider.AiProviderRequest;
 import com.opc.platform.ai.provider.AiProviderResponse;
@@ -45,10 +48,16 @@ public class CaseAnalysisService {
     private static final String PUBLISHED = "published";
     private static final String VERIFIED = "verified";
     private static final String PROMPT_VERSION = "case-analysis-v1";
+    private static final Set<String> RESPONSE_FIELDS = Set.of(
+            "summary", "businessModel", "technicalAssessment", "opportunities", "risks",
+            "recommendedActions", "citations", "confidence"
+    );
+    private static final Set<String> CITATION_FIELDS = Set.of("sourceId", "claim");
 
     private final CaseItemMapper caseItemMapper;
     private final SourceMapper sourceMapper;
     private final PolicyMapper policyMapper;
+    private final AiAnalysisRunMapper runMapper;
     private final ObjectMapper objectMapper;
     private final AiTaskExecutionService taskExecutionService;
 
@@ -59,12 +68,12 @@ public class CaseAnalysisService {
         }
 
         if (!VERIFIED.equals(caseItem.getAiEvidenceStatus())) {
-            return insufficient(caseItem);
+            return insufficient(user, caseItem, "case_unverified");
         }
 
         EvidenceBundle evidence = loadEvidence(caseItem);
         if (evidence.sources().isEmpty()) {
-            return insufficient(caseItem);
+            return insufficient(user, caseItem, "source_chain_missing");
         }
 
         return taskExecutionService.execute(
@@ -77,7 +86,7 @@ public class CaseAnalysisService {
                     responseSchema()
                 ),
                 execution -> {
-                    ModelPayload payload = parse(execution.response().content());
+                    ModelPayload payload = parse(execution.response());
                     List<AiCitationVO> citations = validateCitations(payload.getCitations(), evidence.sources());
                     requireEvidenceUnchanged(caseItem, evidence);
                     return toResult(
@@ -126,8 +135,28 @@ public class CaseAnalysisService {
         return new EvidenceBundle(sources, usablePolicies, hash);
     }
 
-    private CaseAnalysisVO insufficient(CaseItem caseItem) {
+    private CaseAnalysisVO insufficient(AuthenticatedUser user, CaseItem caseItem, String evidenceState) {
+        String hash = evidenceHash(caseItem, Map.of(), List.of(), evidenceState);
+        AiAnalysisRun run = runMapper.findRecentEvidenceInsufficient(
+                user.userId(), "case_analysis", caseItem.getId(), hash);
+        if (run == null) {
+            run = new AiAnalysisRun();
+            run.setUserId(user.userId());
+            run.setTaskType("case_analysis");
+            run.setCaseId(caseItem.getId());
+            run.setStatus("evidence_insufficient");
+            run.setProvider("not_called");
+            run.setModelId("not_called");
+            run.setPromptVersion(PROMPT_VERSION);
+            run.setEvidenceHash(hash);
+            run.setResultJson("{\"evidenceStatus\":\"insufficient\"}");
+            run.setPromptTokens(0);
+            run.setCompletionTokens(0);
+            run.setTotalTokens(0);
+            runMapper.insert(run);
+        }
         CaseAnalysisVO result = new CaseAnalysisVO();
+        result.setAnalysisId(run.getId());
         result.setCaseId(caseItem.getId());
         result.setSummary("证据不足");
         result.setBusinessModel("当前案例尚未完成 AI 证据核验。");
@@ -142,21 +171,61 @@ public class CaseAnalysisService {
         return result;
     }
 
-    private ModelPayload parse(String content) {
+    private ModelPayload parse(AiProviderResponse response) {
+        if ("length".equalsIgnoreCase(response.finishReason())) {
+            throw new AiResponseValidationException("TRUNCATED_RESPONSE");
+        }
+        if ("content_filter".equalsIgnoreCase(response.finishReason())) {
+            throw new AiResponseValidationException("CONTENT_FILTERED");
+        }
+        if (!"stop".equalsIgnoreCase(response.finishReason())) {
+            throw new AiResponseValidationException("ABNORMAL_FINISH_REASON");
+        }
+        JsonNode root;
         try {
-            ModelPayload payload = objectMapper.readValue(content, ModelPayload.class);
-            if (!StringUtils.hasText(payload.getSummary())
-                    || !StringUtils.hasText(payload.getBusinessModel())
-                    || !StringUtils.hasText(payload.getTechnicalAssessment())
-                    || payload.getConfidence() == null
-                    || payload.getConfidence() < 0
-                    || payload.getConfidence() > 1) {
-                throw invalidResponse();
+            root = objectMapper.readTree(stripJsonFence(response.content()));
+        } catch (JsonProcessingException exception) {
+            throw invalidResponse("INVALID_JSON");
+        }
+        if (root == null || !root.isObject() || hasUnknownFields(root, RESPONSE_FIELDS)) {
+            throw invalidResponse("INVALID_JSON");
+        }
+        if (!hasText(root, "summary", 500)
+                || !hasText(root, "businessModel", 600)
+                || !hasText(root, "technicalAssessment", 600)
+                || !isBoundedStringArray(root.path("opportunities"), 5, 300)
+                || !isBoundedStringArray(root.path("risks"), 5, 300)
+                || !isBoundedStringArray(root.path("recommendedActions"), 5, 300)) {
+            throw invalidResponse("MISSING_FIELD");
+        }
+        JsonNode citations = root.path("citations");
+        if (!citations.isArray() || citations.isEmpty() || citations.size() > 8) {
+            throw invalidResponse("MISSING_CITATIONS");
+        }
+        for (JsonNode citation : citations) {
+            if (!citation.isObject() || hasUnknownFields(citation, CITATION_FIELDS)
+                    || !citation.path("sourceId").isIntegralNumber()) {
+                throw invalidResponse("UNKNOWN_SOURCE_ID");
             }
+            if (!citation.path("claim").isTextual()
+                    || !StringUtils.hasText(citation.path("claim").asText())
+                    || citation.path("claim").asText().length() > 300) {
+                throw invalidResponse("BLANK_CLAIM");
+            }
+        }
+        JsonNode confidence = root.path("confidence");
+        if (!confidence.isNumber()
+                || !Double.isFinite(confidence.asDouble())
+                || confidence.asDouble() < 0
+                || confidence.asDouble() > 1) {
+            throw invalidResponse("INVALID_CONFIDENCE");
+        }
+        try {
+            ModelPayload payload = objectMapper.treeToValue(root, ModelPayload.class);
             payload.normalize();
             return payload;
         } catch (JsonProcessingException exception) {
-            throw invalidResponse();
+            throw invalidResponse("INVALID_JSON");
         }
     }
 
@@ -165,13 +234,16 @@ public class CaseAnalysisService {
             Map<Long, Source> sources
     ) {
         if (citations == null || citations.isEmpty()) {
-            throw invalidResponse();
+            throw invalidResponse("MISSING_CITATIONS");
         }
         List<AiCitationVO> validated = new ArrayList<>();
         for (ModelCitation citation : citations) {
             Source source = sources.get(citation.getSourceId());
-            if (source == null || !StringUtils.hasText(citation.getClaim())) {
-                throw invalidResponse();
+            if (source == null) {
+                throw invalidResponse("UNKNOWN_SOURCE_ID");
+            }
+            if (!StringUtils.hasText(citation.getClaim())) {
+                throw invalidResponse("BLANK_CLAIM");
             }
             validated.add(new AiCitationVO(
                     source.getId(),
@@ -342,12 +414,76 @@ public class CaseAnalysisService {
 
     private String responseSchema() {
         return """
-                {"type":"object","required":["summary","businessModel","technicalAssessment","opportunities","risks","recommendedActions","citations","confidence"]}
+                {
+                  "type":"object",
+                  "additionalProperties":false,
+                  "required":["summary","businessModel","technicalAssessment","opportunities","risks","recommendedActions","citations","confidence"],
+                  "properties":{
+                    "summary":{"type":"string","minLength":1,"maxLength":500},
+                    "businessModel":{"type":"string","minLength":1,"maxLength":600},
+                    "technicalAssessment":{"type":"string","minLength":1,"maxLength":600},
+                    "opportunities":{"type":"array","maxItems":5,"items":{"type":"string","minLength":1,"maxLength":300}},
+                    "risks":{"type":"array","maxItems":5,"items":{"type":"string","minLength":1,"maxLength":300}},
+                    "recommendedActions":{"type":"array","maxItems":5,"items":{"type":"string","minLength":1,"maxLength":300}},
+                    "citations":{"type":"array","minItems":1,"maxItems":8,"items":{
+                      "type":"object",
+                      "additionalProperties":false,
+                      "required":["sourceId","claim"],
+                      "properties":{
+                        "sourceId":{"type":"integer"},
+                        "claim":{"type":"string","minLength":1,"maxLength":300}
+                      }
+                    }},
+                    "confidence":{"type":"number","minimum":0,"maximum":1}
+                  }
+                }
                 """;
     }
 
-    private BusinessException invalidResponse() {
-        return new BusinessException(ErrorCode.UPSTREAM_ERROR, "AI 返回内容格式无效，请稍后重试");
+    private AiResponseValidationException invalidResponse() {
+        return invalidResponse("INVALID_JSON");
+    }
+
+    private AiResponseValidationException invalidResponse(String diagnosticCode) {
+        return new AiResponseValidationException(diagnosticCode);
+    }
+
+    private boolean hasText(JsonNode node, String field, int maxLength) {
+        return node.path(field).isTextual()
+                && StringUtils.hasText(node.path(field).asText())
+                && node.path(field).asText().length() <= maxLength;
+    }
+
+    private boolean isBoundedStringArray(JsonNode node, int maxItems, int maxLength) {
+        if (!node.isArray() || node.size() > maxItems) return false;
+        for (JsonNode value : node) {
+            if (!value.isTextual() || !StringUtils.hasText(value.asText()) || value.asText().length() > maxLength) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean hasUnknownFields(JsonNode node, Set<String> allowedFields) {
+        var fields = node.fieldNames();
+        while (fields.hasNext()) {
+            if (!allowedFields.contains(fields.next())) return true;
+        }
+        return false;
+    }
+
+    private String stripJsonFence(String content) {
+        String value = safe(content).trim();
+        if (!value.startsWith("```")) return value;
+        int firstLineEnd = value.indexOf('\n');
+        if (firstLineEnd < 0 || !value.endsWith("```")) {
+            throw invalidResponse("INVALID_JSON");
+        }
+        String marker = value.substring(0, firstLineEnd).trim().toLowerCase();
+        if (!"```".equals(marker) && !"```json".equals(marker)) {
+            throw invalidResponse("INVALID_JSON");
+        }
+        return value.substring(firstLineEnd + 1, value.length() - 3).trim();
     }
 
     private String sha256(String value) {

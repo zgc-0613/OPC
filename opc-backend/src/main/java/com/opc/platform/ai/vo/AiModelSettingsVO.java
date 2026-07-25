@@ -21,6 +21,13 @@ public class AiModelSettingsVO {
     private Integer retryCount;
     private Long dailyTokenQuota;
     private Boolean enabled;
+    private Boolean agentEnabled;
+    private Integer agentMaxModelRounds;
+    private Integer agentMaxToolCalls;
+    private Integer agentMaxTokens;
+    private Integer agentHistoryWindow;
+    private Integer agentTimeoutSeconds;
+    private String agentToolMode;
     private String lastTestStatus;
     private LocalDateTime lastTestedAt;
     private String lastTestMessage;

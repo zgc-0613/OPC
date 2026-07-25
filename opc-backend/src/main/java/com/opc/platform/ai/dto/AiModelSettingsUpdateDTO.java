@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -62,4 +63,36 @@ public class AiModelSettingsUpdateDTO {
 
     @NotNull
     private Boolean enabled;
+
+    @NotNull
+    private Boolean agentEnabled = false;
+
+    @NotNull
+    @Min(1)
+    @Max(8)
+    private Integer agentMaxModelRounds = 4;
+
+    @NotNull
+    @Min(1)
+    @Max(12)
+    private Integer agentMaxToolCalls = 6;
+
+    @NotNull
+    @Min(512)
+    @Max(32000)
+    private Integer agentMaxTokens = 8000;
+
+    @NotNull
+    @Min(1)
+    @Max(24)
+    private Integer agentHistoryWindow = 12;
+
+    @NotNull
+    @Min(10)
+    @Max(600)
+    private Integer agentTimeoutSeconds = 120;
+
+    @NotBlank
+    @Pattern(regexp = "json_plan|native")
+    private String agentToolMode = "json_plan";
 }

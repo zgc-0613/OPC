@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.opc.platform.policy.dto.PolicyQueryDTO;
+import com.opc.platform.policy.dto.PolicyApplicabilityBatchDTO;
+import com.opc.platform.policy.dto.PolicyApplicabilityBatchItemDTO;
 import com.opc.platform.policy.entity.Policy;
 import com.opc.platform.policy.mapper.PolicyMapper;
 import com.opc.platform.policytag.mapper.PolicyTagMapper;
@@ -29,6 +31,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 import java.time.LocalDate;
 
@@ -40,6 +43,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
 class PolicyServiceTest {
@@ -80,6 +84,27 @@ class PolicyServiceTest {
         service = new PolicyService(policyMapper, regionMapper, sourceMapper, tagMapper, policyTagMapper,
                 policyIndustryTagMapper,
                 evidenceReviewService);
+    }
+
+    @Test
+    void applicabilityBatchRejectsMoreThanOneHundredPolicies() {
+        PolicyApplicabilityBatchDTO dto = new PolicyApplicabilityBatchDTO();
+        dto.setApplicabilityMode("general");
+        List<PolicyApplicabilityBatchItemDTO> items = new ArrayList<>();
+        for (long id = 1; id <= 101; id++) {
+            PolicyApplicabilityBatchItemDTO item = new PolicyApplicabilityBatchItemDTO();
+            item.setPolicyId(id);
+            items.add(item);
+        }
+        dto.setItems(items);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.updateApplicabilityBatch(dto, new AuthenticatedAdmin(7L, "reviewer"))
+        );
+
+        assertEquals(ErrorCode.BAD_REQUEST, exception.getErrorCode());
+        verify(policyMapper, never()).selectById(any());
     }
 
     @Test

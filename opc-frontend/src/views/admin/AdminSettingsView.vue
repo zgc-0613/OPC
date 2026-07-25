@@ -520,6 +520,24 @@
             </label>
           </div>
 
+          <div class="ai-agent-runtime" aria-label="Agent Runtime 参数">
+            <label class="settings-toggle-row">
+              <input v-model="ai.agentEnabled" type="checkbox" :disabled="!ai.enabled" />
+              <span>
+                <strong>启用 Agent Runtime</strong>
+                <small>允许登录用户创建受限多轮研究运行；关闭时保留历史审计但拒绝新运行。</small>
+              </span>
+            </label>
+            <div class="settings-form-grid three-up">
+              <label><span>最大模型轮次</span><input v-model.number="ai.agentMaxModelRounds" type="number" min="1" max="8" /></label>
+              <label><span>最大工具调用</span><input v-model.number="ai.agentMaxToolCalls" type="number" min="1" max="12" /></label>
+              <label><span>单次最大 Token</span><input v-model.number="ai.agentMaxTokens" type="number" min="512" max="32000" /></label>
+              <label><span>会话历史窗口</span><input v-model.number="ai.agentHistoryWindow" type="number" min="1" max="24" /></label>
+              <label><span>总超时（秒）</span><input v-model.number="ai.agentTimeoutSeconds" type="number" min="10" max="600" /></label>
+              <label><span>工具调用模式</span><select v-model="ai.agentToolMode"><option value="json_plan">受控 JSON Tool Plan</option><option value="native">原生 tool_calls</option></select></label>
+            </div>
+          </div>
+
           <div class="ai-connection-state" :class="`is-${ai.lastTestStatus || 'not_tested'}`">
             <Activity :size="18" />
             <div>
@@ -555,6 +573,7 @@
 
       <p v-if="aiNotice" class="success settings-notice" role="status">{{ aiNotice }}</p>
       <p v-if="aiError" class="error settings-notice" role="alert">{{ aiError }}</p>
+      <AgentRunAuditPanel />
     </section>
 
     <section v-else class="admin-panel settings-panel admin-approval-panel" role="tabpanel">
@@ -812,6 +831,7 @@ import {
   updateMailSettings,
 } from '@/api/adminSettings'
 import { getAdminUsername } from '@/api/auth'
+import AgentRunAuditPanel from '@/components/admin/AgentRunAuditPanel.vue'
 
 const activeTab = ref('accounts')
 const users = ref([])
@@ -937,6 +957,13 @@ const ai = reactive({
   retryCount: 1,
   dailyTokenQuota: 100000,
   enabled: false,
+  agentEnabled: false,
+  agentMaxModelRounds: 4,
+  agentMaxToolCalls: 6,
+  agentMaxTokens: 8000,
+  agentHistoryWindow: 12,
+  agentTimeoutSeconds: 120,
+  agentToolMode: 'json_plan',
   lastTestStatus: 'not_tested',
   lastTestedAt: null,
   lastTestMessage: '',
@@ -1149,6 +1176,13 @@ async function saveAiSettings() {
       retryCount: ai.retryCount,
       dailyTokenQuota: ai.dailyTokenQuota,
       enabled: ai.enabled,
+      agentEnabled: Boolean(ai.enabled && ai.agentEnabled),
+      agentMaxModelRounds: ai.agentMaxModelRounds,
+      agentMaxToolCalls: ai.agentMaxToolCalls,
+      agentMaxTokens: ai.agentMaxTokens,
+      agentHistoryWindow: ai.agentHistoryWindow,
+      agentTimeoutSeconds: ai.agentTimeoutSeconds,
+      agentToolMode: ai.agentToolMode,
     }
     if (ai.apiKey) payload.apiKey = ai.apiKey
     applyAiSettingsState(await updateAiSettings(payload))
@@ -2164,6 +2198,23 @@ function resetCaptchaNotice() {
   .ai-connection-state {
     transition: none;
   }
+}
+
+.ai-agent-runtime {
+  display: grid;
+  gap: 18px;
+  margin-top: 22px;
+  padding: 20px 0;
+  border-top: 1px solid #cbd0c9;
+  border-bottom: 1px solid #cbd0c9;
+}
+
+.ai-agent-runtime .settings-toggle-row {
+  margin: 0;
+}
+
+.ai-agent-runtime .settings-form-grid {
+  margin: 0;
 }
 
 @media (max-width: 380px) {

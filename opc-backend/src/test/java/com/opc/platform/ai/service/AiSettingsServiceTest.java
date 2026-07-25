@@ -19,6 +19,7 @@ import com.opc.platform.ai.provider.AiHttpTransport;
 import com.opc.platform.ai.security.AesGcmSecretCipher;
 import com.opc.platform.ai.security.ProviderEndpointPolicy;
 import com.opc.platform.common.exception.BusinessException;
+import com.opc.platform.common.enums.ErrorCode;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -43,6 +44,25 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AiSettingsServiceTest {
+
+    @Test
+    void agentRuntimeSettingsRejectUnsafeLimitsBeforePersistence() throws Exception {
+        AiModelSettingsMapper settingsMapper = mock(AiModelSettingsMapper.class);
+        AiSettingsService service = new AiSettingsService(
+                settingsMapper, mock(AiSettingsAuditMapper.class), new AesGcmSecretCipher(masterKey()),
+                mock(AiProviderFactory.class), new ObjectMapper(), mock(AiHttpTransport.class), endpointPolicy()
+        );
+        AiModelSettingsUpdateDTO dto = dto("sk-test");
+        dto.setAgentMaxModelRounds(9);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.update(dto, new AuthenticatedAdmin(7L, "ACha_"))
+        );
+
+        assertEquals(ErrorCode.BAD_REQUEST, exception.getErrorCode());
+        verify(settingsMapper, never()).insert(any(AiModelSettings.class));
+    }
 
     @Test
     void apiKeyIsEncryptedAtRestAndOnlyConfigurationFlagIsReturned() throws Exception {

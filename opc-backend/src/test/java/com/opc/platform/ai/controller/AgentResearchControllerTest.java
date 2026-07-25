@@ -1,0 +1,120 @@
+package com.opc.platform.ai.controller;
+
+import com.opc.platform.ai.config.AiWebMvcConfig;
+import com.opc.platform.ai.service.AgentResearchReceipt;
+import com.opc.platform.ai.service.AgentResearchQueryService;
+import com.opc.platform.ai.service.AgentResearchService;
+import com.opc.platform.common.config.SecurityConfig;
+import com.opc.platform.common.enums.ErrorCode;
+import com.opc.platform.common.exception.BusinessException;
+import com.opc.platform.common.exception.GlobalExceptionHandler;
+import com.opc.platform.userauth.UserAuthInterceptor;
+import com.opc.platform.userauth.service.UserAuthService;
+import com.opc.platform.userauth.vo.UserLoginVO;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.junit.jupiter.web.SpringJUnitWebConfig;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringJUnitWebConfig(AgentResearchControllerTest.TestWebConfig.class)
+class AgentResearchControllerTest {
+
+    @Autowired private WebApplicationContext applicationContext;
+    @Autowired private UserAuthService userAuthService;
+    @Autowired private AgentResearchService researchService;
+    private MockMvc mockMvc;
+
+    @BeforeEach
+    void setUp() {
+        reset(userAuthService, researchService);
+        mockMvc = MockMvcBuilders.webAppContextSetup(applicationContext)
+                .apply(springSecurity()).build();
+    }
+
+    @Test
+    void authenticatedMessageSubmissionReturnsAcceptedRunReceipt() throws Exception {
+        UserLoginVO user = new UserLoginVO();
+        user.setUserId(42L);
+        user.setUsername("owner");
+        user.setEmail("owner@example.com");
+        when(userAuthService.getCurrentUser("valid-token")).thenReturn(user);
+        when(researchService.submit(any(), anyLong(), any()))
+                .thenReturn(new AgentResearchReceipt(10L, 20L, 30L, "received"));
+
+        mockMvc.perform(post("/api/ai/research/sessions/10/messages")
+                        .header("Authorization", "Bearer valid-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"Research Hubei AI opportunities\"," +
+                                "\"idempotencyKey\":\"idem-12345678\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.sessionId").value(10))
+                .andExpect(jsonPath("$.data.messageId").value(20))
+                .andExpect(jsonPath("$.data.runId").value(30));
+    }
+
+    @Test
+    void anonymousMessageSubmissionNeverReachesResearchService() throws Exception {
+        doThrow(new BusinessException(ErrorCode.UNAUTHORIZED, "请先登录"))
+                .when(userAuthService).getCurrentUser(null);
+
+        mockMvc.perform(post("/api/ai/research/sessions/10/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"Research question\",\"idempotencyKey\":\"idem-12345678\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(401));
+
+        verify(researchService, never()).submit(any(), anyLong(), any());
+    }
+
+    @Test
+    void disabledUserTokenNeverReachesAgentResearchService() throws Exception {
+        doThrow(new BusinessException(ErrorCode.UNAUTHORIZED, "登录状态无效"))
+                .when(userAuthService).getCurrentUser("disabled-token");
+
+        mockMvc.perform(post("/api/ai/research/sessions/10/messages")
+                        .header("Authorization", "Bearer disabled-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"Research question\",\"idempotencyKey\":\"idem-12345678\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(401));
+
+        verify(researchService, never()).submit(any(), anyLong(), any());
+    }
+
+    @Configuration
+    @EnableWebMvc
+    @Import({
+            AiWebMvcConfig.class,
+            SecurityConfig.class,
+            UserAuthInterceptor.class,
+            AgentResearchController.class,
+            GlobalExceptionHandler.class
+    })
+    static class TestWebConfig {
+        @Bean UserAuthService userAuthService() { return mock(UserAuthService.class); }
+        @Bean AgentResearchService agentResearchService() { return mock(AgentResearchService.class); }
+        @Bean AgentResearchQueryService agentResearchQueryService() { return mock(AgentResearchQueryService.class); }
+    }
+}

@@ -137,6 +137,9 @@ public class PolicyService {
             PolicyApplicabilityBatchDTO dto,
             AuthenticatedAdmin admin
     ) {
+        if (dto == null || dto.getItems() == null || dto.getItems().isEmpty() || dto.getItems().size() > 100) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "政策批量分类每次最多处理 100 条记录");
+        }
         Applicability applicability = validateApplicability(
                 dto.getApplicabilityMode(), dto.getIndustryTagIds(), false
         );

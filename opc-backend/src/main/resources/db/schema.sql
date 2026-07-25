@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS sources (
     notes TEXT NULL COMMENT 'Notes',
     status VARCHAR(20) NOT NULL DEFAULT 'draft' COMMENT 'draft/reviewed/published',
     ai_evidence_status VARCHAR(30) NOT NULL DEFAULT 'legacy_unverified' COMMENT 'legacy_unverified/verified/excluded',
+    evidence_revision BIGINT NOT NULL DEFAULT 0 COMMENT 'Monotonic AI evidence version',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created time',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated time',
 
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS policies (
     status VARCHAR(20) NOT NULL DEFAULT 'draft' COMMENT 'draft/reviewed/published',
     reviewer VARCHAR(100) NULL COMMENT 'Reviewer',
     ai_evidence_status VARCHAR(30) NOT NULL DEFAULT 'legacy_unverified' COMMENT 'legacy_unverified/verified/excluded',
+    evidence_revision BIGINT NOT NULL DEFAULT 0 COMMENT 'Monotonic AI evidence version',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created time',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated time',
 
@@ -77,6 +79,7 @@ CREATE TABLE IF NOT EXISTS case_items (
     status VARCHAR(20) NOT NULL DEFAULT 'draft' COMMENT 'draft/reviewed/published',
     reviewer VARCHAR(100) NULL COMMENT 'Reviewer',
     ai_evidence_status VARCHAR(30) NOT NULL DEFAULT 'legacy_unverified' COMMENT 'legacy_unverified/verified/excluded',
+    evidence_revision BIGINT NOT NULL DEFAULT 0 COMMENT 'Monotonic AI evidence version',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created time',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated time',
 
@@ -316,12 +319,21 @@ CREATE TABLE IF NOT EXISTS ai_model_settings (
     model_id VARCHAR(191) NULL,
     model_catalog_json JSON NULL,
     api_key_ciphertext TEXT NULL COMMENT 'AES-GCM encrypted provider key',
+    api_key_provider VARCHAR(40) NULL COMMENT 'Provider binding for encrypted key',
+    api_key_origin VARCHAR(500) NULL COMMENT 'HTTPS origin binding for encrypted key',
     temperature DECIMAL(4,3) NOT NULL DEFAULT 0.200,
     max_output_tokens INT NOT NULL DEFAULT 1200,
     timeout_seconds INT NOT NULL DEFAULT 30,
     retry_count INT NOT NULL DEFAULT 1,
     daily_token_quota BIGINT NOT NULL DEFAULT 100000,
     enabled TINYINT(1) NOT NULL DEFAULT 0,
+    agent_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    agent_max_model_rounds INT NOT NULL DEFAULT 4,
+    agent_max_tool_calls INT NOT NULL DEFAULT 6,
+    agent_max_tokens INT NOT NULL DEFAULT 8000,
+    agent_history_window INT NOT NULL DEFAULT 12,
+    agent_timeout_seconds INT NOT NULL DEFAULT 120,
+    agent_tool_mode VARCHAR(20) NOT NULL DEFAULT 'json_plan',
     last_test_status VARCHAR(30) NOT NULL DEFAULT 'not_tested',
     last_tested_at DATETIME NULL,
     last_test_message VARCHAR(240) NULL,
@@ -349,13 +361,54 @@ CREATE TABLE IF NOT EXISTS ai_settings_audit (
   COLLATE=utf8mb4_unicode_ci
   COMMENT='AI settings administrator audit trail';
 
+CREATE TABLE IF NOT EXISTS ai_agent_sessions (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    title VARCHAR(120) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    profile_json JSON NULL,
+    version BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    last_message_at DATETIME(6) NULL,
+    CONSTRAINT chk_agent_session_status CHECK (status IN ('active', 'archived')),
+    CONSTRAINT fk_agent_sessions_user FOREIGN KEY (user_id) REFERENCES platform_users(id)
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
+    INDEX idx_agent_sessions_user_activity (user_id, status, last_message_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='User-owned Agent research sessions';
+
+CREATE TABLE IF NOT EXISTS ai_agent_messages (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    session_id BIGINT NOT NULL,
+    role VARCHAR(20) NOT NULL,
+    content TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    sequence_no INT NOT NULL,
+    run_id BIGINT NULL,
+    citations_json JSON NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT chk_agent_message_role CHECK (role IN ('user', 'assistant')),
+    CONSTRAINT chk_agent_message_status CHECK (status IN ('pending', 'completed', 'failed')),
+    CONSTRAINT fk_agent_messages_session FOREIGN KEY (session_id) REFERENCES ai_agent_sessions(id)
+        ON DELETE CASCADE ON UPDATE RESTRICT,
+    UNIQUE KEY uk_agent_message_sequence (session_id, sequence_no),
+    INDEX idx_agent_messages_run (run_id),
+    INDEX idx_agent_messages_session_created (session_id, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Ordered visible Agent conversation messages';
+
 CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT NOT NULL,
     task_type VARCHAR(40) NOT NULL DEFAULT 'case_analysis',
     case_id BIGINT NULL,
+    session_id BIGINT NULL,
+    user_message_id BIGINT NULL,
+    idempotency_key VARCHAR(64) NULL,
     status VARCHAR(30) NOT NULL,
     active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'running' THEN user_id ELSE NULL END) STORED,
+    session_active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'running' THEN session_id ELSE NULL END) STORED,
     result_json JSON NULL,
     provider VARCHAR(40) NOT NULL,
     model_id VARCHAR(191) NOT NULL,
@@ -374,17 +427,57 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     response_hash CHAR(64) NULL,
     error_type VARCHAR(80) NULL,
     diagnostic_code VARCHAR(80) NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    step_count INT NOT NULL DEFAULT 0,
+    tool_call_count INT NOT NULL DEFAULT 0,
+    current_stage VARCHAR(40) NULL,
+    visible_progress VARCHAR(120) NULL,
+    cancelled_at DATETIME(6) NULL,
+    completed_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_ai_runs_agent_session FOREIGN KEY (session_id) REFERENCES ai_agent_sessions(id)
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_ai_runs_user_message FOREIGN KEY (user_message_id) REFERENCES ai_agent_messages(id)
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
     UNIQUE KEY uk_ai_analysis_running_user (active_guard),
+    UNIQUE KEY uk_ai_runs_active_session (session_active_guard),
+    UNIQUE KEY uk_ai_runs_idempotency (user_id, task_type, idempotency_key),
     INDEX idx_ai_analysis_user_created (user_id, created_at),
     INDEX idx_ai_analysis_case_created (case_id, created_at),
     INDEX idx_ai_analysis_status_created (status, created_at),
+    INDEX idx_ai_runs_session (session_id, created_at, id),
     INDEX idx_ai_runs_running_deadline (status, deadline_at)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
   COMMENT='Persisted AI task results and usage metadata';
+
+ALTER TABLE ai_agent_messages
+    ADD CONSTRAINT fk_agent_messages_run FOREIGN KEY (run_id) REFERENCES ai_analysis_runs(id)
+        ON DELETE SET NULL ON UPDATE RESTRICT;
+
+CREATE TABLE IF NOT EXISTS ai_agent_tool_calls (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    analysis_run_id BIGINT NOT NULL,
+    step_no INT NOT NULL,
+    tool_name VARCHAR(60) NOT NULL,
+    arguments_json JSON NOT NULL,
+    result_summary_json JSON NULL,
+    evidence_hash CHAR(64) NULL,
+    status VARCHAR(20) NOT NULL,
+    diagnostic_code VARCHAR(80) NULL,
+    evidence_count INT NOT NULL DEFAULT 0,
+    latency_ms BIGINT NOT NULL DEFAULT 0,
+    started_at DATETIME(6) NULL,
+    completed_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT chk_agent_tool_status CHECK (status IN ('pending','running','completed','failed','cancelled')),
+    CONSTRAINT fk_agent_tool_calls_run FOREIGN KEY (analysis_run_id) REFERENCES ai_analysis_runs(id)
+        ON DELETE CASCADE ON UPDATE RESTRICT,
+    UNIQUE KEY uk_agent_tool_step (analysis_run_id, step_no),
+    INDEX idx_agent_tool_run_status (analysis_run_id, status, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Validated Agent tool invocation audit';
 
 CREATE TABLE IF NOT EXISTS ai_evidence_reviews (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -395,6 +488,9 @@ CREATE TABLE IF NOT EXISTS ai_evidence_reviews (
     admin_id BIGINT NOT NULL,
     admin_username VARCHAR(100) NOT NULL,
     notes VARCHAR(500) NULL,
+    action_type VARCHAR(50) NULL,
+    reason VARCHAR(500) NULL,
+    operation_id VARCHAR(64) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_evidence_reviews_item (item_type, item_id),
     INDEX idx_evidence_reviews_created_at (created_at)

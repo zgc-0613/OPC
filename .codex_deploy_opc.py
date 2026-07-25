@@ -35,6 +35,9 @@ EVIDENCE_WORKBENCH_MIGRATION = ROOT / "deploy" / "sql" / "20260725_evidence_work
 PHASE_ONE_FINALIZATION_MIGRATION = ROOT / "deploy" / "sql" / "20260725_phase_one_finalization.sql"
 POLICY_APPLICABILITY_MIGRATION = ROOT / "deploy" / "sql" / "20260725_policy_applicability.sql"
 AI_RESPONSE_DIAGNOSTICS_MIGRATION = ROOT / "deploy" / "sql" / "20260725_ai_response_diagnostics.sql"
+AGENT_RUNTIME_PRECHECK = ROOT / "deploy" / "sql" / "20260725_agent_runtime_precheck.sql"
+AGENT_RUNTIME_MIGRATION = ROOT / "deploy" / "sql" / "20260725_agent_runtime.sql"
+AGENT_RUNTIME_POSTCHECK = ROOT / "deploy" / "sql" / "20260725_agent_runtime_postcheck.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 
@@ -224,6 +227,9 @@ def deploy(client):
         PHASE_ONE_FINALIZATION_MIGRATION,
         POLICY_APPLICABILITY_MIGRATION,
         AI_RESPONSE_DIAGNOSTICS_MIGRATION,
+        AGENT_RUNTIME_PRECHECK,
+        AGENT_RUNTIME_MIGRATION,
+        AGENT_RUNTIME_POSTCHECK,
     ]
     for path in required:
         if not path.exists():
@@ -242,6 +248,7 @@ def deploy(client):
     database_mutated = False
     service_user_preexisting = False
     assistant_probe = None
+    agent_probe = None
     unclassified_policy_count = None
 
     _, previous_current, _ = run(
@@ -281,6 +288,9 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     sftp.put(str(PHASE_ONE_FINALIZATION_MIGRATION), f"{release}/phase-one-finalization.sql")
     sftp.put(str(POLICY_APPLICABILITY_MIGRATION), f"{release}/policy-applicability.sql")
     sftp.put(str(AI_RESPONSE_DIAGNOSTICS_MIGRATION), f"{release}/ai-response-diagnostics.sql")
+    sftp.put(str(AGENT_RUNTIME_PRECHECK), f"{release}/agent-runtime-precheck.sql")
+    sftp.put(str(AGENT_RUNTIME_MIGRATION), f"{release}/agent-runtime.sql")
+    sftp.put(str(AGENT_RUNTIME_POSTCHECK), f"{release}/agent-runtime-postcheck.sql")
     sftp.put(str(NGINX), uploaded_nginx)
     sftp.put(str(SYSTEMD), uploaded_systemd)
     sftp.close()
@@ -298,6 +308,9 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"{release}/phase-one-finalization.sql": sha256(PHASE_ONE_FINALIZATION_MIGRATION),
         f"{release}/policy-applicability.sql": sha256(POLICY_APPLICABILITY_MIGRATION),
         f"{release}/ai-response-diagnostics.sql": sha256(AI_RESPONSE_DIAGNOSTICS_MIGRATION),
+        f"{release}/agent-runtime-precheck.sql": sha256(AGENT_RUNTIME_PRECHECK),
+        f"{release}/agent-runtime.sql": sha256(AGENT_RUNTIME_MIGRATION),
+        f"{release}/agent-runtime-postcheck.sql": sha256(AGENT_RUNTIME_POSTCHECK),
         uploaded_nginx: sha256(NGINX),
         uploaded_systemd: sha256(SYSTEMD),
     }
@@ -366,6 +379,25 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         )
         if diagnostics_output.splitlines()[-1:] != ["3"]:
             raise RuntimeError("AI response diagnostics database migration verification failed")
+        _, agent_precheck_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/agent-runtime-precheck.sql'",
+        )
+        if agent_precheck_output.splitlines()[-1:] != ["3"]:
+            raise RuntimeError("Agent Runtime database precheck failed")
+        run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/agent-runtime.sql'",
+        )
+        _, agent_postcheck_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/agent-runtime-postcheck.sql'",
+        )
+        if agent_postcheck_output.splitlines()[-1:] != ["3\t10\t7\t6\t4\t0"]:
+            raise RuntimeError("Agent Runtime database postcheck failed")
         run(
             client,
             "set -euo pipefail\n"
@@ -642,6 +674,105 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 "analysis_run_diagnostic_code": analysis_run[3] or None,
                 "analysis_run_request_id": analysis_run[4] or None,
             }
+            if not ai_settings_data.get("agentEnabled"):
+                raise RuntimeError("Production Agent Runtime is not enabled after migration")
+            _, agent_session_body = request_json(
+                "https://findopc.online/api/ai/research/sessions",
+                method="POST",
+                headers=user_headers,
+                payload={
+                    "title": "Deployment Agent probe",
+                    "profile": {
+                        "ventureType": "solo_company",
+                        "regionId": hubei["id"],
+                        "industry": "人工智能应用",
+                        "stage": "validation",
+                        "budgetRange": "under_100k",
+                        "goal": "核验本地政策证据",
+                    },
+                },
+            )
+            agent_session_data = agent_session_body.get("data") or {}
+            if agent_session_body.get("code") != 200 or not agent_session_data.get("sessionId"):
+                raise RuntimeError("Production Agent session creation failed")
+            agent_session_id = agent_session_data["sessionId"]
+            _, agent_submit_body = request_json(
+                f"https://findopc.online/api/ai/research/sessions/{agent_session_id}/messages",
+                method="POST",
+                headers=user_headers,
+                expected_code=202,
+                payload={
+                    "content": "请检索湖北省已核验的人工智能相关政策，并用引用概括一项可用支持。",
+                    "idempotencyKey": f"deploy-agent-{stamp.replace('-', '')}",
+                },
+                timeout=30,
+            )
+            agent_receipt = agent_submit_body.get("data") or {}
+            agent_run_id = agent_receipt.get("runId")
+            if agent_submit_body.get("code") != 200 or not agent_run_id:
+                raise RuntimeError("Production Agent message submission failed")
+            agent_run_data = {}
+            for _ in range(100):
+                _, agent_run_body = request_json(
+                    f"https://findopc.online/api/ai/research/runs/{agent_run_id}",
+                    headers=user_headers,
+                    timeout=20,
+                )
+                if agent_run_body.get("code") != 200:
+                    raise RuntimeError("Production Agent run polling failed")
+                agent_run_data = agent_run_body.get("data") or {}
+                if agent_run_data.get("status") in {
+                    "completed", "evidence_insufficient", "failed", "cancelled", "expired"
+                }:
+                    break
+                time.sleep(2)
+            if agent_run_data.get("status") != "completed":
+                raise RuntimeError(
+                    "Production Agent probe did not complete "
+                    f"(status={agent_run_data.get('status')}, diagnostic={agent_run_data.get('diagnosticCode')})"
+                )
+            if agent_run_data.get("toolCallCount", 0) < 1:
+                raise RuntimeError("Production Agent probe completed without a tool call")
+            if len(agent_run_data.get("citations") or []) < 1:
+                raise RuntimeError("Production Agent probe completed without a legal citation")
+            _, agent_audit_output, _ = database_command(
+                client,
+                "SELECT r.status,r.provider,r.model_id,COALESCE(r.finish_reason,''),"
+                "COALESCE(r.provider_request_id,''),r.prompt_tokens,r.completion_tokens,r.total_tokens,"
+                "r.latency_ms,(SELECT COUNT(*) FROM ai_agent_tool_calls tc "
+                "WHERE tc.analysis_run_id=r.id AND tc.status='completed'),"
+                "COALESCE(JSON_LENGTH(m.citations_json),0) "
+                "FROM ai_analysis_runs r LEFT JOIN ai_agent_messages m "
+                "ON m.run_id=r.id AND m.role='assistant' "
+                f"WHERE r.id={int(agent_run_id)} LIMIT 1;\n",
+            )
+            agent_audit_lines = agent_audit_output.splitlines()
+            agent_audit = agent_audit_lines[-1].split("\t") if len(agent_audit_lines) > 1 else []
+            if (
+                len(agent_audit) != 11
+                or agent_audit[0] != "completed"
+                or int(agent_audit[9]) < 1
+                or int(agent_audit[10]) < 1
+                or not agent_audit[4]
+            ):
+                raise RuntimeError("Production Agent database audit is incomplete")
+            agent_probe = {
+                "question": "请检索湖北省已核验的人工智能相关政策，并用引用概括一项可用支持。",
+                "run_id": int(agent_run_id),
+                "session_id": int(agent_session_id),
+                "status": agent_audit[0],
+                "provider": agent_audit[1],
+                "model": agent_audit[2],
+                "finish_reason": agent_audit[3],
+                "request_id": agent_audit[4],
+                "prompt_tokens": int(agent_audit[5]),
+                "completion_tokens": int(agent_audit[6]),
+                "total_tokens": int(agent_audit[7]),
+                "latency_ms": int(agent_audit[8]),
+                "model_rounds": int(agent_run_data.get("stepCount") or 0),
+                "tool_call_count": int(agent_run_data.get("toolCallCount") or 0),
+                "citation_count": len(agent_run_data.get("citations") or []),
+            }
             _, authorized_analysis = request_json(
                 "https://findopc.online/api/ai/case-analysis",
                 method="POST",
@@ -664,6 +795,8 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 client,
                 f"DELETE FROM user_sessions WHERE token = '{ai_qa_token}';\n"
                 f"DELETE FROM ai_analysis_runs WHERE user_id IN "
+                f"(SELECT id FROM platform_users WHERE username = '{ai_qa_username}');\n"
+                f"DELETE FROM ai_agent_sessions WHERE user_id IN "
                 f"(SELECT id FROM platform_users WHERE username = '{ai_qa_username}');\n"
                 f"DELETE FROM platform_users WHERE username = '{ai_qa_username}';\n",
             )
@@ -804,6 +937,7 @@ nginx -t && systemctl reload nginx
         "backend_listener": backend_runtime["listener"],
         "backend_user": backend_runtime["user"],
         "assistant_probe": assistant_probe,
+        "agent_probe": agent_probe,
         "unclassified_policy_count": unclassified_policy_count,
     }
 

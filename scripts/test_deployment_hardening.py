@@ -170,6 +170,35 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertIn('analysis_run_total_tokens', body)
         self.assertIn("DELETE FROM ai_analysis_runs", body)
 
+    def test_agent_runtime_migration_is_prechecked_verified_and_uploaded(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
+
+        for name in (
+            "20260725_agent_runtime_precheck.sql",
+            "20260725_agent_runtime.sql",
+            "20260725_agent_runtime_postcheck.sql",
+        ):
+            self.assertIn(name, deploy)
+        execution = body[body.index("agent_precheck_output"):body.index("if ! grep -q '^OPC_AI_SETTINGS_MASTER_KEY='")]
+        self.assertLess(execution.index("agent-runtime-precheck.sql"), execution.index("agent-runtime.sql'"))
+        self.assertLess(execution.index("agent-runtime.sql'"), execution.index("agent-runtime-postcheck.sql"))
+        self.assertIn("Agent Runtime database postcheck failed", body)
+
+    def test_agent_probe_requires_async_completion_tool_citation_and_database_audit(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
+
+        self.assertIn("/api/ai/research/sessions", body)
+        self.assertIn("/messages", body)
+        self.assertIn("expected_code=202", body)
+        self.assertIn("/api/ai/research/runs/", body)
+        self.assertIn('agent_run_data.get("status") != "completed"', body)
+        self.assertIn('agent_run_data.get("toolCallCount", 0) < 1', body)
+        self.assertIn('len(agent_run_data.get("citations") or []) < 1', body)
+        self.assertIn("FROM ai_agent_tool_calls", body)
+        self.assertIn("DELETE FROM ai_agent_sessions", body)
+
 
 if __name__ == "__main__":
     unittest.main()

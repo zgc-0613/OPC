@@ -20,6 +20,8 @@ import com.opc.platform.ai.provider.AiProviderFactory;
 import com.opc.platform.ai.provider.AiProviderRequest;
 import com.opc.platform.ai.provider.AiProviderResponse;
 import com.opc.platform.ai.provider.AiRuntimeSettings;
+import com.opc.platform.ai.provider.AgentRuntimeConfig;
+import com.opc.platform.ai.provider.AgentRuntimeConfigProvider;
 import com.opc.platform.ai.provider.AiRuntimeSnapshot;
 import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.ai.security.AesGcmSecretCipher;
@@ -44,7 +46,7 @@ import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
-public class AiSettingsService implements AiRuntimeSettingsProvider {
+public class AiSettingsService implements AiRuntimeSettingsProvider, AgentRuntimeConfigProvider {
 
     private static final long SETTINGS_ID = 1L;
     private static final Set<String> FORMATS = Set.of(
@@ -106,6 +108,13 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
         current.setRetryCount(dto.getRetryCount());
         current.setDailyTokenQuota(dto.getDailyTokenQuota());
         current.setEnabled(dto.getEnabled());
+        current.setAgentEnabled(dto.getAgentEnabled());
+        current.setAgentMaxModelRounds(dto.getAgentMaxModelRounds());
+        current.setAgentMaxToolCalls(dto.getAgentMaxToolCalls());
+        current.setAgentMaxTokens(dto.getAgentMaxTokens());
+        current.setAgentHistoryWindow(dto.getAgentHistoryWindow());
+        current.setAgentTimeoutSeconds(dto.getAgentTimeoutSeconds());
+        current.setAgentToolMode(normalize(dto.getAgentToolMode()));
         current.setUpdatedByAdminId(admin.adminId());
         current.setUpdatedByAdminUsername(admin.username());
         if (insert) {
@@ -245,6 +254,21 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
         return snapshot().dailyTokenQuota();
     }
 
+    @Override
+    public AgentRuntimeConfig agentRuntimeConfig() {
+        AiModelSettings stored = loadOrDefault();
+        return new AgentRuntimeConfig(
+                Boolean.TRUE.equals(stored.getAgentEnabled()),
+                value(stored.getAgentMaxModelRounds(), 4),
+                value(stored.getAgentMaxToolCalls(), 6),
+                value(stored.getAgentMaxTokens(), 8000),
+                value(stored.getAgentHistoryWindow(), 12),
+                Duration.ofSeconds(value(stored.getAgentTimeoutSeconds(), 120)),
+                Set.of("native", "json_plan").contains(stored.getAgentToolMode())
+                        ? stored.getAgentToolMode() : "json_plan"
+        );
+    }
+
     private AiRuntimeSettings disabled(AiModelSettings stored) {
         return new AiRuntimeSettings(
                 stored == null ? "disabled" : stored.getProvider(),
@@ -267,6 +291,22 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
         }
         if (!"deepseek".equalsIgnoreCase(dto.getProvider())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Unsupported AI provider");
+        }
+        if (dto.getAgentMaxModelRounds() == null || dto.getAgentMaxModelRounds() < 1
+                || dto.getAgentMaxModelRounds() > 8
+                || dto.getAgentMaxToolCalls() == null || dto.getAgentMaxToolCalls() < 1
+                || dto.getAgentMaxToolCalls() > 12
+                || dto.getAgentMaxTokens() == null || dto.getAgentMaxTokens() < 512
+                || dto.getAgentMaxTokens() > 32000
+                || dto.getAgentHistoryWindow() == null || dto.getAgentHistoryWindow() < 1
+                || dto.getAgentHistoryWindow() > 24
+                || dto.getAgentTimeoutSeconds() == null || dto.getAgentTimeoutSeconds() < 10
+                || dto.getAgentTimeoutSeconds() > 600
+                || !Set.of("json_plan", "native").contains(normalize(dto.getAgentToolMode()))) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Agent Runtime 参数超出安全范围");
+        }
+        if (Boolean.TRUE.equals(dto.getAgentEnabled()) && !Boolean.TRUE.equals(dto.getEnabled())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "启用 Agent Runtime 前必须先启用模型 Provider");
         }
     }
 
@@ -321,6 +361,13 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
         settings.setRetryCount(1);
         settings.setDailyTokenQuota(100_000L);
         settings.setEnabled(false);
+        settings.setAgentEnabled(false);
+        settings.setAgentMaxModelRounds(4);
+        settings.setAgentMaxToolCalls(6);
+        settings.setAgentMaxTokens(8000);
+        settings.setAgentHistoryWindow(12);
+        settings.setAgentTimeoutSeconds(120);
+        settings.setAgentToolMode("json_plan");
         settings.setLastTestStatus("not_tested");
         return settings;
     }
@@ -340,6 +387,14 @@ public class AiSettingsService implements AiRuntimeSettingsProvider {
         vo.setRetryCount(settings.getRetryCount());
         vo.setDailyTokenQuota(settings.getDailyTokenQuota());
         vo.setEnabled(settings.getEnabled());
+        vo.setAgentEnabled(Boolean.TRUE.equals(settings.getAgentEnabled()));
+        vo.setAgentMaxModelRounds(value(settings.getAgentMaxModelRounds(), 4));
+        vo.setAgentMaxToolCalls(value(settings.getAgentMaxToolCalls(), 6));
+        vo.setAgentMaxTokens(value(settings.getAgentMaxTokens(), 8000));
+        vo.setAgentHistoryWindow(value(settings.getAgentHistoryWindow(), 12));
+        vo.setAgentTimeoutSeconds(value(settings.getAgentTimeoutSeconds(), 120));
+        vo.setAgentToolMode(Set.of("native", "json_plan").contains(settings.getAgentToolMode())
+                ? settings.getAgentToolMode() : "json_plan");
         vo.setLastTestStatus(settings.getLastTestStatus());
         vo.setLastTestedAt(settings.getLastTestedAt());
         vo.setLastTestMessage(settings.getLastTestMessage());

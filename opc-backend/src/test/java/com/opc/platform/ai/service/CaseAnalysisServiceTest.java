@@ -3,9 +3,11 @@ package com.opc.platform.ai.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.dto.CaseAnalysisRequestDTO;
 import com.opc.platform.ai.entity.AiAnalysisRun;
+import com.opc.platform.ai.exception.AiResponseValidationException;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
 import com.opc.platform.ai.provider.AiClient;
 import com.opc.platform.ai.provider.AiProviderDescriptor;
+import com.opc.platform.ai.provider.AiProviderRequest;
 import com.opc.platform.ai.provider.AiProviderResponse;
 import com.opc.platform.ai.provider.AiRuntimeSettings;
 import com.opc.platform.ai.provider.AiRuntimeSnapshot;
@@ -21,6 +23,7 @@ import com.opc.platform.source.mapper.SourceMapper;
 import com.opc.platform.userauth.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Duration;
 import java.util.List;
@@ -34,6 +37,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -56,6 +60,7 @@ class CaseAnalysisServiceTest {
                 caseItemMapper,
                 sourceMapper,
                 policyMapper,
+                runMapper,
                 new ObjectMapper(),
                 new AiTaskExecutionService(runMapper, aiClient, settingsProvider)
         );
@@ -105,19 +110,24 @@ class CaseAnalysisServiceTest {
         assertEquals("insufficient", response.getEvidenceStatus());
         assertEquals("证据不足", response.getSummary());
         assertTrue(response.getCitations().isEmpty());
-        assertEquals(null, response.getAnalysisId());
+        assertEquals(99L, response.getAnalysisId());
+        verify(runMapper).insert(any(AiAnalysisRun.class));
         verify(aiClient, never()).generate(any(), any(AiRuntimeSettings.class));
     }
 
     @Test
-    void evidenceInsufficientRequestsAreNotPersisted() {
+    void recentEvidenceInsufficientAuditIsReused() {
         when(caseItemMapper.selectById(1L)).thenReturn(caseItem("published", "legacy_unverified"));
+        AiAnalysisRun recent = new AiAnalysisRun();
+        recent.setId(99L);
+        when(runMapper.findRecentEvidenceInsufficient(anyLong(), any(), anyLong(), any()))
+                .thenReturn(null, recent);
 
         service.analyze(user(), request());
         service.analyze(user(), request());
 
-        verify(runMapper, never()).insert(any(AiAnalysisRun.class));
-        verify(runMapper, never()).findRecentEvidenceInsufficient(anyLong(), any(), anyLong(), any());
+        verify(runMapper, times(1)).insert(any(AiAnalysisRun.class));
+        verify(runMapper, times(2)).findRecentEvidenceInsufficient(anyLong(), any(), anyLong(), any());
     }
 
     @Test
@@ -244,13 +254,126 @@ class CaseAnalysisServiceTest {
         when(aiClient.descriptor()).thenReturn(new AiProviderDescriptor("deepseek", "configured-model", true));
         when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse("not-json"));
 
-        BusinessException exception = assertThrows(
-                BusinessException.class,
+        AiResponseValidationException exception = assertThrows(
+                AiResponseValidationException.class,
                 () -> service.analyze(user(), request())
         );
 
         assertEquals(ErrorCode.UPSTREAM_ERROR, exception.getErrorCode());
-        assertEquals("AI 返回内容格式无效，请稍后重试", exception.getMessage());
+        assertEquals("INVALID_JSON", exception.getDiagnosticCode());
+    }
+
+    @Test
+    void truncatedProviderResponseUsesSpecificDiagnostic() {
+        when(caseItemMapper.selectById(1L)).thenReturn(caseItem("published", "verified"));
+        when(sourceMapper.selectById(8L)).thenReturn(source("published", "verified"));
+        when(policyMapper.selectList(any())).thenReturn(List.of());
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
+                "{\"summary\":\"Summary\",\"businessModel\":\"Model\",\"technicalAssessment\":\"Assessment\"," +
+                        "\"opportunities\":[],\"risks\":[],\"recommendedActions\":[]," +
+                        "\"citations\":[{\"sourceId\":8,\"claim\":\"Claim\"}],\"confidence\":0.7}",
+                10, 10, 20, 5, "req-truncated", "length"
+        ));
+
+        AiResponseValidationException exception = assertThrows(
+                AiResponseValidationException.class,
+                () -> service.analyze(user(), request())
+        );
+
+        assertEquals("TRUNCATED_RESPONSE", exception.getDiagnosticCode());
+    }
+
+    @Test
+    void filteredProviderResponseUsesSpecificContentFilterDiagnostic() {
+        when(caseItemMapper.selectById(1L)).thenReturn(caseItem("published", "verified"));
+        when(sourceMapper.selectById(8L)).thenReturn(source("published", "verified"));
+        when(policyMapper.selectList(any())).thenReturn(List.of());
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
+                "{}", 10, 0, 10, 5, "req-filtered", "content_filter"
+        ));
+
+        AiResponseValidationException exception = assertThrows(
+                AiResponseValidationException.class,
+                () -> service.analyze(user(), request())
+        );
+
+        assertEquals("CONTENT_FILTERED", exception.getDiagnosticCode());
+    }
+
+    @Test
+    void invalidStructuredFieldsUseSpecificDiagnostics() {
+        when(caseItemMapper.selectById(1L)).thenReturn(caseItem("published", "verified"));
+        when(sourceMapper.selectById(8L)).thenReturn(source("published", "verified"));
+        when(policyMapper.selectList(any())).thenReturn(List.of());
+        record InvalidCase(String content, String diagnostic) {}
+        List<InvalidCase> invalidCases = List.of(
+                new InvalidCase(
+                        "{\"summary\":\"Summary\",\"businessModel\":\"Model\",\"opportunities\":[],\"risks\":[]," +
+                                "\"recommendedActions\":[],\"citations\":[{\"sourceId\":8,\"claim\":\"Claim\"}],\"confidence\":0.7}",
+                        "MISSING_FIELD"),
+                new InvalidCase(
+                        "{\"summary\":\"Summary\",\"businessModel\":\"Model\",\"technicalAssessment\":\"Assessment\"," +
+                                "\"opportunities\":[],\"risks\":[],\"recommendedActions\":[]," +
+                                "\"citations\":[{\"sourceId\":8,\"claim\":\"Claim\"}],\"confidence\":1.1}",
+                        "INVALID_CONFIDENCE"),
+                new InvalidCase(
+                        "{\"summary\":\"Summary\",\"businessModel\":\"Model\",\"technicalAssessment\":\"Assessment\"," +
+                                "\"opportunities\":[],\"risks\":[],\"recommendedActions\":[],\"citations\":[],\"confidence\":0.7}",
+                        "MISSING_CITATIONS"),
+                new InvalidCase(
+                        "{\"summary\":\"Summary\",\"businessModel\":\"Model\",\"technicalAssessment\":\"Assessment\"," +
+                                "\"opportunities\":[],\"risks\":[],\"recommendedActions\":[]," +
+                                "\"citations\":[{\"sourceId\":999,\"claim\":\"Claim\"}],\"confidence\":0.7}",
+                        "UNKNOWN_SOURCE_ID"),
+                new InvalidCase(
+                        "{\"summary\":\"Summary\",\"businessModel\":\"Model\",\"technicalAssessment\":\"Assessment\"," +
+                                "\"opportunities\":[],\"risks\":[],\"recommendedActions\":[]," +
+                                "\"citations\":[{\"sourceId\":8,\"claim\":\"   \"}],\"confidence\":0.7}",
+                        "BLANK_CLAIM"),
+                new InvalidCase(
+                        "{\"summary\":\"Summary\",\"businessModel\":\"Model\",\"technicalAssessment\":\"Assessment\"," +
+                                "\"opportunities\":[],\"risks\":[],\"recommendedActions\":[]," +
+                                "\"citations\":[{\"sourceId\":8,\"claim\":\"Claim\"}],\"confidence\":0.7,\"debug\":true}",
+                        "INVALID_JSON")
+        );
+
+        for (InvalidCase invalidCase : invalidCases) {
+            when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(invalidCase.content()));
+            AiResponseValidationException exception = assertThrows(
+                    AiResponseValidationException.class,
+                    () -> service.analyze(user(), request()),
+                    invalidCase.diagnostic()
+            );
+            assertEquals(invalidCase.diagnostic(), exception.getDiagnosticCode());
+        }
+    }
+
+    @Test
+    void providerRequestContainsCompleteCaseAnalysisSchema() throws Exception {
+        when(caseItemMapper.selectById(1L)).thenReturn(caseItem("published", "verified"));
+        when(sourceMapper.selectById(8L)).thenReturn(source("published", "verified"));
+        when(policyMapper.selectList(any())).thenReturn(List.of());
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
+                "{\"summary\":\"Summary\",\"businessModel\":\"Model\",\"technicalAssessment\":\"Assessment\"," +
+                        "\"opportunities\":[],\"risks\":[],\"recommendedActions\":[]," +
+                        "\"citations\":[{\"sourceId\":8,\"claim\":\"Claim\"}],\"confidence\":0.7}"
+        ));
+
+        service.analyze(user(), request());
+
+        ArgumentCaptor<AiProviderRequest> captor = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(aiClient).generate(captor.capture(), eq(settings));
+        var schema = new ObjectMapper().readTree(captor.getValue().responseSchema());
+        assertEquals(false, schema.path("additionalProperties").asBoolean(true));
+        assertEquals("string", schema.path("properties").path("summary").path("type").asText());
+        assertEquals(500, schema.path("properties").path("summary").path("maxLength").asInt());
+        assertEquals("array", schema.path("properties").path("citations").path("type").asText());
+        assertEquals(1, schema.path("properties").path("citations").path("minItems").asInt());
+        assertEquals(false, schema.path("properties").path("citations").path("items")
+                .path("additionalProperties").asBoolean(true));
+        assertEquals("integer", schema.path("properties").path("citations").path("items")
+                .path("properties").path("sourceId").path("type").asText());
+        assertEquals(8, schema.path("required").size());
     }
 
     @Test

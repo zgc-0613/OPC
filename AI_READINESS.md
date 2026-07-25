@@ -101,3 +101,20 @@ The first evidence-aware case-analysis slice is implemented and deployed:
 - a standalone protected analysis page with no homepage entry.
 
 Production remains intentionally disabled until the official API Base URL, exact DeepSeek V4 Flash Model ID, and a real API Key are configured. Crawling, general chat, normalized revenue analytics, and automated publication remain outside this phase.
+
+## Implemented Phase-Two Runtime Boundary (2026-07-25)
+
+The local Phase-Two implementation adds an audited, bounded multi-round research runtime without replacing the existing provider or evidence governance:
+
+- owned research sessions and ordered visible messages;
+- asynchronous `202 Accepted` submission with polling, refresh recovery, cancellation, and safe retry;
+- a finite run lifecycle with at most four model rounds, six tool calls, 8,000 aggregate tokens, a 12-message history window, and a 120-second default timeout;
+- a provider-neutral native-tool contract plus a controlled JSON-plan compatibility mode, which remains the default until the configured production model's native tool support is verified;
+- four read-only tools: `search_cases`, `search_policies`, `get_source`, and `compare_cases`;
+- published-and-verified evidence filtering, current-run ID allowlists, deterministic evidence replay, legal citation validation, and stale-evidence conflicts;
+- per-user and per-session active-run guards, per-user idempotency keys, shared daily-token quota reservation, aggregate multi-round settlement, and late-result rejection;
+- administrator-safe runtime audit views that omit full private questions, secrets, raw provider responses, and hidden reasoning.
+
+User content is persisted to provide conversation continuity. User messages are limited to 2,000 characters, assistant messages to 12,000 characters, and only the configured bounded history is returned to the model. Archiving prevents further messages and removes the session from the active list; it does not physically delete the data. Automated retention and purge are not yet implemented and must be resolved before claiming a complete long-term privacy lifecycle.
+
+Local verification passes 247 backend tests, including 36 real MySQL Testcontainers tests, 13 Vitest component tests, eight frontend contract scripts, the frontend production build, 13 deployment/migration tests, and the deterministic 20-question Agent evaluation. Production deployment and the semantic real-model probe remain pending because the secure `root` SSH credential path is unavailable; Phase Two must not be declared complete until both succeed.

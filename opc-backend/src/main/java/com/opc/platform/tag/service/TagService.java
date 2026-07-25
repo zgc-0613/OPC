@@ -9,7 +9,9 @@ import com.opc.platform.tag.entity.Tag;
 import com.opc.platform.tag.mapper.TagMapper;
 import com.opc.platform.tag.vo.TagVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
@@ -39,12 +41,20 @@ public class TagService {
         return toVO(tagMapper.selectById(id));
     }
 
+    @Transactional
     public void deleteTag(Long id) {
         Tag tag = tagMapper.selectById(id);
         if (tag == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Tag not found");
         }
-        tagMapper.deleteById(id);
+        if (tagMapper.countCaseOrPolicyReferences(id) > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "标签已被案例或政策引用，不能删除");
+        }
+        try {
+            tagMapper.deleteById(id);
+        } catch (DataIntegrityViolationException exception) {
+            throw new BusinessException(ErrorCode.CONFLICT, "标签仍有关联数据，不能删除");
+        }
     }
 
     public List<TagVO> listTags(String tagType) {

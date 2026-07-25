@@ -16,6 +16,9 @@ public class AiAnalysisRun {
     private Long userId;
     private String taskType;
     private Long caseId;
+    private Long sessionId;
+    private Long userMessageId;
+    private String idempotencyKey;
     private String status;
     private String resultJson;
     private String provider;
@@ -35,6 +38,12 @@ public class AiAnalysisRun {
     private String responseHash;
     private String errorType;
     private String diagnosticCode;
+    private Integer stepCount;
+    private Integer toolCallCount;
+    private String currentStage;
+    private String visibleProgress;
+    private LocalDateTime cancelledAt;
+    private LocalDateTime completedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

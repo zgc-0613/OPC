@@ -367,3 +367,16 @@
 - Moved the historic verified case back to pending because its source publisher metadata remains incomplete. No case currently has a fully verified source chain.
 - Retained all uncertain records as pending rather than excluding them: 92 sources, 32 policies, and 106 cases. No record was marked excluded.
 - Current effective evidence counts are verified sources `38`, verified policies `36`, and verified cases `0`. The audit produced two atomic batch operation IDs and one single-review operation ID under administrator `ACha_`.
+
+## Audited Agent Runtime Phase Two (2026-07-25)
+- **Status:** local implementation and verification complete; production deployment blocked by unavailable SSH credentials.
+- Confirmed the user-provided TDD boundaries for REST, orchestration, tool registry, evidence, provider, real-MySQL persistence, and frontend behavior.
+- Confirmed the existing `ai_analysis_runs` ledger will be extended rather than replaced, and the four initial tools remain read-only and evidence-governed.
+- Completed the case-analysis response diagnostics, complete JSON schema, evidence-insufficient audit ID, tag delete conflict, and 100-policy batch boundary through focused red-green slices.
+- Added provider-neutral multi-turn/tool-call contracts, controlled JSON plans, owned sessions, ordered messages, the bounded run lifecycle, tool audit records, cancellation, expiry, idempotency, per-user/per-session active guards, quota aggregation, and stale-evidence rejection.
+- Added the four read-only evidence tools, asynchronous user APIs, safe administrator audit APIs, persistent `/assistant` research sessions, polling recovery, cancellation/retry, evidence drawer, run metadata, and administrator run records.
+- Added idempotent precheck/migration/postcheck SQL and a deployment probe that requires a completed run, at least one completed tool call, at least one legal citation, complete provider metadata, and cleanup; any semantic failure enters the existing rollback path.
+- Verification passed: Maven `247/247`; real MySQL Testcontainers `36/36`; Vitest `13/13`; eight frontend package scripts; Vite build with 1,705 modules; Python deployment tests `13/13`; Python syntax; and `git diff --check` before documentation updates.
+- The 20-item deterministic evaluation passed all acceptance metrics; detailed contracts and results are recorded in `docs/agent-runtime-phase-two.md`.
+- Production configuration inspection found `deepseek` / `deepseek-v4-flash`, provider enabled, API key configured, and the previous connection test successful. Agent fields are not present on the still-Phase-One production version.
+- Production deployment and the paid-model Agent probe were not run because no valid `root` SSH credential is available through the repository's secure deployment path. No deployment version, rollback directory, live token usage, request ID, or citation count is claimed.

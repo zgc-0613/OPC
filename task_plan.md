@@ -4,7 +4,7 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 18 (complete; human evidence review remains)
+Phase 20 (local implementation and verification complete; production deployment blocked by unavailable SSH credentials)
 
 ## Phases
 
@@ -288,3 +288,15 @@ Phase 18 (complete; human evidence review remains)
 - [x] Pass correctness/security review, 140 backend tests, five frontend test scripts, 14 migration/deployment tests, production build, and diff checks.
 - [x] Deploy the timestamped release and record production evidence counts and rollback paths.
 - **Status:** complete and deployed; one historic verified case has no verified source chain and remains a human-review item.
+
+### Phase 20: Audited Multi-Round Agent Runtime
+- [x] Finish the phase-one case-analysis response-validation, evidence-insufficient audit, tag-conflict, and policy-batch safeguards through focused red-green slices.
+- [x] Extend the shared AI audit ledger and add owned sessions, ordered messages, and bounded tool-call persistence with idempotent MySQL migrations.
+- [x] Add provider-neutral model turns/tool calls plus a strictly validated fallback tool-plan contract when the configured model lacks native tool calls.
+- [x] Implement the read-only `search_cases`, `search_policies`, `get_source`, and `compare_cases` registry with verified-evidence and current-run authorization boundaries.
+- [x] Implement the bounded Agent state machine, aggregate token quota, single-active-run controls, cancellation, expiry, evidence conflict checks, and retry/idempotency behavior.
+- [x] Add authenticated asynchronous research-session APIs and administrator-safe run audit APIs.
+- [x] Upgrade the existing `/assistant` Prisma Light workspace and administrator settings surface with persistent sessions, polling recovery, progress, cancellation, retry, citations, and run records.
+- [x] Add a deterministic 20-question golden evaluation set and complete unit, MySQL Testcontainers, frontend, migration, deployment, and build verification.
+- [ ] Deploy through the repository rollback workflow and pass the semantic production Agent probe before declaring completion.
+- **Status:** local implementation and verification complete; production deployment and semantic Agent probe are blocked because the existing `root` SSH credential path is unavailable. Phase two is not declared complete.
