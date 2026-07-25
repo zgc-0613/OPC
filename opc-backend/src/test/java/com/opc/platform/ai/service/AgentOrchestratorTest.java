@@ -3,13 +3,20 @@ package com.opc.platform.ai.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.entity.AiAgentToolCall;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
+import com.opc.platform.ai.mapper.AgentEvidenceToolMapper;
 import com.opc.platform.ai.provider.AgentRuntimeConfig;
 import com.opc.platform.ai.provider.AiProviderResponse;
 import com.opc.platform.ai.tool.AgentTool;
 import com.opc.platform.ai.tool.AgentToolContext;
 import com.opc.platform.ai.tool.AgentToolRegistry;
 import com.opc.platform.ai.tool.AgentToolResult;
+import com.opc.platform.ai.tool.CompareCasesTool;
+import com.opc.platform.ai.tool.GetSourceTool;
 import com.opc.platform.ai.tool.SearchCasesArguments;
+import com.opc.platform.ai.tool.SearchCasesTool;
+import com.opc.platform.ai.tool.SearchPoliciesTool;
+import com.opc.platform.region.mapper.RegionMapper;
+import com.opc.platform.source.mapper.SourceMapper;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 
@@ -30,6 +37,47 @@ import static org.mockito.Mockito.when;
 class AgentOrchestratorTest {
 
     @Test
+    void jsonPlanReceivesCompleteSchemasAndCatalogFromToolRegistry() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentEvidenceToolMapper evidenceMapper = mock(AgentEvidenceToolMapper.class);
+        AgentToolRegistry registry = new AgentToolRegistry(
+                List.of(
+                        new SearchCasesTool(evidenceMapper, objectMapper),
+                        new SearchPoliciesTool(evidenceMapper, mock(RegionMapper.class), objectMapper),
+                        new GetSourceTool(mock(SourceMapper.class), objectMapper),
+                        new CompareCasesTool(evidenceMapper, objectMapper)
+                ),
+                objectMapper,
+                Validation.buildDefaultValidatorFactory().getValidator(),
+                mock(AiAgentToolCallMapper.class)
+        );
+        AtomicReference<com.opc.platform.ai.provider.AiProviderRequest> captured = new AtomicReference<>();
+
+        new AgentOrchestrator(objectMapper, registry).execute(
+                input(config()),
+                request -> {
+                    captured.set(request);
+                    return new AiProviderResponse(
+                            "{\"action\":\"evidence_insufficient\",\"answer\":\"No evidence.\"," +
+                                    "\"citations\":[],\"confidence\":0.1}",
+                            5, 3, 8, 4, "req-schema", "stop");
+                },
+                progress -> { }
+        );
+
+        String schema = captured.get().responseSchema();
+        assertTrue(schema.contains("\"oneOf\""));
+        assertTrue(schema.contains("\"search_cases\""));
+        assertTrue(schema.contains("\"search_policies\""));
+        assertTrue(schema.contains("\"required\":[\"regionId\"]"));
+        assertTrue(schema.contains("\"required\":[\"sourceId\"]"));
+        assertTrue(schema.contains("\"minItems\":2"));
+        assertTrue(schema.contains("\"additionalProperties\":false"));
+        assertTrue(captured.get().systemPrompt().contains("search_policies"));
+        assertTrue(captured.get().systemPrompt().contains("regionId"));
+    }
+
+    @Test
     void jsonPlanExecutesWhitelistedToolThenProducesCitedFinalAnswer() {
         ObjectMapper objectMapper = new ObjectMapper();
         AiAgentToolCallMapper callMapper = mock(AiAgentToolCallMapper.class);
@@ -42,7 +90,9 @@ class AgentOrchestratorTest {
             public String name() { return "search_cases"; }
             public String description() { return "search"; }
             public Class<SearchCasesArguments> argumentType() { return SearchCasesArguments.class; }
-            public String argumentSchema() { return "{\"type\":\"object\"}"; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}";
+            }
             public AgentToolResult execute(AgentToolContext context, SearchCasesArguments arguments) {
                 return new AgentToolResult(
                         objectMapper.valueToTree(java.util.Map.of("items", List.of(
@@ -207,7 +257,9 @@ class AgentOrchestratorTest {
             public String name() { return "search_cases"; }
             public String description() { return "search"; }
             public Class<SearchCasesArguments> argumentType() { return SearchCasesArguments.class; }
-            public String argumentSchema() { return "{\"type\":\"object\"}"; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}";
+            }
             public AgentToolResult execute(AgentToolContext context, SearchCasesArguments arguments) {
                 return new AgentToolResult(
                         objectMapper.valueToTree(java.util.Map.of("items", List.of())), 0,

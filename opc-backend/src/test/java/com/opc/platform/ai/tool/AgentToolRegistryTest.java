@@ -21,6 +21,54 @@ import static org.mockito.Mockito.when;
 class AgentToolRegistryTest {
 
     @Test
+    void searchToolMetadataUsesThePublishedQueryContract() throws Exception {
+        AgentToolRegistry registry = new AgentToolRegistry(
+                List.of(new SearchCasesTool(mock(AgentEvidenceToolMapper.class), new ObjectMapper())),
+                new ObjectMapper(), Validation.buildDefaultValidatorFactory().getValidator(),
+                mock(AiAgentToolCallMapper.class));
+
+        var parameters = new ObjectMapper().readTree(registry.definitions().get(0).parametersJson());
+        var jsonPlan = new ObjectMapper().readTree(registry.jsonPlanSchema());
+
+        assertEquals(true, parameters.path("properties").has("query"));
+        assertEquals(false, parameters.path("properties").has("keywords"));
+        assertEquals(true, jsonPlan.path("oneOf").get(0).path("properties")
+                .path("arguments").path("properties").has("query"));
+    }
+
+    @Test
+    void unknownToolArgumentFieldIsRejectedBeforeEvidenceQuery() throws Exception {
+        AiAgentToolCallMapper callMapper = mock(AiAgentToolCallMapper.class);
+        AgentEvidenceToolMapper evidenceMapper = mock(AgentEvidenceToolMapper.class);
+        when(callMapper.insert(any(AiAgentToolCall.class))).thenAnswer(invocation -> {
+            AiAgentToolCall call = invocation.getArgument(0);
+            call.setId(19L);
+            return 1;
+        });
+        ObjectMapper objectMapper = new ObjectMapper()
+                .disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        AgentToolRegistry registry = new AgentToolRegistry(
+                List.of(new SearchCasesTool(evidenceMapper, objectMapper)),
+                objectMapper,
+                Validation.buildDefaultValidatorFactory().getValidator(),
+                callMapper
+        );
+
+        AgentToolException exception = assertThrows(
+                AgentToolException.class,
+                () -> registry.execute(
+                        new AgentToolContext(93L, 42L),
+                        1,
+                        "search_cases",
+                        objectMapper.readTree("{\"regionId\":1,\"unknown\":true}")
+                )
+        );
+
+        assertEquals("INVALID_TOOL_ARGUMENTS", exception.getDiagnosticCode());
+        verify(evidenceMapper, never()).searchCases(any(), any(), any(), any(), any(), any(Integer.class));
+    }
+
+    @Test
     void invalidToolArgumentsAreRejectedAndAuditedBeforeEvidenceQuery() throws Exception {
         AiAgentToolCallMapper callMapper = mock(AiAgentToolCallMapper.class);
         AgentEvidenceToolMapper evidenceMapper = mock(AgentEvidenceToolMapper.class);

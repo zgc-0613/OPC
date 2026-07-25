@@ -22,4 +22,15 @@ public interface AiAgentSessionMapper extends BaseMapper<AiAgentSession> {
             WHERE id=#{id} AND user_id=#{userId} AND status='active'
             """)
     int touchActive(@Param("id") Long id, @Param("userId") Long userId);
+
+    @Update("""
+            UPDATE ai_agent_sessions
+            SET research_context_json=#{contextJson}, version=version+1
+            WHERE id=#{id} AND user_id=#{userId} AND status='active'
+            """)
+    int updateResearchContext(
+            @Param("id") Long id,
+            @Param("userId") Long userId,
+            @Param("contextJson") String contextJson
+    );
 }

@@ -15,7 +15,7 @@ public class SearchCasesArguments {
     private String industry;
 
     @Size(max = 120)
-    private String keywords;
+    private String query;
 
     @Size(max = 50)
     private String category;

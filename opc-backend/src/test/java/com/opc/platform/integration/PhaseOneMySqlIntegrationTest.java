@@ -26,8 +26,11 @@ import com.opc.platform.ai.service.AgentResearchService;
 import com.opc.platform.ai.service.AgentResearchQueryService;
 import com.opc.platform.ai.service.AgentOrchestrator;
 import com.opc.platform.ai.service.AgentResearchWorker;
+import com.opc.platform.ai.service.AgentRunQueueService;
+import com.opc.platform.ai.service.AgentClarificationPolicy;
 import com.opc.platform.ai.service.AgentRunFinalizer;
 import com.opc.platform.ai.service.AgentRunLifecycleService;
+import com.opc.platform.ai.mapper.AiAgentProviderCallMapper;
 import com.opc.platform.ai.service.CaseAnalysisService;
 import com.opc.platform.ai.service.EvidenceReviewService;
 import com.opc.platform.ai.service.EntrepreneurshipEvidenceService;
@@ -67,6 +70,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.LocalDate;
@@ -90,7 +94,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@SpringBootTest(properties = "spring.main.lazy-initialization=true")
+@SpringBootTest(properties = {
+        "spring.main.lazy-initialization=true",
+        "opc.ai.agent.worker-enabled=false"
+})
 @Testcontainers(disabledWithoutDocker = false)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PhaseOneMySqlIntegrationTest {
@@ -135,12 +142,16 @@ class PhaseOneMySqlIntegrationTest {
     @Autowired private AgentResearchQueryService agentResearchQueryService;
     @Autowired private AgentOrchestrator agentOrchestrator;
     @Autowired private AiAgentToolCallMapper agentToolCallMapper;
+    @Autowired private AiAgentProviderCallMapper agentProviderCallMapper;
+    @Autowired private AgentRunQueueService agentRunQueueService;
+    @Autowired private AgentClarificationPolicy agentClarificationPolicy;
+    @Autowired private AgentRunLifecycleService agentRunLifecycleService;
 
     @BeforeEach
     void resetDatabase() {
         jdbc.execute("SET FOREIGN_KEY_CHECKS=0");
         try {
-            for (String table : List.of("ai_agent_tool_calls", "ai_agent_messages", "ai_agent_sessions", "platform_users",
+            for (String table : List.of("ai_agent_provider_calls", "ai_agent_tool_calls", "ai_agent_messages", "ai_agent_sessions", "platform_users",
                     "policy_industry_tags", "case_tags", "policy_tags", "tag_aliases",
                     "ai_evidence_reviews", "ai_analysis_runs", "ai_model_settings",
                     "case_items", "policies", "tags", "regions", "sources")) {
@@ -164,6 +175,7 @@ class PhaseOneMySqlIntegrationTest {
                 """);
 
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         runAgentRuntimeMigration();
 
         assertEquals(3, jdbc.queryForObject("""
@@ -202,6 +214,355 @@ class PhaseOneMySqlIntegrationTest {
     }
 
     @Test
+    void agentRuntimePostcheckCountsCompositeIndexesByName() throws Exception {
+        jdbc.execute("""
+                CREATE TABLE platform_users (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    username VARCHAR(100) NOT NULL,
+                    email VARCHAR(255),
+                    status VARCHAR(20) NOT NULL DEFAULT 'active'
+                ) ENGINE=InnoDB
+                """);
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+
+        Map<String, Object> result = jdbc.queryForMap(Files.readString(
+                Path.of("..", "deploy", "sql", "20260725_agent_runtime_postcheck.sql")));
+
+        assertEquals(8, ((Number) result.get("agent_unique_indexes")).intValue());
+    }
+
+    @Test
+    void agentRuntimePostcheckReportsMissingAndUnexpectedIndexNames() throws Exception {
+        jdbc.execute("""
+                CREATE TABLE platform_users (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    username VARCHAR(100) NOT NULL,
+                    email VARCHAR(255),
+                    status VARCHAR(20) NOT NULL DEFAULT 'active'
+                ) ENGINE=InnoDB
+                """);
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        jdbc.execute("ALTER TABLE ai_agent_messages DROP INDEX idx_agent_messages_session_created");
+        jdbc.execute("ALTER TABLE ai_agent_messages ADD INDEX idx_agent_messages_unexpected (status)");
+
+        Map<String, Object> result = jdbc.queryForMap(Files.readString(
+                Path.of("..", "deploy", "sql", "20260725_agent_runtime_postcheck.sql")));
+
+        assertEquals("ai_agent_messages.idx_agent_messages_session_created", result.get("missing_indexes"));
+        assertEquals("ai_agent_messages.idx_agent_messages_unexpected", result.get("unexpected_indexes"));
+    }
+
+    @Test
+    void agentRuntimeDefaultsOffEvenWhenProviderIsEnabled() throws Exception {
+        jdbc.execute("""
+                CREATE TABLE platform_users (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    username VARCHAR(100) NOT NULL,
+                    email VARCHAR(255),
+                    status VARCHAR(20) NOT NULL DEFAULT 'active'
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("ALTER TABLE ai_model_settings DROP COLUMN agent_enabled");
+        jdbc.update("UPDATE ai_model_settings SET enabled=1 WHERE id=1");
+
+        runAgentRuntimeMigration();
+
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT agent_enabled FROM ai_model_settings WHERE id=1", Integer.class));
+    }
+
+    @Test
+    void agentRuntimeStabilizationMigrationIsRepeatableAndPreservesExplicitRollout() throws Exception {
+        jdbc.execute("""
+                CREATE TABLE platform_users (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    username VARCHAR(100) NOT NULL,
+                    email VARCHAR(255),
+                    status VARCHAR(20) NOT NULL DEFAULT 'active'
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("ALTER TABLE ai_model_settings DROP COLUMN agent_rollout_changed_by_admin_id");
+        jdbc.execute("ALTER TABLE ai_model_settings DROP COLUMN agent_rollout_changed_at");
+        jdbc.execute("ALTER TABLE ai_model_settings DROP COLUMN agent_rollout_state");
+        runAgentRuntimeMigration();
+        jdbc.update("UPDATE ai_model_settings SET agent_enabled=1 WHERE id=1");
+
+        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeStabilizationMigration();
+
+        assertEquals("explicitly_enabled", jdbc.queryForObject(
+                "SELECT agent_rollout_state FROM ai_model_settings WHERE id=1", String.class));
+        assertEquals(12, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_schema=DATABASE() AND (
+                  (table_name='ai_analysis_runs' AND column_name IN (
+                    'lease_owner','lease_expires_at','execution_attempts','next_attempt_at',
+                    'last_recovery_reason','settlement_status','provider_dispatched_at',
+                    'settled_at','settlement_version','session_nonterminal_guard','user_agent_nonterminal_guard'
+                  )) OR (table_name='ai_agent_sessions' AND column_name='research_context_json')
+                )
+                """, Integer.class));
+    }
+
+    @Test
+    void twoWorkersCanClaimReceivedRunOnlyOnce() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES (10,42,'Lease test','active')");
+        jdbc.update("INSERT INTO ai_agent_messages (id,session_id,role,content,status,sequence_no) " +
+                "VALUES (20,10,'user','Research Hubei AI','completed',1)");
+        jdbc.update("""
+                INSERT INTO ai_analysis_runs (
+                  id,user_id,task_type,session_id,user_message_id,idempotency_key,status,
+                  provider,model_id,prompt_version,evidence_hash,reserved_tokens,deadline_at,
+                  current_stage,visible_progress,settlement_status
+                ) VALUES (
+                  30,42,'agent_research',10,20,'idem-lease-123','received',
+                  'fake','fake-agent','agent-research-v1',REPEAT('a',64),8000,
+                  ?,'received','queued','reserved'
+                )
+                """, LocalDateTime.now().plusMinutes(2));
+        AtomicInteger claims = new AtomicInteger();
+
+        List<Throwable> failures = runTogether(
+                () -> {
+                    if (agentRunQueueService.claimNext("worker-a") != null) claims.incrementAndGet();
+                    return null;
+                },
+                () -> {
+                    if (agentRunQueueService.claimNext("worker-b") != null) claims.incrementAndGet();
+                    return null;
+                }
+        );
+
+        assertTrue(failures.isEmpty());
+        assertEquals(1, claims.get());
+        Map<String, Object> run = jdbc.queryForMap(
+                "SELECT status,lease_owner,execution_attempts FROM ai_analysis_runs WHERE id=30");
+        assertEquals("running", run.get("status"));
+        assertTrue(Set.of("worker-a", "worker-b").contains(run.get("lease_owner")));
+        assertEquals(1, ((Number) run.get("execution_attempts")).intValue());
+    }
+
+    @Test
+    void hubeiClarificationResolvesRealRegionAndDoesNotAskAgain() throws Exception {
+        jdbc.update("DELETE FROM regions");
+        jdbc.update("INSERT INTO regions (id,name,level,parent_id) VALUES " +
+                "(1,'中国','country',NULL),(2,'湖北省','province',1)");
+        jdbc.update("INSERT INTO tags (id,name,tag_type,is_industry) VALUES (701,'人工智能','industry',1)");
+
+        var first = agentClarificationPolicy.evaluate(
+                "{\"industryTagId\":701,\"industry\":\"人工智能\"}",
+                null,
+                "研究人工智能创业政策支持"
+        );
+        assertTrue(first.question().contains("地区"));
+        assertTrue(first.contextJson().contains("region"));
+
+        var resolved = agentClarificationPolicy.evaluate(
+                "{\"industryTagId\":701,\"industry\":\"人工智能\"}",
+                first.contextJson(),
+                "湖北省"
+        );
+
+        assertEquals(null, resolved.question());
+        assertEquals(false, resolved.evidenceInsufficient());
+        var context = new ObjectMapper().readTree(resolved.contextJson());
+        assertEquals(2L, context.path("resolvedFields").path("regionId").asLong());
+        assertEquals("湖北省", context.path("resolvedFields").path("regionName").asText());
+        assertTrue(context.path("pendingFields").isEmpty());
+    }
+
+    @Test
+    void cancellingBeforeProviderDispatchReleasesReservation() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES (10,42,'Cancel test','active')");
+        jdbc.update("INSERT INTO ai_agent_messages (id,session_id,role,content,status,sequence_no) " +
+                "VALUES (20,10,'user','Research','completed',1)");
+        jdbc.update("""
+                INSERT INTO ai_analysis_runs (
+                  id,user_id,task_type,session_id,user_message_id,idempotency_key,status,
+                  provider,model_id,prompt_version,evidence_hash,reserved_tokens,deadline_at,
+                  current_stage,visible_progress,settlement_status
+                ) VALUES (
+                  30,42,'agent_research',10,20,'idem-cancel-123','received',
+                  'fake','fake-agent','agent-research-v1',REPEAT('a',64),8000,
+                  ?,'received','queued','reserved'
+                )
+                """, LocalDateTime.now().plusMinutes(2));
+
+        agentRunLifecycleService.cancel(
+                new AuthenticatedUser(42L, "owner", "owner@example.com"), 30L);
+
+        Map<String, Object> run = jdbc.queryForMap(
+                "SELECT status,settlement_status,reserved_tokens,total_tokens FROM ai_analysis_runs WHERE id=30");
+        assertEquals("cancelled", run.get("status"));
+        assertEquals("released_without_dispatch", run.get("settlement_status"));
+        assertEquals(0, ((Number) run.get("reserved_tokens")).intValue());
+        assertEquals(0, ((Number) run.get("total_tokens")).intValue());
+    }
+
+    @Test
+    void failedDispatchedRunSettlesBoundedEstimateOnlyOnce() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES (10,42,'Estimate test','active')");
+        jdbc.update("INSERT INTO ai_agent_messages (id,session_id,role,content,status,sequence_no) " +
+                "VALUES (20,10,'user','Research','completed',1)");
+        jdbc.update("""
+                INSERT INTO ai_analysis_runs (
+                  id,user_id,task_type,session_id,user_message_id,idempotency_key,status,
+                  provider,model_id,prompt_version,evidence_hash,reserved_tokens,deadline_at,
+                  current_stage,visible_progress,settlement_status,prompt_tokens,completion_tokens,total_tokens
+                ) VALUES (
+                  30,42,'agent_research',10,20,'idem-estimate-123','running',
+                  'fake','fake-agent','agent-research-v1',REPEAT('a',64),8000,
+                  ?,'waiting_for_model','waiting','provider_dispatched',700,300,1000
+                )
+                """, LocalDateTime.now().plusMinutes(2));
+
+        int first = runMapper.settleAgentFailed(
+                30L, "failed", "failed", "UPSTREAM_ERROR", "PROVIDER_TIMEOUT",
+                1, 0, LocalDateTime.now());
+        int duplicate = runMapper.settleAgentFailed(
+                30L, "failed", "failed", "UPSTREAM_ERROR", "PROVIDER_TIMEOUT",
+                1, 0, LocalDateTime.now());
+
+        assertEquals(1, first);
+        assertEquals(0, duplicate);
+        Map<String, Object> run = jdbc.queryForMap(
+                "SELECT status,settlement_status,reserved_tokens,total_tokens FROM ai_analysis_runs WHERE id=30");
+        assertEquals("failed", run.get("status"));
+        assertEquals("settled_estimated", run.get("settlement_status"));
+        assertEquals(0, ((Number) run.get("reserved_tokens")).intValue());
+        assertEquals(8000, ((Number) run.get("total_tokens")).intValue());
+    }
+
+    @Test
+    void cancelledDispatchedRunStillConsumesDailyQuotaUntilSettlement() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES " +
+                "(10,42,'Old','active'),(11,42,'New','active')");
+        jdbc.update("INSERT INTO ai_agent_messages (id,session_id,role,content,status,sequence_no) VALUES " +
+                "(20,10,'user','Old','completed',1),(21,11,'user','New','completed',1)");
+        jdbc.update("""
+                INSERT INTO ai_analysis_runs (
+                  id,user_id,task_type,session_id,user_message_id,idempotency_key,status,
+                  provider,model_id,prompt_version,evidence_hash,reserved_tokens,
+                  current_stage,visible_progress,settlement_status,total_tokens
+                ) VALUES (
+                  30,42,'agent_research',10,20,'idem-old-dispatch','cancelled',
+                  'fake','fake-agent','agent-research-v1',REPEAT('a',64),8000,
+                  'cancelled','cancelled','provider_dispatched',0
+                )
+                """);
+        AiAnalysisRun next = new AiAnalysisRun();
+        next.setUserId(42L);
+        next.setTaskType("agent_research");
+        next.setSessionId(11L);
+        next.setUserMessageId(21L);
+        next.setIdempotencyKey("idem-new-dispatch");
+        next.setStatus("received");
+        next.setProvider("fake");
+        next.setModelId("fake-agent");
+        next.setPromptVersion("agent-research-v1");
+        next.setEvidenceHash("b".repeat(64));
+        next.setCurrentStage("received");
+        next.setVisibleProgress("queued");
+
+        int reserved = runMapper.reserve(next, 8000, 1000);
+
+        assertEquals(0, reserved);
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ai_analysis_runs WHERE user_id=42", Integer.class));
+    }
+
+    @Test
+    void cancelledDispatchedRunReconcilesBoundedEstimateWithoutChangingTerminalStatus() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES (10,42,'Cancelled','active')");
+        jdbc.update("INSERT INTO ai_agent_messages (id,session_id,role,content,status,sequence_no) " +
+                "VALUES (20,10,'user','Research','completed',1)");
+        jdbc.update("""
+                INSERT INTO ai_analysis_runs (
+                  id,user_id,task_type,session_id,user_message_id,idempotency_key,status,
+                  provider,model_id,prompt_version,evidence_hash,reserved_tokens,
+                  current_stage,visible_progress,settlement_status
+                ) VALUES (
+                  30,42,'agent_research',10,20,'idem-cancel-estimate','cancelled',
+                  'fake','fake-agent','agent-research-v1',REPEAT('a',64),8000,
+                  'cancelled','cancelled','provider_dispatched'
+                )
+                """);
+        jdbc.update("""
+                INSERT INTO ai_agent_provider_calls (
+                  id,analysis_run_id,round_no,internal_request_id,settlement_status,reserved_tokens,dispatched_at
+                ) VALUES (40,30,1,'internal-cancelled','provider_dispatched',8000,NOW(6))
+                """);
+        LocalDateTime settledAt = LocalDateTime.now();
+        assertEquals(1, agentProviderCallMapper.markDispatchedEstimated(30L, settledAt));
+        assertEquals(1, runMapper.reconcileAgentProviderUsage(30L, settledAt));
+
+        Map<String, Object> run = jdbc.queryForMap(
+                "SELECT status,settlement_status,reserved_tokens,total_tokens FROM ai_analysis_runs WHERE id=30");
+        assertEquals("cancelled", run.get("status"));
+        assertEquals("settled_estimated", run.get("settlement_status"));
+        assertEquals(0, ((Number) run.get("reserved_tokens")).intValue());
+        assertEquals(8000, ((Number) run.get("total_tokens")).intValue());
+        assertEquals("settled_estimated", jdbc.queryForObject(
+                "SELECT settlement_status FROM ai_agent_provider_calls WHERE id=40", String.class));
+    }
+
+    @Test
+    void exhaustedExpiredLeaseMovesToTerminalAndCannotBeReclaimed() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES (10,42,'Recovery','active')");
+        jdbc.update("INSERT INTO ai_agent_messages (id,session_id,role,content,status,sequence_no) " +
+                "VALUES (20,10,'user','Research','completed',1)");
+        jdbc.update("""
+                INSERT INTO ai_analysis_runs (
+                  id,user_id,task_type,session_id,user_message_id,idempotency_key,status,
+                  provider,model_id,prompt_version,evidence_hash,reserved_tokens,deadline_at,
+                  current_stage,visible_progress,settlement_status,execution_attempts,
+                  lease_owner,lease_expires_at
+                ) VALUES (
+                  30,42,'agent_research',10,20,'idem-recovery-max','running',
+                  'fake','fake-agent','agent-research-v1',REPEAT('a',64),8000,
+                  ?,'waiting_for_model','waiting','reserved',3,'dead-worker',?
+                )
+                """, LocalDateTime.now().plusMinutes(2), LocalDateTime.now().minusMinutes(1));
+
+        int expired = agentRunQueueService.finalizeUnrecoverable();
+
+        assertEquals(1, expired);
+        Map<String, Object> run = jdbc.queryForMap(
+                "SELECT status,diagnostic_code,settlement_status,reserved_tokens FROM ai_analysis_runs WHERE id=30");
+        assertEquals("failed", run.get("status"));
+        assertEquals("AGENT_RECOVERY_EXHAUSTED", run.get("diagnostic_code"));
+        assertEquals("released_without_dispatch", run.get("settlement_status"));
+        assertEquals(0, ((Number) run.get("reserved_tokens")).intValue());
+        assertEquals(null, agentRunQueueService.claimNext("worker-after-terminal"));
+    }
+
+    @Test
     void agentSessionsEnforceOwnershipArchiveAndStableMessageOrder() throws Exception {
         jdbc.execute("""
                 CREATE TABLE platform_users (
@@ -212,6 +573,7 @@ class PhaseOneMySqlIntegrationTest {
                 ) ENGINE=InnoDB
                 """);
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active'),(43,'other','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         AuthenticatedUser other = new AuthenticatedUser(43L, "other", "other@example.com");
@@ -231,6 +593,35 @@ class PhaseOneMySqlIntegrationTest {
         assertEquals(ErrorCode.CONFLICT, assertThrows(BusinessException.class,
                 () -> agentSessionService.appendMessage(owner, session.getId(), "user", "Late", "completed", null, null))
                 .getErrorCode());
+    }
+
+    @Test
+    void receivedRunPreventsArchiveAndRemainsVisibleAfterRefresh() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
+        AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
+        var session = agentSessionService.create(owner, "Durable received run", null);
+        var message = agentSessionService.appendMessage(
+                owner, session.getId(), "user", "Question", "completed", null, null);
+        jdbc.update("""
+                INSERT INTO ai_analysis_runs (
+                  user_id,task_type,session_id,user_message_id,idempotency_key,status,
+                  provider,model_id,prompt_version,evidence_hash,current_stage,visible_progress
+                ) VALUES (42,'agent_research',?,?,?,'received','fake','fake-agent',
+                  'agent-research-v1',REPEAT('a',64),'received','正在分析需求')
+                """, session.getId(), message.getId(), "idem-received-refresh");
+
+        BusinessException conflict = assertThrows(
+                BusinessException.class, () -> agentSessionService.archive(owner, session.getId()));
+
+        assertEquals(ErrorCode.CONFLICT, conflict.getErrorCode());
+        assertEquals("active", jdbc.queryForObject(
+                "SELECT status FROM ai_agent_sessions WHERE id=?", String.class, session.getId()));
+        var detail = agentResearchQueryService.sessionDetail(owner, session.getId());
+        assertNotNull(detail.activeRun());
+        assertEquals("received", detail.activeRun().status());
     }
 
     @Test
@@ -415,8 +806,17 @@ class PhaseOneMySqlIntegrationTest {
                 ) ENGINE=InnoDB
                 """);
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
-        jdbc.update("UPDATE ai_model_settings SET agent_enabled=1 WHERE id=1");
+        jdbc.update("""
+                UPDATE ai_model_settings
+                SET enabled=1,
+                    agent_enabled=1,
+                    agent_rollout_state='explicitly_enabled',
+                    agent_rollout_changed_at=NOW(6),
+                    agent_rollout_changed_by_admin_id=1
+                WHERE id=1
+                """);
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var session = agentSessionService.create(owner, "Clarification", null);
         AgentMessageCreateDTO request = new AgentMessageCreateDTO();
@@ -442,6 +842,7 @@ class PhaseOneMySqlIntegrationTest {
     void disabledAgentRuntimeRejectsClarificationWithoutPersistingConversation() throws Exception {
         createAgentUserTable();
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var session = agentSessionService.create(owner, "Disabled runtime", null);
@@ -472,6 +873,7 @@ class PhaseOneMySqlIntegrationTest {
                 ) ENGINE=InnoDB
                 """);
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         insertSource(1L, "Policy source", "published", "verified", 0L);
         insertPolicy(21L, 1L, "Hubei support", "verified", 0L);
@@ -536,6 +938,7 @@ class PhaseOneMySqlIntegrationTest {
     void sameUserCannotStartConcurrentAgentRunsAcrossSessions() throws Exception {
         createAgentUserTable();
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var firstSession = agentSessionService.create(owner, "First run", null);
@@ -585,6 +988,7 @@ class PhaseOneMySqlIntegrationTest {
     void evidenceChangeAfterToolSearchPreventsAgentCompletion() throws Exception {
         createAgentUserTable();
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         insertSource(1L, "Policy source", "published", "verified", 0L);
         insertPolicy(21L, 1L, "Hubei support", "verified", 0L);
@@ -646,6 +1050,7 @@ class PhaseOneMySqlIntegrationTest {
     void concurrentAgentMessagesKeepUniqueStableSequenceNumbers() throws Exception {
         createAgentUserTable();
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var session = agentSessionService.create(owner, "Concurrent messages", null);
@@ -676,6 +1081,7 @@ class PhaseOneMySqlIntegrationTest {
     void otherUserCannotCancelOwnedRun() throws Exception {
         createAgentUserTable();
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active'),(43,'other','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         AuthenticatedUser other = new AuthenticatedUser(43L, "other", "other@example.com");
@@ -695,6 +1101,7 @@ class PhaseOneMySqlIntegrationTest {
     void cancelledAgentRunRejectsLateCompletionSettlement() throws Exception {
         createAgentUserTable();
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var session = agentSessionService.create(owner, "Cancellation race", null);
@@ -713,6 +1120,7 @@ class PhaseOneMySqlIntegrationTest {
     void agentToolCallInsertRollsBackWithItsTransaction() throws Exception {
         createAgentUserTable();
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         jdbc.update("""
                 INSERT INTO ai_analysis_runs
@@ -740,6 +1148,7 @@ class PhaseOneMySqlIntegrationTest {
     void expiredAgentCleanupUsesExpiredTerminalState() throws Exception {
         createAgentUserTable();
         runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var session = agentSessionService.create(owner, "Expired run", null);
@@ -1241,7 +1650,7 @@ class PhaseOneMySqlIntegrationTest {
         jdbc.execute("CREATE TABLE tag_aliases (id BIGINT PRIMARY KEY AUTO_INCREMENT,tag_id BIGINT NOT NULL,alias VARCHAR(100) NOT NULL,normalized_alias VARCHAR(100) NOT NULL,created_at DATETIME DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uk_tag_aliases_normalized(normalized_alias))");
         jdbc.execute("CREATE TABLE ai_evidence_reviews (id BIGINT PRIMARY KEY AUTO_INCREMENT,item_type VARCHAR(20) NOT NULL,item_id BIGINT NOT NULL,previous_status VARCHAR(30) NOT NULL,new_status VARCHAR(30) NOT NULL,admin_id BIGINT NOT NULL,admin_username VARCHAR(100) NOT NULL,notes VARCHAR(500),action_type VARCHAR(50),reason VARCHAR(500),operation_id VARCHAR(64),created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))");
         jdbc.execute("CREATE TABLE ai_analysis_runs (id BIGINT PRIMARY KEY AUTO_INCREMENT,user_id BIGINT NOT NULL,task_type VARCHAR(40) NOT NULL,case_id BIGINT,session_id BIGINT,user_message_id BIGINT,idempotency_key VARCHAR(64),status VARCHAR(30) NOT NULL,active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status='running' THEN user_id ELSE NULL END) STORED,session_active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status='running' THEN session_id ELSE NULL END) STORED,result_json JSON,provider VARCHAR(40) NOT NULL,model_id VARCHAR(191) NOT NULL,prompt_version VARCHAR(60) NOT NULL,evidence_hash CHAR(64) NOT NULL,prompt_tokens INT NOT NULL DEFAULT 0,completion_tokens INT NOT NULL DEFAULT 0,total_tokens INT NOT NULL DEFAULT 0,reserved_tokens BIGINT NOT NULL DEFAULT 0,started_at DATETIME(6),deadline_at DATETIME(6),heartbeat_at DATETIME(6),latency_ms BIGINT NOT NULL DEFAULT 0,provider_request_id VARCHAR(191),finish_reason VARCHAR(40),response_hash CHAR(64),error_type VARCHAR(80),diagnostic_code VARCHAR(80),step_count INT NOT NULL DEFAULT 0,tool_call_count INT NOT NULL DEFAULT 0,current_stage VARCHAR(40),visible_progress VARCHAR(120),cancelled_at DATETIME(6),completed_at DATETIME(6),created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),UNIQUE KEY uk_running(active_guard),UNIQUE KEY uk_session_running(session_active_guard),UNIQUE KEY uk_idempotency(user_id,task_type,idempotency_key)) ENGINE=InnoDB");
-        jdbc.execute("CREATE TABLE ai_model_settings (id BIGINT PRIMARY KEY,provider VARCHAR(40) NOT NULL,api_format VARCHAR(40) NOT NULL,api_base_url VARCHAR(500),model_id VARCHAR(191),model_catalog_json JSON,api_key_ciphertext TEXT,api_key_provider VARCHAR(40),api_key_origin VARCHAR(500),temperature DECIMAL(4,3) NOT NULL,max_output_tokens INT NOT NULL,timeout_seconds INT NOT NULL,retry_count INT NOT NULL,daily_token_quota BIGINT NOT NULL,enabled TINYINT(1) NOT NULL,agent_enabled TINYINT(1) NOT NULL DEFAULT 0,agent_max_model_rounds INT NOT NULL DEFAULT 4,agent_max_tool_calls INT NOT NULL DEFAULT 6,agent_max_tokens INT NOT NULL DEFAULT 8000,agent_history_window INT NOT NULL DEFAULT 12,agent_timeout_seconds INT NOT NULL DEFAULT 120,agent_tool_mode VARCHAR(20) NOT NULL DEFAULT 'json_plan',last_test_status VARCHAR(30) NOT NULL,last_tested_at DATETIME,last_test_message VARCHAR(240),updated_by_admin_id BIGINT,updated_by_admin_username VARCHAR(100),created_at DATETIME DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
+        jdbc.execute("CREATE TABLE ai_model_settings (id BIGINT PRIMARY KEY,provider VARCHAR(40) NOT NULL,api_format VARCHAR(40) NOT NULL,api_base_url VARCHAR(500),model_id VARCHAR(191),model_catalog_json JSON,api_key_ciphertext TEXT,api_key_provider VARCHAR(40),api_key_origin VARCHAR(500),temperature DECIMAL(4,3) NOT NULL,max_output_tokens INT NOT NULL,timeout_seconds INT NOT NULL,retry_count INT NOT NULL,daily_token_quota BIGINT NOT NULL,enabled TINYINT(1) NOT NULL,agent_enabled TINYINT(1) NOT NULL DEFAULT 0,agent_rollout_state VARCHAR(30) NOT NULL DEFAULT 'explicitly_disabled',agent_rollout_changed_at DATETIME(6),agent_rollout_changed_by_admin_id BIGINT,agent_max_model_rounds INT NOT NULL DEFAULT 4,agent_max_tool_calls INT NOT NULL DEFAULT 6,agent_max_tokens INT NOT NULL DEFAULT 8000,agent_history_window INT NOT NULL DEFAULT 12,agent_timeout_seconds INT NOT NULL DEFAULT 120,agent_tool_mode VARCHAR(20) NOT NULL DEFAULT 'json_plan',last_test_status VARCHAR(30) NOT NULL,last_tested_at DATETIME,last_test_message VARCHAR(240),updated_by_admin_id BIGINT,updated_by_admin_username VARCHAR(100),created_at DATETIME DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
         jdbc.update("INSERT INTO ai_model_settings (id,provider,api_format,temperature,max_output_tokens,timeout_seconds,retry_count,daily_token_quota,enabled,agent_enabled,agent_max_model_rounds,agent_max_tool_calls,agent_max_tokens,agent_history_window,agent_timeout_seconds,agent_tool_mode,last_test_status) VALUES (1,'deepseek','openai_compatible',0.2,1200,30,1,100000,0,0,4,6,8000,12,120,'json_plan','not_tested')");
         jdbc.update("INSERT INTO regions (id,name,level,parent_id) VALUES (1,'Hubei','province',NULL)");
     }
@@ -1270,6 +1679,13 @@ class PhaseOneMySqlIntegrationTest {
         try (Connection connection = dataSource.getConnection()) {
             ScriptUtils.executeSqlScript(connection, new FileSystemResource(
                     Path.of("..", "deploy", "sql", "20260725_agent_runtime.sql")));
+        }
+    }
+
+    private void runAgentRuntimeStabilizationMigration() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource(
+                    Path.of("..", "deploy", "sql", "20260725_agent_runtime_stabilization.sql")));
         }
     }
 

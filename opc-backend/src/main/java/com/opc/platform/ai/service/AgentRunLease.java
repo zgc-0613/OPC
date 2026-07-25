@@ -19,6 +19,7 @@ public final class AgentRunLease {
     private String finishReason;
     private int modelRounds;
     private int toolCallCount;
+    private int providerCallCount;
 
     AgentRunLease(
             AiAnalysisRun run,
@@ -46,6 +47,8 @@ public final class AgentRunLease {
         this.modelRounds = Math.max(this.modelRounds, Math.max(0, modelRounds));
         this.toolCallCount = Math.max(this.toolCallCount, Math.max(0, toolCallCount));
     }
+
+    int nextProviderCall() { return ++providerCallCount; }
 
     public AiAnalysisRun run() { return run; }
     public AiRuntimeSettings runtime() { return runtime; }

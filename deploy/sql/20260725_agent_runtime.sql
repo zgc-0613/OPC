@@ -195,10 +195,6 @@ SET @agent_sql = IF(@agent_enabled_exists=0,
     'ALTER TABLE ai_model_settings ADD COLUMN agent_enabled TINYINT(1) NOT NULL DEFAULT 0 AFTER enabled', 'SELECT 1');
 PREPARE agent_stmt FROM @agent_sql; EXECUTE agent_stmt; DEALLOCATE PREPARE agent_stmt;
 
-SET @agent_sql = IF(@agent_enabled_exists=0,
-    'UPDATE ai_model_settings SET agent_enabled=enabled', 'SELECT 1');
-PREPARE agent_stmt FROM @agent_sql; EXECUTE agent_stmt; DEALLOCATE PREPARE agent_stmt;
-
 SET @agent_rounds_exists = (
     SELECT COUNT(*) FROM information_schema.columns
     WHERE table_schema=DATABASE() AND table_name='ai_model_settings' AND column_name='agent_max_model_rounds'

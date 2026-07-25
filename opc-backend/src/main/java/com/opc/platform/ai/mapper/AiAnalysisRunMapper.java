@@ -52,9 +52,10 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
 
     @Select("""
             SELECT COUNT(*) FROM ai_analysis_runs
-            WHERE session_id=#{sessionId} AND status='running'
+            WHERE session_id=#{sessionId} AND task_type='agent_research'
+              AND status IN ('received','running')
             """)
-    int countRunningForSession(@Param("sessionId") Long sessionId);
+    int countNonTerminalForSession(@Param("sessionId") Long sessionId);
 
     @Insert("""
             INSERT INTO ai_analysis_runs (
@@ -65,14 +66,16 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
             )
             SELECT
                 #{run.userId}, #{run.taskType}, #{run.caseId}, #{run.sessionId},
-                #{run.userMessageId}, #{run.idempotencyKey}, 'running',
+                #{run.userMessageId}, #{run.idempotencyKey}, #{run.status},
                 #{run.provider}, #{run.modelId}, #{run.currentStage}, #{run.visibleProgress},
                 #{run.promptVersion}, #{run.evidenceHash},
                 #{reservedTokens}, #{run.startedAt}, #{run.deadlineAt}, #{run.heartbeatAt}
             FROM DUAL
             WHERE #{dailyQuota} = 0 OR (
                 SELECT COALESCE(SUM(
-                    CASE WHEN status = 'running' THEN reserved_tokens ELSE total_tokens END
+                    CASE WHEN status IN ('received','running')
+                              OR settlement_status='provider_dispatched'
+                         THEN reserved_tokens ELSE total_tokens END
                 ), 0)
                 FROM ai_analysis_runs
                 WHERE user_id = #{run.userId}
@@ -103,8 +106,111 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
             """)
     AiAnalysisRun selectOwnedAgentRun(@Param("id") Long id, @Param("userId") Long userId);
 
+    @Select("""
+            SELECT * FROM ai_analysis_runs
+            WHERE id=#{id} AND user_id=#{userId} AND task_type='agent_research'
+            FOR UPDATE
+            """)
+    AiAnalysisRun selectOwnedAgentRunForUpdate(@Param("id") Long id, @Param("userId") Long userId);
+
     @Select("SELECT * FROM ai_analysis_runs WHERE id=#{id} FOR UPDATE")
     AiAnalysisRun selectRunForUpdate(@Param("id") Long id);
+
+    @Select("""
+            SELECT * FROM ai_analysis_runs
+            WHERE task_type='agent_research'
+              AND execution_attempts < #{maxAttempts}
+              AND (next_attempt_at IS NULL OR next_attempt_at <= #{now})
+              AND (deadline_at IS NULL OR deadline_at >= #{now})
+              AND (
+                status='received'
+                OR (status='running' AND lease_expires_at IS NOT NULL AND lease_expires_at < #{now})
+              )
+            ORDER BY COALESCE(next_attempt_at, created_at), id
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+            """)
+    AiAnalysisRun selectClaimableAgentRunForUpdate(
+            @Param("now") LocalDateTime now,
+            @Param("maxAttempts") int maxAttempts
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET status='running', current_stage='planning', visible_progress='正在分析需求',
+                lease_owner=#{owner}, lease_expires_at=#{leaseExpiresAt}, heartbeat_at=#{now},
+                execution_attempts=execution_attempts+1, next_attempt_at=NULL,
+                last_recovery_reason=CASE WHEN status='running' THEN 'lease_expired' ELSE 'initial_claim' END,
+                started_at=COALESCE(started_at, #{now})
+            WHERE id=#{id} AND task_type='agent_research'
+              AND execution_attempts < #{maxAttempts}
+              AND (next_attempt_at IS NULL OR next_attempt_at <= #{now})
+              AND (deadline_at IS NULL OR deadline_at >= #{now})
+              AND (
+                status='received'
+                OR (status='running' AND lease_expires_at IS NOT NULL AND lease_expires_at < #{now})
+              )
+            """)
+    int claimAgentRun(
+            @Param("id") Long id,
+            @Param("owner") String owner,
+            @Param("now") LocalDateTime now,
+            @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt,
+            @Param("maxAttempts") int maxAttempts
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET heartbeat_at=#{now},
+                lease_expires_at=LEAST(#{leaseExpiresAt},COALESCE(deadline_at,#{leaseExpiresAt}))
+            WHERE id=#{id} AND task_type='agent_research' AND status='running'
+              AND lease_owner=#{owner}
+              AND (deadline_at IS NULL OR deadline_at >= #{now})
+            """)
+    int renewAgentLease(
+            @Param("id") Long id,
+            @Param("owner") String owner,
+            @Param("now") LocalDateTime now,
+            @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET status=CASE WHEN deadline_at IS NOT NULL AND deadline_at < #{now}
+                    THEN 'expired' ELSE 'failed' END,
+                current_stage=CASE WHEN deadline_at IS NOT NULL AND deadline_at < #{now}
+                    THEN 'expired' ELSE 'failed' END,
+                visible_progress=CASE WHEN deadline_at IS NOT NULL AND deadline_at < #{now}
+                    THEN '研究运行已过期' ELSE '研究运行恢复次数已用尽' END,
+                error_type=CASE WHEN deadline_at IS NOT NULL AND deadline_at < #{now}
+                    THEN 'TASK_TIMEOUT' ELSE 'RECOVERY_EXHAUSTED' END,
+                diagnostic_code=CASE WHEN deadline_at IS NOT NULL AND deadline_at < #{now}
+                    THEN 'AGENT_TIMEOUT' ELSE 'AGENT_RECOVERY_EXHAUSTED' END,
+                prompt_tokens=CASE
+                  WHEN settlement_status='provider_dispatched' AND total_tokens < reserved_tokens
+                  THEN prompt_tokens + (reserved_tokens-total_tokens) ELSE prompt_tokens END,
+                total_tokens=CASE WHEN settlement_status='provider_dispatched'
+                  THEN GREATEST(total_tokens,reserved_tokens) ELSE total_tokens END,
+                settlement_status=CASE WHEN settlement_status='provider_dispatched'
+                  THEN 'settled_estimated' WHEN settlement_status='settled_actual'
+                  THEN 'settled_actual' ELSE 'released_without_dispatch' END,
+                settled_at=COALESCE(settled_at,#{now}), reserved_tokens=0,
+                lease_owner=NULL, lease_expires_at=NULL, completed_at=#{now}, heartbeat_at=#{now},
+                settlement_version=settlement_version+1,
+                last_recovery_reason=CASE WHEN deadline_at IS NOT NULL AND deadline_at < #{now}
+                  THEN 'deadline_expired' ELSE 'max_attempts_exhausted' END
+            WHERE task_type='agent_research' AND status IN ('received','running')
+              AND (
+                (deadline_at IS NOT NULL AND deadline_at < #{now})
+                OR (execution_attempts >= #{maxAttempts} AND (
+                  status='received' OR lease_expires_at IS NULL OR lease_expires_at < #{now}
+                ))
+              )
+            """)
+    int finalizeUnrecoverableAgentRuns(
+            @Param("now") LocalDateTime now,
+            @Param("maxAttempts") int maxAttempts
+    );
 
     @Select("""
             SELECT * FROM ai_analysis_runs
@@ -153,6 +259,59 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
 
     @Update("""
             UPDATE ai_analysis_runs
+            SET settlement_status='provider_dispatched', provider_dispatched_at=#{now},
+                settlement_version=settlement_version+1
+            WHERE id=#{id} AND task_type='agent_research' AND status='running'
+              AND settlement_status IN ('reserved','settled_actual')
+            """)
+    int markAgentProviderDispatched(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET prompt_tokens=prompt_tokens+#{promptTokens},
+                completion_tokens=completion_tokens+#{completionTokens},
+                total_tokens=total_tokens+#{totalTokens},
+                latency_ms=latency_ms+#{latencyMs},
+                provider_request_id=#{providerRequestId}, finish_reason=#{finishReason},
+                settlement_status='settled_actual', settled_at=#{now},
+                reserved_tokens=CASE WHEN status='running' THEN reserved_tokens ELSE 0 END,
+                settlement_version=settlement_version+1, heartbeat_at=#{now}
+            WHERE id=#{id} AND task_type='agent_research'
+              AND settlement_status='provider_dispatched'
+            """)
+    int settleAgentUsageActual(
+            @Param("id") Long id,
+            @Param("promptTokens") int promptTokens,
+            @Param("completionTokens") int completionTokens,
+            @Param("totalTokens") int totalTokens,
+            @Param("latencyMs") long latencyMs,
+            @Param("providerRequestId") String providerRequestId,
+            @Param("finishReason") String finishReason,
+            @Param("now") LocalDateTime now
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET prompt_tokens=(SELECT COALESCE(SUM(prompt_tokens),0) FROM ai_agent_provider_calls
+                    WHERE analysis_run_id=#{id} AND settlement_status IN ('settled_actual','settled_estimated')),
+                completion_tokens=(SELECT COALESCE(SUM(completion_tokens),0) FROM ai_agent_provider_calls
+                    WHERE analysis_run_id=#{id} AND settlement_status IN ('settled_actual','settled_estimated')),
+                total_tokens=(SELECT COALESCE(SUM(total_tokens),0) FROM ai_agent_provider_calls
+                    WHERE analysis_run_id=#{id} AND settlement_status IN ('settled_actual','settled_estimated')),
+                latency_ms=(SELECT COALESCE(SUM(latency_ms),0) FROM ai_agent_provider_calls
+                    WHERE analysis_run_id=#{id} AND settlement_status IN ('settled_actual','settled_estimated')),
+                settlement_status=CASE WHEN EXISTS (
+                    SELECT 1 FROM ai_agent_provider_calls
+                    WHERE analysis_run_id=#{id} AND settlement_status='settled_estimated'
+                  ) THEN 'settled_estimated' ELSE 'settled_actual' END,
+                settled_at=#{now}, reserved_tokens=0,
+                settlement_version=settlement_version+1
+            WHERE id=#{id} AND task_type='agent_research'
+            """)
+    int reconcileAgentProviderUsage(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @Update("""
+            UPDATE ai_analysis_runs
             SET status=#{status}, current_stage=#{status}, visible_progress=#{status},
                 prompt_tokens=#{promptTokens}, completion_tokens=#{completionTokens}, total_tokens=#{totalTokens},
                 reserved_tokens=0, latency_ms=#{latencyMs}, provider_request_id=#{providerRequestId},
@@ -178,7 +337,20 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
     @Update("""
             UPDATE ai_analysis_runs
             SET status=#{status}, current_stage=#{status}, visible_progress=#{progress},
-                error_type=#{errorType}, diagnostic_code=#{diagnosticCode}, reserved_tokens=0,
+                error_type=#{errorType}, diagnostic_code=#{diagnosticCode},
+                prompt_tokens=CASE
+                  WHEN settlement_status='provider_dispatched' AND total_tokens < reserved_tokens
+                  THEN prompt_tokens + (reserved_tokens - total_tokens)
+                  ELSE prompt_tokens END,
+                total_tokens=CASE WHEN settlement_status='provider_dispatched'
+                  THEN GREATEST(total_tokens, reserved_tokens) ELSE total_tokens END,
+                settlement_status=CASE
+                  WHEN settlement_status='provider_dispatched' THEN 'settled_estimated'
+                  WHEN settlement_status='settled_actual' THEN 'settled_actual'
+                  ELSE 'released_without_dispatch' END,
+                settled_at=COALESCE(settled_at, #{completedAt}), reserved_tokens=0,
+                lease_owner=NULL, lease_expires_at=NULL,
+                settlement_version=settlement_version+1,
                 step_count=#{stepCount}, tool_call_count=#{toolCallCount},
                 completed_at=#{completedAt}, heartbeat_at=#{completedAt}
             WHERE id=#{id} AND status='running'
@@ -197,8 +369,16 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
     @Update("""
             UPDATE ai_analysis_runs
             SET status='cancelled', current_stage='cancelled', visible_progress='已取消运行',
-                reserved_tokens=0, cancelled_at=#{now}, completed_at=#{now}, heartbeat_at=#{now}
-            WHERE id=#{id} AND user_id=#{userId} AND task_type='agent_research' AND status='running'
+                settlement_status=CASE WHEN settlement_status='provider_dispatched'
+                    THEN 'provider_dispatched' ELSE 'released_without_dispatch' END,
+                reserved_tokens=CASE WHEN settlement_status='provider_dispatched'
+                    THEN reserved_tokens ELSE 0 END,
+                settled_at=CASE WHEN settlement_status='provider_dispatched' THEN settled_at ELSE #{now} END,
+                lease_owner=NULL, lease_expires_at=NULL,
+                cancelled_at=#{now}, completed_at=#{now}, heartbeat_at=#{now},
+                settlement_version=settlement_version+1
+            WHERE id=#{id} AND user_id=#{userId} AND task_type='agent_research'
+              AND status IN ('received','running')
             """)
     int cancelOwnedAgentRun(@Param("id") Long id, @Param("userId") Long userId, @Param("now") LocalDateTime now);
 

@@ -18,7 +18,7 @@ public class SearchPoliciesArguments {
     private String industry;
 
     @Size(max = 120)
-    private String keywords;
+    private String query;
 
     @Min(1)
     @Max(10)

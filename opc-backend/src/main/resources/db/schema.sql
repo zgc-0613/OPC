@@ -328,6 +328,9 @@ CREATE TABLE IF NOT EXISTS ai_model_settings (
     daily_token_quota BIGINT NOT NULL DEFAULT 100000,
     enabled TINYINT(1) NOT NULL DEFAULT 0,
     agent_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    agent_rollout_state VARCHAR(30) NOT NULL DEFAULT 'explicitly_disabled',
+    agent_rollout_changed_at DATETIME(6) NULL,
+    agent_rollout_changed_by_admin_id BIGINT NULL,
     agent_max_model_rounds INT NOT NULL DEFAULT 4,
     agent_max_tool_calls INT NOT NULL DEFAULT 6,
     agent_max_tokens INT NOT NULL DEFAULT 8000,
@@ -367,6 +370,7 @@ CREATE TABLE IF NOT EXISTS ai_agent_sessions (
     title VARCHAR(120) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'active',
     profile_json JSON NULL,
+    research_context_json JSON NULL,
     version BIGINT NOT NULL DEFAULT 0,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -409,6 +413,12 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     status VARCHAR(30) NOT NULL,
     active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'running' THEN user_id ELSE NULL END) STORED,
     session_active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'running' THEN session_id ELSE NULL END) STORED,
+    session_nonterminal_guard BIGINT GENERATED ALWAYS AS (
+        CASE WHEN task_type='agent_research' AND status IN ('received','running') THEN session_id ELSE NULL END
+    ) STORED,
+    user_agent_nonterminal_guard BIGINT GENERATED ALWAYS AS (
+        CASE WHEN task_type='agent_research' AND status IN ('received','running') THEN user_id ELSE NULL END
+    ) STORED,
     result_json JSON NULL,
     provider VARCHAR(40) NOT NULL,
     model_id VARCHAR(191) NOT NULL,
@@ -421,6 +431,15 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     started_at DATETIME NULL,
     deadline_at DATETIME NULL,
     heartbeat_at DATETIME NULL,
+    lease_owner VARCHAR(120) NULL,
+    lease_expires_at DATETIME(6) NULL,
+    execution_attempts INT NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME(6) NULL,
+    last_recovery_reason VARCHAR(120) NULL,
+    settlement_status VARCHAR(30) NOT NULL DEFAULT 'reserved',
+    provider_dispatched_at DATETIME(6) NULL,
+    settled_at DATETIME(6) NULL,
+    settlement_version BIGINT NOT NULL DEFAULT 0,
     latency_ms BIGINT NOT NULL DEFAULT 0,
     provider_request_id VARCHAR(191) NULL,
     finish_reason VARCHAR(40) NULL,
@@ -441,12 +460,15 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
         ON DELETE RESTRICT ON UPDATE RESTRICT,
     UNIQUE KEY uk_ai_analysis_running_user (active_guard),
     UNIQUE KEY uk_ai_runs_active_session (session_active_guard),
+    UNIQUE KEY uk_ai_runs_agent_session_nonterminal (session_nonterminal_guard),
+    UNIQUE KEY uk_ai_runs_agent_user_nonterminal (user_agent_nonterminal_guard),
     UNIQUE KEY uk_ai_runs_idempotency (user_id, task_type, idempotency_key),
     INDEX idx_ai_analysis_user_created (user_id, created_at),
     INDEX idx_ai_analysis_case_created (case_id, created_at),
     INDEX idx_ai_analysis_status_created (status, created_at),
     INDEX idx_ai_runs_session (session_id, created_at, id),
-    INDEX idx_ai_runs_running_deadline (status, deadline_at)
+    INDEX idx_ai_runs_running_deadline (status, deadline_at),
+    INDEX idx_ai_runs_agent_lease (status, next_attempt_at, lease_expires_at, id)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
@@ -478,6 +500,30 @@ CREATE TABLE IF NOT EXISTS ai_agent_tool_calls (
     INDEX idx_agent_tool_run_status (analysis_run_id, status, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Validated Agent tool invocation audit';
+
+CREATE TABLE IF NOT EXISTS ai_agent_provider_calls (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    analysis_run_id BIGINT NOT NULL,
+    round_no INT NOT NULL,
+    internal_request_id VARCHAR(80) NOT NULL,
+    provider_request_id VARCHAR(191) NULL,
+    settlement_status VARCHAR(30) NOT NULL DEFAULT 'reserved',
+    reserved_tokens INT NOT NULL DEFAULT 0,
+    prompt_tokens INT NOT NULL DEFAULT 0,
+    completion_tokens INT NOT NULL DEFAULT 0,
+    total_tokens INT NOT NULL DEFAULT 0,
+    finish_reason VARCHAR(60) NULL,
+    latency_ms BIGINT NOT NULL DEFAULT 0,
+    dispatched_at DATETIME(6) NULL,
+    settled_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_agent_provider_calls_run FOREIGN KEY (analysis_run_id) REFERENCES ai_analysis_runs(id)
+        ON DELETE CASCADE ON UPDATE RESTRICT,
+    UNIQUE KEY uk_agent_provider_call_round (analysis_run_id, round_no),
+    UNIQUE KEY uk_agent_provider_internal_request (internal_request_id),
+    INDEX idx_agent_provider_call_settlement (settlement_status, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Idempotent Agent provider dispatch and usage settlement ledger';
 
 CREATE TABLE IF NOT EXISTS ai_evidence_reviews (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,

@@ -42,7 +42,7 @@ public class SearchPoliciesTool implements AgentTool<SearchPoliciesArguments> {
                 {"type":"object","additionalProperties":false,"required":["regionId"],"properties":{
                   "regionId":{"type":"integer"},"industryTagId":{"type":"integer"},
                   "industry":{"type":"string","maxLength":100},
-                  "keywords":{"type":"string","maxLength":120},
+                  "query":{"type":"string","maxLength":120},
                   "limit":{"type":"integer","minimum":1,"maximum":10}
                 }}
                 """;
@@ -54,7 +54,7 @@ public class SearchPoliciesTool implements AgentTool<SearchPoliciesArguments> {
         int limit = arguments.getLimit() == null ? 5 : Math.max(1, Math.min(10, arguments.getLimit()));
         List<AgentPolicySearchRow> rows = mapper.searchPolicies(
                 regionIds, arguments.getIndustryTagId(), trim(arguments.getIndustry()),
-                trim(arguments.getKeywords()), limit
+                trim(arguments.getQuery()), limit
         );
         List<PolicyItem> items = (rows == null ? List.<AgentPolicySearchRow>of() : rows).stream()
                 .map(row -> new PolicyItem(

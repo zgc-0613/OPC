@@ -4,7 +4,7 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 20 (local implementation and verification complete; production deployment blocked by unavailable SSH credentials)
+Phase 21 (Agent Runtime stabilization accepted locally; production deployment blocked before SSH because the secure password environment variable is absent)
 
 ## Phases
 
@@ -300,3 +300,17 @@ Phase 20 (local implementation and verification complete; production deployment 
 - [x] Add a deterministic 20-question golden evaluation set and complete unit, MySQL Testcontainers, frontend, migration, deployment, and build verification.
 - [ ] Deploy through the repository rollback workflow and pass the semantic production Agent probe before declaring completion.
 - **Status:** local implementation and verification complete; production deployment and semantic Agent probe are blocked because the existing `root` SSH credential path is unavailable. Phase two is not declared complete.
+
+### Phase 21: Agent Runtime Stabilization, Trusted Evaluation, And Production Gate
+- [x] Fix named-index postcheck accounting and add the forward-only stabilization migration.
+- [x] Make Agent rollout explicit, audited, default-off, and independent from provider enablement.
+- [x] Establish one closed tool metadata source for native calls, JSON plans, schemas, runtime validation, audit, and tests.
+- [x] Replace executor-only dispatch with leased database recovery, heartbeat renewal, bounded attempts, and terminal-state protection.
+- [x] Add provider-call settlement records for actual, estimated, released, and late-usage reconciliation without reopening cancelled runs.
+- [x] Lock sessions before submit/archive/cancel and persist structured clarification context that resolves real region/tag IDs.
+- [x] Replace keyword-driven evaluation with 20 deterministic fixtures and keep real DeepSeek smoke metrics separate.
+- [x] Harden the deployment probe for provider metadata, positive token accounting, tool evidence snapshots, permissions, and secret redaction.
+- [x] Remove the remaining heavy Agent UI rails/shadows while preserving Prisma Light structure and interactions.
+- [x] Pass 270 backend tests, including 48 MySQL 8.4 integration tests; 14 Vitest tests; all frontend contract scripts; 17 Python deployment tests; both production builds; diff, secret, artifact, and ignore checks.
+- [ ] Run the repository deployment workflow, database postcheck, dual-domain checks, and real DeepSeek Agent probe.
+- **Status:** local acceptance complete. Deployment cannot start until `OPC_SSH_PASSWORD` is injected into the deployment process without placing plaintext credentials in a command, log, script, or report.

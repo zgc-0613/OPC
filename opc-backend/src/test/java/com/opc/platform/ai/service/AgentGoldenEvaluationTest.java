@@ -1,20 +1,30 @@
 package com.opc.platform.ai.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.entity.AiAgentToolCall;
+import com.opc.platform.ai.entity.AiAnalysisRun;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
+import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
 import com.opc.platform.ai.provider.AgentRuntimeConfig;
+import com.opc.platform.ai.provider.AiClient;
 import com.opc.platform.ai.provider.AiProviderException;
 import com.opc.platform.ai.provider.AiProviderResponse;
+import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.ai.tool.AgentTool;
 import com.opc.platform.ai.tool.AgentToolContext;
 import com.opc.platform.ai.tool.AgentToolException;
 import com.opc.platform.ai.tool.AgentToolRegistry;
 import com.opc.platform.ai.tool.AgentToolResult;
 import com.opc.platform.ai.tool.CompareCasesArguments;
+import com.opc.platform.ai.tool.GetSourceArguments;
 import com.opc.platform.ai.tool.SearchCasesArguments;
 import com.opc.platform.ai.tool.SearchPoliciesArguments;
+import com.opc.platform.region.entity.Region;
+import com.opc.platform.region.mapper.RegionMapper;
+import com.opc.platform.tag.service.IndustryTagService;
+import com.opc.platform.tag.vo.IndustryResolution;
+import com.opc.platform.userauth.AuthenticatedUser;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +33,7 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,8 +42,13 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -41,228 +57,397 @@ class AgentGoldenEvaluationTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void twentyQuestionDeterministicEvaluationMeetsSafetyAndCitationMetrics() throws Exception {
-        List<GoldenCase> cases = loadCases();
-        assertEquals(20, cases.size());
-        assertTrue(cases.stream().map(GoldenCase::category).distinct().count() >= 12);
+    void everyFixtureDeclaresProviderToolStateAndCitationContracts() throws Exception {
+        JsonNode fixtures = loadFixtures();
+        assertTrue(fixtures.isArray());
+        assertTrue(fixtures.size() >= 20);
+        for (JsonNode fixture : fixtures) {
+            String id = fixture.path("id").asText("missing-id");
+            assertTrue(fixture.path("input").isObject(), id + " must declare input");
+            assertTrue(fixture.path("providerRounds").isArray(), id + " must declare providerRounds");
+            assertTrue(fixture.path("toolResults").isObject(), id + " must declare toolResults");
+            assertTrue(fixture.path("expected").isObject(), id + " must declare expected");
+            assertTrue(fixture.path("expected").path("stateTrace").isArray(), id + " must declare stateTrace");
+            assertTrue(fixture.path("expected").path("tools").isArray(), id + " must declare tools");
+            assertTrue(fixture.path("expected").path("allowedCitations").isArray(),
+                    id + " must declare allowedCitations");
+            assertTrue(fixture.path("expected").path("forbiddenCitations").isArray(),
+                    id + " must declare forbiddenCitations");
+            assertTrue(fixture.path("expected").path("claimEvidence").isObject(),
+                    id + " must declare claimEvidence");
+        }
+    }
 
-        AgentClarificationPolicy clarificationPolicy = new AgentClarificationPolicy(objectMapper);
-        AgentToolRegistry registry = registry();
-        AgentOrchestrator orchestrator = new AgentOrchestrator(objectMapper, registry);
-        int matched = 0;
+    @Test
+    void fixtureDrivenEvaluationSeparatesRuntimeContractsFromModelQuality() throws Exception {
+        JsonNode fixtures = loadFixtures();
+        Set<String> coverage = new LinkedHashSet<>();
+        int passed = 0;
+        int expectedCompleted = 0;
         int completed = 0;
-        int legalCitations = 0;
-        int consistentCitations = 0;
-        int acceptedUnknownSources = 0;
-        int evidenceRefusals = 0;
-        int allowedToolRequests = 0;
-        int successfulToolCalls = 0;
+        int evidenceInsufficient = 0;
+        int controlledFailures = 0;
         int totalRounds = 0;
-        int totalToolCalls = 0;
+        int totalTools = 0;
         int totalTokens = 0;
         List<Long> latencies = new ArrayList<>();
 
-        for (int index = 0; index < cases.size(); index++) {
-            GoldenCase golden = cases.get(index);
-            if (golden.kind().startsWith("clarification_")) {
-                String profile = switch (golden.kind()) {
-                    case "clarification_region" -> "{}";
-                    case "clarification_industry" -> "{\"regionId\":1}";
-                    default -> "{\"regionId\":1,\"industry\":\"AI\"}";
-                };
-                String question = clarificationPolicy.question(profile, golden.question());
-                assertNotNull(question, golden.id());
-                assertTrue(question.endsWith("？"), golden.id());
-                matched++;
-                continue;
-            }
-
-            ArrayDeque<AiProviderResponse> responses = responses(golden.kind());
-            int expectedAllowedTools = expectedAllowedTools(golden.kind());
-            allowedToolRequests += expectedAllowedTools;
-            try {
-                AgentOrchestratorOutcome outcome = orchestrator.execute(
-                        new AgentOrchestratorInput(
-                                100L + index, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
-                                golden.question(), List.of(), config(golden.kind())
-                        ),
-                        request -> {
-                            if ("provider_timeout".equals(golden.kind())) {
-                                throw new AiProviderException("PROVIDER_TIMEOUT", "deterministic timeout");
-                            }
-                            return responses.removeFirst();
-                        },
-                        progress -> { }
-                );
-                if (golden.kind().startsWith("completed_")) {
-                    assertEquals("completed", outcome.status(), golden.id());
-                    assertFalse(outcome.citations().isEmpty(), golden.id());
-                    completed++;
-                    legalCitations += outcome.citations().stream().allMatch(c -> c.sourceId() == 1L)
-                            ? outcome.citations().size() : 0;
-                    consistentCitations += outcome.citations().stream().allMatch(c -> !c.claim().isBlank())
-                            ? outcome.citations().size() : 0;
-                } else {
-                    assertEquals("evidence_insufficient", outcome.status(), golden.id());
-                    assertTrue(outcome.citations().isEmpty(), golden.id());
-                    evidenceRefusals++;
-                }
-                successfulToolCalls += outcome.toolCallCount();
-                totalRounds += outcome.modelRounds();
-                totalToolCalls += outcome.toolCallCount();
-                totalTokens += outcome.totalTokens();
-                latencies.add(outcome.latencyMs());
-                matched++;
-            } catch (AgentToolException exception) {
-                assertEquals("unknown_tool", golden.kind(), golden.id());
-                assertEquals("UNKNOWN_TOOL", exception.getDiagnosticCode(), golden.id());
-                matched++;
-            } catch (AgentOrchestratorException exception) {
-                String expected = switch (golden.kind()) {
-                    case "unknown_source" -> "UNKNOWN_SOURCE_ID";
-                    case "truncated" -> "TRUNCATED_RESPONSE";
-                    case "content_filter" -> "CONTENT_FILTERED";
-                    default -> throw exception;
-                };
-                assertEquals(expected, exception.getDiagnosticCode(), golden.id());
-                if ("unknown_source".equals(golden.kind())) acceptedUnknownSources = 0;
-                matched++;
-            } catch (AiProviderException exception) {
-                assertEquals("provider_timeout", golden.kind(), golden.id());
-                assertEquals("PROVIDER_TIMEOUT", exception.getDiagnosticCode(), golden.id());
-                matched++;
-            }
+        for (JsonNode fixture : fixtures) {
+            coverage.add(fixture.path("coverage").asText());
+            EvaluationResult result = evaluate(fixture);
+            passed++;
+            if ("completed".equals(fixture.path("expected").path("status").asText())) expectedCompleted++;
+            if (result.completed()) completed++;
+            if (result.evidenceInsufficient()) evidenceInsufficient++;
+            if (result.controlledFailure()) controlledFailures++;
+            totalRounds += result.modelRounds();
+            totalTools += result.toolCalls();
+            totalTokens += result.totalTokens();
+            if (result.latencyMs() >= 0) latencies.add(result.latencyMs());
         }
 
-        assertEquals(20, matched);
-        assertEquals(7, completed);
-        assertEquals(3, evidenceRefusals);
-        assertEquals(0, acceptedUnknownSources);
-        assertEquals(allowedToolRequests, successfulToolCalls);
-        assertEquals(7, legalCitations);
-        assertEquals(legalCitations, consistentCitations);
+        assertEquals(fixtures.size(), passed);
+        assertEquals(expectedCompleted, completed);
+        assertTrue(coverage.containsAll(Set.of(
+                "normal_retrieval", "missing_region", "clarification_convergence", "no_evidence",
+                "unknown_tool", "unknown_parameter", "prompt_injection", "forbidden_id",
+                "malicious_database_text", "duplicate_call", "cancel", "recovery", "provider_error"
+        )));
 
         Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("questionCount", cases.size());
-        metrics.put("taskCompletionRate", ratio(matched, cases.size()));
-        metrics.put("legalCitationRate", ratio(legalCitations, completed));
-        metrics.put("citationClaimConsistency", ratio(consistentCitations, legalCitations));
-        metrics.put("unknownSourceCount", acceptedUnknownSources);
-        metrics.put("toolCallSuccessRate", ratio(successfulToolCalls, allowedToolRequests));
-        metrics.put("averageModelRounds", ratio(totalRounds, latencies.size()));
-        metrics.put("averageToolCalls", ratio(totalToolCalls, latencies.size()));
-        metrics.put("averageTokens", ratio(totalTokens, latencies.size()));
+        metrics.put("fixtureCount", fixtures.size());
+        metrics.put("contractPassRate", ratio(passed, fixtures.size()));
+        metrics.put("expectedCompletionRate", ratio(completed, expectedCompleted));
+        metrics.put("evidenceInsufficientCount", evidenceInsufficient);
+        metrics.put("controlledFailureCount", controlledFailures);
+        metrics.put("acceptedUnknownCitationCount", 0);
+        metrics.put("averageModelRounds", ratio(totalRounds, fixtures.size()));
+        metrics.put("averageToolCalls", ratio(totalTools, fixtures.size()));
+        metrics.put("averageTokens", ratio(totalTokens, fixtures.size()));
         metrics.put("p50LatencyMs", percentile(latencies, 0.50));
         metrics.put("p95LatencyMs", percentile(latencies, 0.95));
-        metrics.put("evidenceInsufficientRefusalRate", ratio(evidenceRefusals, 3));
-        System.out.println("AGENT_GOLDEN_METRICS=" + objectMapper.writeValueAsString(metrics));
+        metrics.put("scope", "deterministic_runtime_contract_only");
+        System.out.println("AGENT_FIXTURE_CONTRACT_METRICS=" + objectMapper.writeValueAsString(metrics));
     }
 
-    private List<GoldenCase> loadCases() throws Exception {
-        try (InputStream stream = getClass().getResourceAsStream("/ai/agent-golden-evaluation.json")) {
-            assertNotNull(stream);
-            return objectMapper.readValue(stream, new TypeReference<>() { });
+    private EvaluationResult evaluate(JsonNode fixture) {
+        return switch (fixture.path("executor").asText()) {
+            case "clarification" -> evaluateClarification(fixture);
+            case "clarification_then_orchestrator" -> evaluateClarificationThenOrchestrator(fixture);
+            case "orchestrator" -> evaluateOrchestrator(fixture, fixture.path("input").path("profile"));
+            case "cancel" -> evaluateCancellation(fixture);
+            case "recovery" -> evaluateRecovery(fixture);
+            default -> throw new AssertionError(fixture.path("id").asText() + " has unknown executor");
+        };
+    }
+
+    private EvaluationResult evaluateClarification(JsonNode fixture) {
+        String id = fixture.path("id").asText();
+        AgentClarificationDecision decision = clarificationPolicy().evaluate(
+                json(fixture.path("input").path("profile")),
+                json(fixture.path("input").path("researchContext")),
+                fixture.path("input").path("message").asText()
+        );
+        String status = decision.evidenceInsufficient()
+                ? "evidence_insufficient"
+                : decision.question() == null ? "planning" : "clarification_needed";
+        assertEquals(fixture.path("expected").path("status").asText(), status, id);
+        if ("clarification_needed".equals(status)) assertFalse(decision.question().isBlank(), id);
+        if ("planning".equals(status)) assertNull(decision.question(), id);
+        assertTrace(fixture, List.of("received", status));
+        assertNoRuntimeOutputs(fixture);
+        return new EvaluationResult(false, "evidence_insufficient".equals(status), false, 0, 0, 0, -1);
+    }
+
+    private EvaluationResult evaluateClarificationThenOrchestrator(JsonNode fixture) {
+        AgentClarificationDecision decision = clarificationPolicy().evaluate(
+                json(fixture.path("input").path("profile")),
+                json(fixture.path("input").path("researchContext")),
+                fixture.path("input").path("message").asText()
+        );
+        assertNull(decision.question(), fixture.path("id").asText());
+        assertFalse(decision.evidenceInsufficient(), fixture.path("id").asText());
+        JsonNode context;
+        try {
+            context = objectMapper.readTree(decision.contextJson()).path("resolvedFields");
+        } catch (Exception exception) {
+            throw new AssertionError(exception);
         }
+        return evaluateOrchestrator(fixture, context);
     }
 
-    private AgentToolRegistry registry() {
+    private EvaluationResult evaluateOrchestrator(JsonNode fixture, JsonNode profile) {
+        String id = fixture.path("id").asText();
+        List<ToolInvocation> attemptedTools = new ArrayList<>();
+        AgentToolRegistry registry = registry(fixture.path("toolResults"), attemptedTools);
+        AgentOrchestrator orchestrator = new AgentOrchestrator(objectMapper, registry);
+        ArrayDeque<JsonNode> providerRounds = new ArrayDeque<>();
+        fixture.path("providerRounds").forEach(providerRounds::addLast);
+        List<String> trace = new ArrayList<>();
+        String expectedDiagnostic = fixture.path("expected").path("diagnosticCode").asText("");
+
+        try {
+            AgentOrchestratorOutcome outcome = orchestrator.execute(
+                    new AgentOrchestratorInput(
+                            100L, 42L, json(profile), fixture.path("input").path("message").asText(),
+                            List.of(), config()
+                    ),
+                    request -> providerResponse(providerRounds, id),
+                    progress -> trace.add(progress.stage())
+            );
+            trace.add(outcome.status());
+            assertTrue(expectedDiagnostic.isBlank(), id + " unexpectedly completed");
+            assertEquals(fixture.path("expected").path("status").asText(), outcome.status(), id);
+            verifyCitations(fixture, outcome.citations());
+            verifyTools(fixture, attemptedTools);
+            assertTrace(fixture, trace);
+            assertTrue(providerRounds.isEmpty(), id + " left unused provider rounds");
+            return new EvaluationResult(
+                    "completed".equals(outcome.status()),
+                    "evidence_insufficient".equals(outcome.status()),
+                    false,
+                    outcome.modelRounds(), outcome.toolCallCount(), outcome.totalTokens(), outcome.latencyMs()
+            );
+        } catch (AgentToolException exception) {
+            trace.add("failed");
+            assertEquals(expectedDiagnostic, exception.getDiagnosticCode(), id);
+        } catch (AgentOrchestratorException exception) {
+            trace.add("failed");
+            assertEquals(expectedDiagnostic, exception.getDiagnosticCode(), id);
+        } catch (AiProviderException exception) {
+            trace.add("failed");
+            assertEquals(expectedDiagnostic, exception.getDiagnosticCode(), id);
+        }
+        assertEquals("failed", fixture.path("expected").path("status").asText(), id);
+        verifyTools(fixture, attemptedTools);
+        verifyCitations(fixture, List.of());
+        assertTrace(fixture, trace);
+        assertTrue(providerRounds.isEmpty(), id + " left unused provider rounds");
+        return new EvaluationResult(false, false, true, 0, attemptedTools.size(), 0, -1);
+    }
+
+    private EvaluationResult evaluateCancellation(JsonNode fixture) {
+        String id = fixture.path("id").asText();
+        AiAnalysisRunMapper mapper = mock(AiAnalysisRunMapper.class);
+        AiAnalysisRun received = run(601L, "received");
+        AiAnalysisRun cancelled = run(601L, "cancelled");
+        when(mapper.selectOwnedAgentRunForUpdate(601L, 42L)).thenReturn(received);
+        when(mapper.selectOwnedAgentRun(601L, 42L)).thenReturn(cancelled);
+        when(mapper.cancelOwnedAgentRun(anyLong(), anyLong(), any())).thenReturn(1);
+        AgentRunLifecycleService lifecycle = new AgentRunLifecycleService(
+                mapper, mock(AiClient.class), mock(AiRuntimeSettingsProvider.class));
+        AiAnalysisRun result = lifecycle.cancel(
+                new AuthenticatedUser(42L, "fixture-user", "fixture@example.com"), 601L);
+        assertEquals(fixture.path("expected").path("status").asText(), result.getStatus(), id);
+        assertTrace(fixture, List.of("received", result.getStatus()));
+        assertNoRuntimeOutputs(fixture);
+        return new EvaluationResult(false, false, false, 0, 0, 0, -1);
+    }
+
+    private EvaluationResult evaluateRecovery(JsonNode fixture) {
+        String id = fixture.path("id").asText();
+        AiAnalysisRunMapper mapper = mock(AiAnalysisRunMapper.class);
+        AiAnalysisRun received = run(701L, "received");
+        AiAnalysisRun running = run(701L, "running");
+        running.setExecutionAttempts(1);
+        when(mapper.selectClaimableAgentRunForUpdate(any(), anyInt())).thenReturn(received);
+        when(mapper.claimAgentRun(anyLong(), any(), any(), any(), anyInt())).thenReturn(1);
+        when(mapper.selectRunForUpdate(701L)).thenReturn(running);
+        AiAnalysisRun claimed = new AgentRunQueueService(mapper).claimNext("fixture-worker");
+        assertNotNull(claimed, id);
+        assertEquals(fixture.path("expected").path("status").asText(), claimed.getStatus(), id);
+        assertTrace(fixture, List.of("received", claimed.getStatus()));
+        assertNoRuntimeOutputs(fixture);
+        return new EvaluationResult(false, false, false, 0, 0, 0, -1);
+    }
+
+    private AgentClarificationPolicy clarificationPolicy() {
+        Region hubei = new Region();
+        hubei.setId(1L);
+        hubei.setName("湖北省");
+        Region hunan = new Region();
+        hunan.setId(2L);
+        hunan.setName("湖南省");
+        RegionMapper regions = mock(RegionMapper.class);
+        when(regions.selectList(any())).thenReturn(List.of(hubei, hunan));
+        when(regions.selectById(1L)).thenReturn(hubei);
+        IndustryTagService industries = mock(IndustryTagService.class);
+        when(industries.resolve(any(), any(), anyBoolean())).thenAnswer(invocation -> {
+            Long id = invocation.getArgument(0);
+            String text = invocation.getArgument(1);
+            if (Long.valueOf(9L).equals(id) || (text != null && text.contains("人工智能"))) {
+                return new IndustryResolution(9L, "人工智能", "industry", "fixture", 1.0, false);
+            }
+            return IndustryResolution.unresolved();
+        });
+        return new AgentClarificationPolicy(objectMapper, regions, industries);
+    }
+
+    private AgentToolRegistry registry(JsonNode toolResults, List<ToolInvocation> attemptedTools) {
         AiAgentToolCallMapper mapper = mock(AiAgentToolCallMapper.class);
         AtomicLong ids = new AtomicLong(1);
         when(mapper.insert(any(AiAgentToolCall.class))).thenAnswer(invocation -> {
-            invocation.<AiAgentToolCall>getArgument(0).setId(ids.getAndIncrement());
+            AiAgentToolCall audit = invocation.getArgument(0);
+            audit.setId(ids.getAndIncrement());
+            try {
+                attemptedTools.add(new ToolInvocation(
+                        audit.getToolName(), objectMapper.readTree(audit.getArgumentsJson())));
+            } catch (Exception exception) {
+                throw new AssertionError(exception);
+            }
             return 1;
         });
         return new AgentToolRegistry(
-                List.of(policyTool(), caseTool(), compareTool()), objectMapper,
-                Validation.buildDefaultValidatorFactory().getValidator(), mapper
+                List.of(
+                        fixtureTool("search_cases", SearchCasesArguments.class, toolResults.path("search_cases")),
+                        fixtureTool("search_policies", SearchPoliciesArguments.class, toolResults.path("search_policies")),
+                        fixtureTool("get_source", GetSourceArguments.class, toolResults.path("get_source")),
+                        fixtureTool("compare_cases", CompareCasesArguments.class, toolResults.path("compare_cases"))
+                ),
+                objectMapper,
+                Validation.buildDefaultValidatorFactory().getValidator(),
+                mapper
         );
     }
 
-    private AgentTool<SearchPoliciesArguments> policyTool() {
-        return tool("search_policies", SearchPoliciesArguments.class, (context, args) ->
-                result(Map.of("items", List.of(Map.of("policyId", 21, "sourceId", 1))), Set.of(1L), Set.of()));
-    }
-
-    private AgentTool<SearchCasesArguments> caseTool() {
-        return tool("search_cases", SearchCasesArguments.class, (context, args) ->
-                result(Map.of("items", List.of(
-                        Map.of("caseId", 11, "sourceId", 1), Map.of("caseId", 12, "sourceId", 1)
-                )), Set.of(1L), Set.of(11L, 12L)));
-    }
-
-    private AgentTool<CompareCasesArguments> compareTool() {
-        return tool("compare_cases", CompareCasesArguments.class, (context, args) -> {
-            if (!context.allowedCaseIds().containsAll(args.getCaseIds())) {
-                throw new AgentToolException("FORBIDDEN_CASE_ID", "not searched");
-            }
-            return result(Map.of("conclusions", List.of(
-                    Map.of("caseId", 11, "sourceId", 1), Map.of("caseId", 12, "sourceId", 1)
-            )), Set.of(1L), Set.copyOf(args.getCaseIds()));
-        });
-    }
-
-    private <T> AgentTool<T> tool(String name, Class<T> type, ToolBody<T> body) {
+    private <T> AgentTool<T> fixtureTool(String name, Class<T> type, JsonNode configured) {
         return new AgentTool<>() {
             public String name() { return name; }
-            public String description() { return "deterministic golden tool"; }
+            public String description() { return "Deterministic fixture data for " + name; }
             public Class<T> argumentType() { return type; }
-            public String argumentSchema() { return "{\"type\":\"object\"}"; }
-            public AgentToolResult execute(AgentToolContext context, T arguments) { return body.run(context, arguments); }
+            public String argumentSchema() { return schema(name); }
+            public AgentToolResult execute(AgentToolContext context, T arguments) {
+                if (arguments instanceof GetSourceArguments source
+                        && !context.allowedSourceIds().contains(source.getSourceId())) {
+                    throw new AgentToolException("FORBIDDEN_SOURCE_ID", "source is outside this fixture run");
+                }
+                if (arguments instanceof CompareCasesArguments comparison
+                        && !context.allowedCaseIds().containsAll(comparison.getCaseIds())) {
+                    throw new AgentToolException("FORBIDDEN_CASE_ID", "case is outside this fixture run");
+                }
+                JsonNode output = configured.path("output").isMissingNode()
+                        ? objectMapper.createObjectNode().putArray("items")
+                        : configured.path("output").deepCopy();
+                Set<Long> sources = longSet(configured.path("sourceIds"));
+                Set<Long> cases = longSet(configured.path("caseIds"));
+                return new AgentToolResult(
+                        output,
+                        configured.path("evidenceCount").asInt(sources.size() + cases.size()),
+                        configured.path("evidenceHash").asText(
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                        sources,
+                        cases
+                );
+            }
         };
     }
 
-    private AgentToolResult result(Object output, Set<Long> sources, Set<Long> cases) {
-        return new AgentToolResult(
-                objectMapper.valueToTree(output), sources.size() + cases.size(),
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sources, cases
+    private AiProviderResponse providerResponse(ArrayDeque<JsonNode> rounds, String id) {
+        if (rounds.isEmpty()) fail(id + " requested an undeclared provider round");
+        JsonNode round = rounds.removeFirst();
+        if (round.hasNonNull("errorCode")) {
+            throw new AiProviderException(round.path("errorCode").asText(), "deterministic fixture failure");
+        }
+        int prompt = round.path("promptTokens").asInt(10);
+        int completion = round.path("completionTokens").asInt(5);
+        int total = round.path("totalTokens").asInt(prompt + completion);
+        return new AiProviderResponse(
+                round.path("content").asText(), prompt, completion, total,
+                round.path("latencyMs").asLong(20), round.path("requestId").asText("fixture-request"),
+                round.path("finishReason").asText("stop")
         );
     }
 
-    private ArrayDeque<AiProviderResponse> responses(String kind) {
-        List<AiProviderResponse> values = switch (kind) {
-            case "completed_policy" -> List.of(toolResponse("search_policies", "{\"regionId\":1,\"industry\":\"AI\"}"), finalResponse());
-            case "completed_case" -> List.of(toolResponse("search_cases", "{\"regionId\":1,\"limit\":2}"), finalResponse());
-            case "completed_compare" -> List.of(
-                    toolResponse("search_cases", "{\"regionId\":1,\"limit\":2}"),
-                    toolResponse("compare_cases", "{\"caseIds\":[11,12],\"dimensions\":[\"businessModel\"]}"),
-                    finalResponse());
-            case "evidence_insufficient" -> List.of(
-                    toolResponse("search_policies", "{\"regionId\":1,\"limit\":5}"),
-                    response("{\"action\":\"evidence_insufficient\",\"answer\":\"No adequate verified evidence.\",\"citations\":[],\"confidence\":0.2}", "stop"));
-            case "unknown_tool" -> List.of(toolResponse("delete_database", "{}"));
-            case "unknown_source" -> List.of(
-                    toolResponse("search_policies", "{\"regionId\":1}"),
-                    response("{\"action\":\"final\",\"answer\":\"Unsafe.\",\"citations\":[{\"sourceId\":999,\"claim\":\"Unknown\"}],\"confidence\":0.5}", "stop"));
-            case "truncated" -> List.of(response("{\"action\":\"final\"", "length"));
-            case "content_filter" -> List.of(response("{}", "content_filter"));
-            case "provider_timeout" -> List.of();
-            default -> throw new IllegalArgumentException(kind);
-        };
-        return new ArrayDeque<>(values);
+    private void verifyTools(JsonNode fixture, List<ToolInvocation> actual) {
+        JsonNode expected = fixture.path("expected").path("tools");
+        assertEquals(expected.size(), actual.size(), fixture.path("id").asText() + " tool count");
+        for (int index = 0; index < expected.size(); index++) {
+            assertEquals(expected.get(index).path("name").asText(), actual.get(index).name(),
+                    fixture.path("id").asText() + " tool name " + index);
+            assertEquals(expected.get(index).path("arguments"), actual.get(index).arguments(),
+                    fixture.path("id").asText() + " tool arguments " + index);
+        }
     }
 
-    private AiProviderResponse toolResponse(String tool, String arguments) {
-        return response("{\"action\":\"tool\",\"toolName\":\"" + tool + "\",\"arguments\":" + arguments + "}", "stop");
+    private void verifyCitations(JsonNode fixture, List<AgentCitation> citations) {
+        String id = fixture.path("id").asText();
+        Set<Long> allowed = longSet(fixture.path("expected").path("allowedCitations"));
+        Set<Long> forbidden = longSet(fixture.path("expected").path("forbiddenCitations"));
+        JsonNode claimEvidence = fixture.path("expected").path("claimEvidence");
+        for (AgentCitation citation : citations) {
+            assertTrue(allowed.contains(citation.sourceId()), id + " accepted unauthorized citation");
+            assertFalse(forbidden.contains(citation.sourceId()), id + " accepted forbidden citation");
+            JsonNode supporting = claimEvidence.path(citation.claim());
+            assertTrue(supporting.isArray(), id + " has no explicit evidence mapping for claim");
+            assertTrue(longSet(supporting).contains(citation.sourceId()), id + " citation does not support claim");
+        }
+        if ("completed".equals(fixture.path("expected").path("status").asText())) {
+            assertFalse(citations.isEmpty(), id + " completed without citations");
+        } else {
+            assertTrue(citations.isEmpty(), id + " non-completion accepted citations");
+        }
     }
 
-    private AiProviderResponse finalResponse() {
-        return response("{\"action\":\"final\",\"answer\":\"Verified finding.\",\"citations\":[{\"sourceId\":1,\"claim\":\"The verified source supports this finding.\"}],\"confidence\":0.8}", "stop");
+    private void assertTrace(JsonNode fixture, List<String> actual) {
+        List<String> expected = new ArrayList<>();
+        fixture.path("expected").path("stateTrace").forEach(node -> expected.add(node.asText()));
+        if ("clarification_then_orchestrator".equals(fixture.path("executor").asText())) {
+            actual = new ArrayList<>(actual);
+            actual.add(0, "planning");
+            actual.add(0, "received");
+        }
+        assertEquals(expected, actual, fixture.path("id").asText() + " state trace");
     }
 
-    private AiProviderResponse response(String content, String finishReason) {
-        return new AiProviderResponse(content, 10, 5, 15, 20, "req-golden", finishReason);
+    private void assertNoRuntimeOutputs(JsonNode fixture) {
+        assertEquals(0, fixture.path("expected").path("tools").size(), fixture.path("id").asText());
+        assertEquals(0, fixture.path("expected").path("allowedCitations").size(), fixture.path("id").asText());
+        assertEquals(0, fixture.path("expected").path("forbiddenCitations").size(), fixture.path("id").asText());
     }
 
-    private AgentRuntimeConfig config(String kind) {
+    private AiAnalysisRun run(Long id, String status) {
+        AiAnalysisRun run = new AiAnalysisRun();
+        run.setId(id);
+        run.setUserId(42L);
+        run.setStatus(status);
+        return run;
+    }
+
+    private JsonNode loadFixtures() throws Exception {
+        try (InputStream stream = getClass().getResourceAsStream("/ai/agent-golden-evaluation.json")) {
+            assertNotNull(stream);
+            return objectMapper.readTree(stream);
+        }
+    }
+
+    private AgentRuntimeConfig config() {
         return new AgentRuntimeConfig(true, 4, 6, 8000, 12, Duration.ofSeconds(120), "json_plan");
     }
 
-    private int expectedAllowedTools(String kind) {
-        return switch (kind) {
-            case "completed_policy", "completed_case" -> 1;
-            case "completed_compare" -> 2;
-            case "evidence_insufficient" -> 1;
-            default -> 0;
+    private Set<Long> longSet(JsonNode values) {
+        Set<Long> result = new LinkedHashSet<>();
+        if (values != null && values.isArray()) values.forEach(value -> result.add(value.asLong()));
+        return result;
+    }
+
+    private String json(JsonNode node) {
+        return node == null || node.isMissingNode() || node.isNull() ? "{}" : node.toString();
+    }
+
+    private String schema(String name) {
+        return switch (name) {
+            case "search_cases" -> """
+                    {"type":"object","additionalProperties":false,"properties":{"regionId":{"type":"integer"},"industryTagId":{"type":"integer"},"industry":{"type":"string","maxLength":100},"query":{"type":"string","maxLength":120},"category":{"type":"string","maxLength":50},"limit":{"type":"integer","minimum":1,"maximum":10}}}
+                    """;
+            case "search_policies" -> """
+                    {"type":"object","additionalProperties":false,"required":["regionId"],"properties":{"regionId":{"type":"integer"},"industryTagId":{"type":"integer"},"industry":{"type":"string","maxLength":100},"query":{"type":"string","maxLength":120},"limit":{"type":"integer","minimum":1,"maximum":10}}}
+                    """;
+            case "get_source" -> """
+                    {"type":"object","additionalProperties":false,"required":["sourceId"],"properties":{"sourceId":{"type":"integer"}}}
+                    """;
+            default -> """
+                    {"type":"object","additionalProperties":false,"required":["caseIds"],"properties":{"caseIds":{"type":"array","minItems":2,"maxItems":3,"items":{"type":"integer"}},"dimensions":{"type":"array","maxItems":6,"items":{"type":"string","enum":["businessModel","technicalPath","targetCustomer","outcome","regionalContext","evidenceStrength"]}}}}
+                    """;
         };
     }
 
@@ -277,10 +462,15 @@ class AgentGoldenEvaluationTest {
         return sorted.get(index);
     }
 
-    private record GoldenCase(String id, String category, String kind, String question) { }
+    private record ToolInvocation(String name, JsonNode arguments) { }
 
-    @FunctionalInterface
-    private interface ToolBody<T> {
-        AgentToolResult run(AgentToolContext context, T arguments);
-    }
+    private record EvaluationResult(
+            boolean completed,
+            boolean evidenceInsufficient,
+            boolean controlledFailure,
+            int modelRounds,
+            int toolCalls,
+            int totalTokens,
+            long latencyMs
+    ) { }
 }

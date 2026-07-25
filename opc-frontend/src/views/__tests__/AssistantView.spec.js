@@ -32,6 +32,7 @@ vi.mock('@/api/region', () => ({ getRegions: api.getRegions }))
 vi.mock('@/api/tag', () => ({ getIndustryTags: api.getIndustryTags }))
 
 import AssistantView from '@/views/AssistantView.vue'
+import assistantSource from '@/views/AssistantView.vue?raw'
 
 const activeRun = {
   runId: 301,
@@ -46,6 +47,11 @@ const activeRun = {
 }
 
 describe('AssistantView Agent Runtime', () => {
+  it('keeps Prisma Light surfaces free of accent rails and heavy overlay shadows', () => {
+    expect(assistantSource).not.toMatch(/border-left:\s*3px/)
+    expect(assistantSource).not.toMatch(/box-shadow:\s*(?:0 8px 20px|-12px 0 24px)/)
+  })
+
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()

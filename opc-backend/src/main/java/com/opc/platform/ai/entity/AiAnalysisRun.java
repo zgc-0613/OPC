@@ -32,6 +32,15 @@ public class AiAnalysisRun {
     private LocalDateTime startedAt;
     private LocalDateTime deadlineAt;
     private LocalDateTime heartbeatAt;
+    private String leaseOwner;
+    private LocalDateTime leaseExpiresAt;
+    private Integer executionAttempts;
+    private LocalDateTime nextAttemptAt;
+    private String lastRecoveryReason;
+    private String settlementStatus;
+    private LocalDateTime providerDispatchedAt;
+    private LocalDateTime settledAt;
+    private Long settlementVersion;
     private Long latencyMs;
     private String providerRequestId;
     private String finishReason;

@@ -1,6 +1,7 @@
 package com.opc.platform.ai.tool;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.entity.AiAgentToolCall;
@@ -54,6 +55,38 @@ public class AgentToolRegistry {
         return tools.values().stream()
                 .map(tool -> new AiToolDefinition(tool.name(), tool.description(), tool.argumentSchema()))
                 .toList();
+    }
+
+    public String promptCatalog() {
+        StringBuilder catalog = new StringBuilder();
+        for (AgentTool<?> tool : tools.values()) {
+            catalog.append("- ").append(tool.name()).append(": ")
+                    .append(tool.description()).append("; arguments=")
+                    .append(compactSchema(tool)).append('\n');
+        }
+        return catalog.toString();
+    }
+
+    public String jsonPlanSchema() {
+        var root = objectMapper.createObjectNode();
+        var branches = root.putArray("oneOf");
+        for (AgentTool<?> tool : tools.values()) {
+            var branch = branches.addObject();
+            branch.put("type", "object");
+            branch.put("additionalProperties", false);
+            branch.putArray("required").add("action").add("toolName").add("arguments");
+            var properties = branch.putObject("properties");
+            properties.putObject("action").put("const", "tool");
+            properties.putObject("toolName").put("const", tool.name());
+            properties.set("arguments", parseSchema(tool));
+        }
+        addFinalBranch(branches, "final");
+        addFinalBranch(branches, "evidence_insufficient");
+        try {
+            return objectMapper.writeValueAsString(root);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Cannot serialize Agent tool plan schema", exception);
+        }
     }
 
     public void verifyEvidence(
@@ -143,12 +176,52 @@ public class AgentToolRegistry {
                 || rawArguments.toString().length() > MAX_ARGUMENT_JSON_LENGTH) {
             throw new AgentToolException("INVALID_TOOL_ARGUMENTS", "工具参数格式无效");
         }
-        Object arguments = objectMapper.treeToValue(rawArguments, tool.argumentType());
+        Object arguments = objectMapper.readerFor(tool.argumentType())
+                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .readValue(rawArguments.toString());
         Set<ConstraintViolation<Object>> violations = validator.validate(arguments);
         if (!violations.isEmpty()) {
             throw new AgentToolException("INVALID_TOOL_ARGUMENTS", "工具参数未通过校验");
         }
         return arguments;
+    }
+
+    private JsonNode parseSchema(AgentTool<?> tool) {
+        try {
+            JsonNode schema = objectMapper.readTree(tool.argumentSchema());
+            if (schema == null || !schema.isObject()
+                    || !"object".equals(schema.path("type").asText())
+                    || !schema.path("additionalProperties").isBoolean()
+                    || schema.path("additionalProperties").asBoolean()) {
+                throw new IllegalStateException("Agent tool schema must be a closed object: " + tool.name());
+            }
+            return schema;
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Invalid Agent tool schema: " + tool.name(), exception);
+        }
+    }
+
+    private String compactSchema(AgentTool<?> tool) {
+        return parseSchema(tool).toString();
+    }
+
+    private void addFinalBranch(com.fasterxml.jackson.databind.node.ArrayNode branches, String action) {
+        var branch = branches.addObject();
+        branch.put("type", "object");
+        branch.put("additionalProperties", false);
+        branch.putArray("required").add("action").add("answer").add("citations").add("confidence");
+        var properties = branch.putObject("properties");
+        properties.putObject("action").put("const", action);
+        properties.putObject("answer").put("type", "string").put("minLength", 1).put("maxLength", 12000);
+        var citations = properties.putObject("citations");
+        citations.put("type", "array").put("maxItems", 12);
+        var citation = citations.putObject("items");
+        citation.put("type", "object").put("additionalProperties", false);
+        citation.putArray("required").add("sourceId").add("claim");
+        var citationProperties = citation.putObject("properties");
+        citationProperties.putObject("sourceId").put("type", "integer");
+        citationProperties.putObject("claim").put("type", "string").put("minLength", 1).put("maxLength", 300);
+        properties.putObject("confidence").put("type", "number").put("minimum", 0).put("maximum", 1);
     }
 
     @SuppressWarnings("unchecked")

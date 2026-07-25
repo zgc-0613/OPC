@@ -22,6 +22,9 @@ public class AiModelSettingsVO {
     private Long dailyTokenQuota;
     private Boolean enabled;
     private Boolean agentEnabled;
+    private String agentRolloutState;
+    private LocalDateTime agentRolloutChangedAt;
+    private Long agentRolloutChangedByAdminId;
     private Integer agentMaxModelRounds;
     private Integer agentMaxToolCalls;
     private Integer agentMaxTokens;

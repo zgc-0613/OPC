@@ -2,7 +2,12 @@ import re
 import unittest
 from pathlib import Path
 
-from scripts.deployment_hardening import is_loopback_listener
+from scripts.deployment_hardening import (
+    is_loopback_listener,
+    require_secret_environment,
+    validate_agent_probe_record,
+    validate_agent_runtime_postcheck,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +18,75 @@ DEPLOY_SCRIPT = ROOT / ".codex_deploy_opc.py"
 
 
 class DeploymentHardeningTest(unittest.TestCase):
+    def test_secret_environment_requirement_fails_closed_without_echoing_value(self):
+        with self.assertRaisesRegex(RuntimeError, "OPC_SSH_PASSWORD is not set"):
+            require_secret_environment({}, "OPC_SSH_PASSWORD")
+        with self.assertRaisesRegex(RuntimeError, "OPC_SSH_PASSWORD is not set"):
+            require_secret_environment({"OPC_SSH_PASSWORD": "   "}, "OPC_SSH_PASSWORD")
+
+        secret = "test-only-secret-value"
+        self.assertEqual(
+            secret,
+            require_secret_environment({"OPC_SSH_PASSWORD": secret}, "OPC_SSH_PASSWORD"),
+        )
+
+    def test_agent_probe_record_requires_real_metadata_and_authorized_citations(self):
+        valid = {
+            "status": "completed",
+            "provider": "deepseek",
+            "model": "deepseek-chat",
+            "finish_reason": "stop",
+            "internal_request_id": "internal-123",
+            "provider_request_id": "not_provided",
+            "prompt_tokens": 120,
+            "completion_tokens": 30,
+            "total_tokens": 150,
+            "latency_ms": 450,
+            "model_rounds": 2,
+            "provider_call_count": 2,
+            "tool_call_count": 1,
+            "completed_tool_count": 1,
+            "citation_count": 1,
+            "unknown_citation_count": 0,
+        }
+        validate_agent_probe_record(valid, max_model_rounds=4, max_tool_calls=6)
+
+        invalid_records = [
+            {**valid, "internal_request_id": ""},
+            {**valid, "prompt_tokens": 0},
+            {**valid, "total_tokens": 149},
+            {**valid, "model_rounds": 5},
+            {**valid, "provider_call_count": 1},
+            {**valid, "unknown_citation_count": 1},
+            {**valid, "api_key": "sk-should-never-appear"},
+        ]
+        for record in invalid_records:
+            with self.subTest(record=record), self.assertRaises(ValueError):
+                validate_agent_probe_record(record, max_model_rounds=4, max_tool_calls=6)
+
+    def test_agent_runtime_postcheck_reports_missing_and_unexpected_indexes(self):
+        validate_agent_runtime_postcheck("4\t21\t10\t7\t8\t\t\t0")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"missing=.*idx_agent_messages_run.*unexpected=.*idx_agent_messages_extra",
+        ):
+            validate_agent_runtime_postcheck(
+                "4\t21\t10\t7\t7\tai_agent_messages.idx_agent_messages_run\t"
+                "ai_agent_messages.idx_agent_messages_extra\t0"
+            )
+
+    def test_agent_runtime_stabilization_migration_runs_before_postcheck(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
+
+        self.assertIn("20260725_agent_runtime_stabilization.sql", deploy)
+        self.assertIn("agent-runtime-stabilization.sql", body)
+        self.assertLess(
+            body.index("agent-runtime-stabilization.sql'"),
+            body.index("agent-runtime-postcheck.sql'"),
+        )
+
     def test_listener_check_accepts_native_and_ipv4_mapped_loopback_addresses(self):
         for listener in (
             "127.0.0.1:8082",
@@ -197,6 +271,12 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertIn('agent_run_data.get("toolCallCount", 0) < 1', body)
         self.assertIn('len(agent_run_data.get("citations") or []) < 1', body)
         self.assertIn("FROM ai_agent_tool_calls", body)
+        self.assertIn("FROM ai_agent_provider_calls", body)
+        self.assertIn("unknown_citation_count", body)
+        self.assertIn("validate_agent_probe_record", body)
+        self.assertIn("/api/admin/ai-agent-runs/", body)
+        self.assertIn("Disabled QA user reached Agent Runtime", body)
+        self.assertIn("Ordinary user reached administrator Agent audit", body)
         self.assertIn("DELETE FROM ai_agent_sessions", body)
 
 

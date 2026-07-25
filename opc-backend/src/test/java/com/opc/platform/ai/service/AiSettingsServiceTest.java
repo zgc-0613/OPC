@@ -6,6 +6,7 @@ import com.opc.platform.ai.dto.AiModelDiscoveryRequestDTO;
 import com.opc.platform.ai.dto.AiModelOptionDTO;
 import com.opc.platform.ai.dto.AiModelSettingsUpdateDTO;
 import com.opc.platform.ai.entity.AiModelSettings;
+import com.opc.platform.ai.entity.AiSettingsAudit;
 import com.opc.platform.ai.mapper.AiModelSettingsMapper;
 import com.opc.platform.ai.mapper.AiSettingsAuditMapper;
 import com.opc.platform.ai.provider.AiProviderFactory;
@@ -44,6 +45,31 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AiSettingsServiceTest {
+
+    @Test
+    void explicitAgentEnablementPersistsRolloutStateAndAudit() throws Exception {
+        AiModelSettingsMapper settingsMapper = mock(AiModelSettingsMapper.class);
+        AiSettingsAuditMapper auditMapper = mock(AiSettingsAuditMapper.class);
+        AiSettingsService service = new AiSettingsService(
+                settingsMapper, auditMapper, new AesGcmSecretCipher(masterKey()),
+                mock(AiProviderFactory.class), new ObjectMapper(), mock(AiHttpTransport.class), endpointPolicy()
+        );
+        AiModelSettingsUpdateDTO dto = dto("sk-test");
+        dto.setEnabled(true);
+        dto.setAgentEnabled(true);
+
+        service.update(dto, new AuthenticatedAdmin(7L, "ACha_"));
+
+        ArgumentCaptor<AiModelSettings> settings = ArgumentCaptor.forClass(AiModelSettings.class);
+        verify(settingsMapper).insert(settings.capture());
+        assertEquals("explicitly_enabled", settings.getValue().getAgentRolloutState());
+        assertEquals(7L, settings.getValue().getAgentRolloutChangedByAdminId());
+        org.junit.jupiter.api.Assertions.assertNotNull(settings.getValue().getAgentRolloutChangedAt());
+        ArgumentCaptor<AiSettingsAudit> audits = ArgumentCaptor.forClass(AiSettingsAudit.class);
+        verify(auditMapper, org.mockito.Mockito.times(2)).insert(audits.capture());
+        assertTrue(audits.getAllValues().stream()
+                .anyMatch(audit -> "agent_rollout_enabled".equals(audit.getAction())));
+    }
 
     @Test
     void agentRuntimeSettingsRejectUnsafeLimitsBeforePersistence() throws Exception {

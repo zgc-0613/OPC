@@ -17,6 +17,7 @@ public class AiAgentSession {
     private String title;
     private String status;
     private String profileJson;
+    private String researchContextJson;
     private Long version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

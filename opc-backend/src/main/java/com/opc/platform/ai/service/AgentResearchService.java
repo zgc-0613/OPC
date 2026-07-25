@@ -16,6 +16,7 @@ import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.userauth.AuthenticatedUser;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
@@ -35,7 +36,7 @@ public class AgentResearchService {
     private final AiAnalysisRunMapper runMapper;
     private final AgentRunLifecycleService lifecycle;
     private final AgentRuntimeConfigProvider configProvider;
-    private final AgentResearchWorker worker;
+    private final AgentRunDispatcher dispatcher;
     private final AgentClarificationPolicy clarificationPolicy;
     private final TransactionTemplate transactions;
     private final TaskExecutor executor;
@@ -47,7 +48,7 @@ public class AgentResearchService {
             AiAnalysisRunMapper runMapper,
             AgentRunLifecycleService lifecycle,
             AgentRuntimeConfigProvider configProvider,
-            AgentResearchWorker worker,
+            AgentRunDispatcher dispatcher,
             AgentClarificationPolicy clarificationPolicy,
             TransactionTemplate transactions,
             @Qualifier("agentTaskExecutor") TaskExecutor executor,
@@ -58,7 +59,7 @@ public class AgentResearchService {
         this.runMapper = runMapper;
         this.lifecycle = lifecycle;
         this.configProvider = configProvider;
-        this.worker = worker;
+        this.dispatcher = dispatcher;
         this.clarificationPolicy = clarificationPolicy;
         this.transactions = transactions;
         this.executor = executor;
@@ -82,9 +83,12 @@ public class AgentResearchService {
             return exception.receipt;
         }
         if (submission == null) throw new BusinessException(ErrorCode.INTERNAL_ERROR, "研究运行未创建");
-        if (submission.lease() != null && !submission.reused()) {
-            executor.execute(() -> worker.execute(
-                    submission.lease(), user, submission.profileJson(), request.getContent().trim()));
+        if (submission.run() != null && !submission.reused()) {
+            try {
+                executor.execute(dispatcher::processNext);
+            } catch (TaskRejectedException ignored) {
+                // The scheduled database worker will claim the durable received run.
+            }
         }
         return submission.receipt();
     }
@@ -99,34 +103,49 @@ public class AgentResearchService {
         if (existing != null) {
             return new Submission(receipt(existing), null, null, true);
         }
-        AiAgentSession session = sessionService.requireOwned(user, sessionId);
+        AiAgentSession session = sessionService.lockOwned(user, sessionId);
         if (!"active".equals(session.getStatus())) {
             throw new BusinessException(ErrorCode.CONFLICT, "已归档会话不能继续发送消息");
         }
         AiAgentMessage userMessage = sessionService.appendMessage(
                 user, sessionId, "user", request.getContent(), "completed", null, null);
-        String clarification = clarificationPolicy.question(session.getProfileJson(), request.getContent());
-        if (clarification != null) {
+        AgentClarificationDecision clarification = clarificationPolicy.evaluate(
+                session.getProfileJson(), session.getResearchContextJson(), request.getContent());
+        sessionService.updateResearchContext(user, sessionId, clarification.contextJson());
+        if (clarification.evidenceInsufficient()) {
+            String answer = "补充信息仍无法唯一匹配到已核验的地区或行业，本次研究无法安全继续。";
+            AiAnalysisRun run = clarificationRun(user, sessionId, userMessage.getId(),
+                    request.getIdempotencyKey(), "evidence_insufficient");
+            messageMapper.attachRun(userMessage.getId(), run.getId());
+            AiAgentMessage assistant = sessionService.appendMessage(
+                    user, sessionId, "assistant", answer, "completed", run.getId(), "[]");
+            run.setResultJson(safeResultJson(assistant.getId(), 0));
+            runMapper.updateById(run);
+            return new Submission(new AgentResearchReceipt(
+                    sessionId, userMessage.getId(), run.getId(), "evidence_insufficient"), null,
+                    clarification.contextJson(), false);
+        }
+        if (clarification.question() != null) {
             AiAnalysisRun run = clarificationRun(user, sessionId, userMessage.getId(), request.getIdempotencyKey());
             messageMapper.attachRun(userMessage.getId(), run.getId());
             AiAgentMessage assistant = sessionService.appendMessage(
-                    user, sessionId, "assistant", clarification, "completed", run.getId(), "[]");
+                    user, sessionId, "assistant", clarification.question(), "completed", run.getId(), "[]");
             run.setResultJson(safeResultJson(assistant.getId(), 0));
             runMapper.updateById(run);
             return new Submission(new AgentResearchReceipt(
                     sessionId, userMessage.getId(), run.getId(), "clarification_needed"), null,
-                    session.getProfileJson(), false);
+                    clarification.contextJson(), false);
         }
-        AgentRunLease lease = lifecycle.begin(
+        AiAnalysisRun run = lifecycle.enqueue(
                 user, sessionId, userMessage.getId(), request.getIdempotencyKey(), config);
-        if (!Objects.equals(lease.run().getUserMessageId(), userMessage.getId())) {
-            throw new ReusedSubmissionException(receipt(lease.run()));
+        if (!Objects.equals(run.getUserMessageId(), userMessage.getId())) {
+            throw new ReusedSubmissionException(receipt(run));
         }
-        if (messageMapper.attachRun(userMessage.getId(), lease.run().getId()) != 1) {
+        if (messageMapper.attachRun(userMessage.getId(), run.getId()) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "用户消息运行关联失败");
         }
         return new Submission(new AgentResearchReceipt(
-                sessionId, userMessage.getId(), lease.run().getId(), "received"), lease,
+                sessionId, userMessage.getId(), run.getId(), "received"), run,
                 session.getProfileJson(), false);
     }
 
@@ -136,18 +155,28 @@ public class AgentResearchService {
             Long userMessageId,
             String idempotencyKey
     ) {
+        return clarificationRun(user, sessionId, userMessageId, idempotencyKey, "clarification_needed");
+    }
+
+    private AiAnalysisRun clarificationRun(
+            AuthenticatedUser user,
+            Long sessionId,
+            Long userMessageId,
+            String idempotencyKey,
+            String terminalStatus
+    ) {
         AiAnalysisRun run = new AiAnalysisRun();
         run.setUserId(user.userId());
         run.setTaskType("agent_research");
         run.setSessionId(sessionId);
         run.setUserMessageId(userMessageId);
         run.setIdempotencyKey(idempotencyKey);
-        run.setStatus("clarification_needed");
+        run.setStatus(terminalStatus);
         run.setProvider("not_called");
         run.setModelId("not_called");
         run.setPromptVersion("agent-research-v1");
         run.setEvidenceHash(hash(sessionId + ":" + userMessageId + ":clarification"));
-        run.setCurrentStage("clarification_needed");
+        run.setCurrentStage(terminalStatus);
         run.setVisibleProgress("需要补充一项信息");
         run.setPromptTokens(0);
         run.setCompletionTokens(0);
@@ -193,7 +222,7 @@ public class AgentResearchService {
 
     private record Submission(
             AgentResearchReceipt receipt,
-            AgentRunLease lease,
+            AiAnalysisRun run,
             String profileJson,
             boolean reused
     ) {

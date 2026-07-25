@@ -67,11 +67,31 @@ public class AgentSessionService {
         return session;
     }
 
+    public AiAgentSession lockOwned(AuthenticatedUser user, Long sessionId) {
+        AiAgentSession session = sessionMapper.selectOwnedForUpdate(sessionId, user.userId());
+        if (session == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "研究会话不存在");
+        }
+        return session;
+    }
+
+    @Transactional
+    public void updateResearchContext(AuthenticatedUser user, Long sessionId, String contextJson) {
+        if (!StringUtils.hasText(contextJson) || contextJson.length() > 8000) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "研究上下文格式无效");
+        }
+        AiAgentSession session = lockOwned(user, sessionId);
+        if (!"active".equals(session.getStatus())
+                || sessionMapper.updateResearchContext(sessionId, user.userId(), contextJson) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "研究会话状态已改变");
+        }
+    }
+
     @Transactional
     public void archive(AuthenticatedUser user, Long sessionId) {
-        AiAgentSession session = requireOwned(user, sessionId);
+        AiAgentSession session = lockOwned(user, sessionId);
         if ("archived".equals(session.getStatus())) return;
-        if (runMapper.countRunningForSession(sessionId) > 0) {
+        if (runMapper.countNonTerminalForSession(sessionId) > 0) {
             throw new BusinessException(ErrorCode.CONFLICT, "运行中的研究会话不能归档");
         }
         session.setStatus("archived");

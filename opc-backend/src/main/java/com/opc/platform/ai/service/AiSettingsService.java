@@ -42,6 +42,7 @@ import java.net.http.HttpHeaders;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -108,7 +109,16 @@ public class AiSettingsService implements AiRuntimeSettingsProvider, AgentRuntim
         current.setRetryCount(dto.getRetryCount());
         current.setDailyTokenQuota(dto.getDailyTokenQuota());
         current.setEnabled(dto.getEnabled());
+        String rolloutState = Boolean.TRUE.equals(dto.getAgentEnabled())
+                ? "explicitly_enabled" : "explicitly_disabled";
+        boolean rolloutChanged = !Objects.equals(current.getAgentEnabled(), dto.getAgentEnabled())
+                || !rolloutState.equals(current.getAgentRolloutState());
         current.setAgentEnabled(dto.getAgentEnabled());
+        current.setAgentRolloutState(rolloutState);
+        if (rolloutChanged) {
+            current.setAgentRolloutChangedAt(LocalDateTime.now());
+            current.setAgentRolloutChangedByAdminId(admin.adminId());
+        }
         current.setAgentMaxModelRounds(dto.getAgentMaxModelRounds());
         current.setAgentMaxToolCalls(dto.getAgentMaxToolCalls());
         current.setAgentMaxTokens(dto.getAgentMaxTokens());
@@ -123,6 +133,11 @@ public class AiSettingsService implements AiRuntimeSettingsProvider, AgentRuntim
             settingsMapper.updateById(current);
         }
         audit(admin, "update", "configuration updated; apiKeyUpdated=" + keyUpdated, true);
+        if (rolloutChanged) {
+            audit(admin, Boolean.TRUE.equals(dto.getAgentEnabled())
+                    ? "agent_rollout_enabled" : "agent_rollout_disabled",
+                    "Agent Runtime rollout explicitly changed", true);
+        }
         return toVO(current);
     }
 
@@ -258,7 +273,9 @@ public class AiSettingsService implements AiRuntimeSettingsProvider, AgentRuntim
     public AgentRuntimeConfig agentRuntimeConfig() {
         AiModelSettings stored = loadOrDefault();
         return new AgentRuntimeConfig(
-                Boolean.TRUE.equals(stored.getAgentEnabled()),
+                Boolean.TRUE.equals(stored.getEnabled())
+                        && Boolean.TRUE.equals(stored.getAgentEnabled())
+                        && "explicitly_enabled".equals(stored.getAgentRolloutState()),
                 value(stored.getAgentMaxModelRounds(), 4),
                 value(stored.getAgentMaxToolCalls(), 6),
                 value(stored.getAgentMaxTokens(), 8000),
@@ -362,6 +379,7 @@ public class AiSettingsService implements AiRuntimeSettingsProvider, AgentRuntim
         settings.setDailyTokenQuota(100_000L);
         settings.setEnabled(false);
         settings.setAgentEnabled(false);
+        settings.setAgentRolloutState("explicitly_disabled");
         settings.setAgentMaxModelRounds(4);
         settings.setAgentMaxToolCalls(6);
         settings.setAgentMaxTokens(8000);
@@ -388,6 +406,10 @@ public class AiSettingsService implements AiRuntimeSettingsProvider, AgentRuntim
         vo.setDailyTokenQuota(settings.getDailyTokenQuota());
         vo.setEnabled(settings.getEnabled());
         vo.setAgentEnabled(Boolean.TRUE.equals(settings.getAgentEnabled()));
+        vo.setAgentRolloutState(settings.getAgentRolloutState() == null
+                ? "explicitly_disabled" : settings.getAgentRolloutState());
+        vo.setAgentRolloutChangedAt(settings.getAgentRolloutChangedAt());
+        vo.setAgentRolloutChangedByAdminId(settings.getAgentRolloutChangedByAdminId());
         vo.setAgentMaxModelRounds(value(settings.getAgentMaxModelRounds(), 4));
         vo.setAgentMaxToolCalls(value(settings.getAgentMaxToolCalls(), 6));
         vo.setAgentMaxTokens(value(settings.getAgentMaxTokens(), 8000));

@@ -38,7 +38,7 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
                 {"type":"object","additionalProperties":false,"properties":{
                   "regionId":{"type":"integer"},"industryTagId":{"type":"integer"},
                   "industry":{"type":"string","maxLength":100},
-                  "keywords":{"type":"string","maxLength":120},
+                  "query":{"type":"string","maxLength":120},
                   "category":{"type":"string","maxLength":50},
                   "limit":{"type":"integer","minimum":1,"maximum":10}
                 }}
@@ -50,7 +50,7 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
         int limit = arguments.getLimit() == null ? 5 : Math.max(1, Math.min(10, arguments.getLimit()));
         List<AgentCaseSearchRow> rows = mapper.searchCases(
                 arguments.getRegionId(), arguments.getIndustryTagId(), trim(arguments.getIndustry()),
-                trim(arguments.getKeywords()), trim(arguments.getCategory()), limit
+                trim(arguments.getQuery()), trim(arguments.getCategory()), limit
         );
         List<CaseItem> items = (rows == null ? List.<AgentCaseSearchRow>of() : rows).stream()
                 .map(row -> new CaseItem(
@@ -79,7 +79,7 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
     private String matchReason(SearchCasesArguments arguments) {
         if (arguments.getIndustryTagId() != null) return "匹配已核验行业标签";
         if (arguments.getRegionId() != null) return "匹配所选地区";
-        if (StringUtils.hasText(arguments.getKeywords())) return "匹配研究关键词";
+        if (StringUtils.hasText(arguments.getQuery())) return "匹配研究关键词";
         return "符合已发布和已核验证据条件";
     }
 

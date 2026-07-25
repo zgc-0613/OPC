@@ -22,6 +22,7 @@ import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.userauth.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Set;
@@ -55,7 +56,7 @@ public class AgentResearchQueryService {
         AiAgentSession session = sessionService.requireOwned(user, sessionId);
         List<AiAgentMessage> messages = messageMapper.selectSessionMessages(sessionId, 200);
         AiAnalysisRun latest = runMapper.selectLatestAgentRunForSession(sessionId);
-        AgentRunStatusVO active = latest != null && "running".equals(latest.getStatus())
+        AgentRunStatusVO active = latest != null && Set.of("received", "running").contains(latest.getStatus())
                 ? toRun(latest) : null;
         return new AgentSessionDetailVO(
                 toSession(session),
@@ -74,7 +75,11 @@ public class AgentResearchQueryService {
         return toRun(run);
     }
 
+    @Transactional
     public AgentRunStatusVO cancel(AuthenticatedUser user, Long runId) {
+        AiAnalysisRun existing = runMapper.selectOwnedAgentRun(runId, user.userId());
+        if (existing == null) throw new BusinessException(ErrorCode.NOT_FOUND, "研究运行不存在");
+        sessionService.lockOwned(user, existing.getSessionId());
         lifecycle.cancel(user, runId);
         return run(user, runId);
     }

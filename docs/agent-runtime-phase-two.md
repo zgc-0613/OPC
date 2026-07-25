@@ -2,7 +2,7 @@
 
 ## Delivery status
 
-Local implementation, automated tests, migration tests, and production builds are complete as of 2026-07-25. Production deployment and the semantic real-model probe have not run because the established deployment workflow cannot authenticate to the production host with the currently available SSH credentials. This document therefore does not claim a production version, rollback directory, paid-model token record, request ID, or live citation result.
+Local stabilization, deterministic evaluation, automated tests, migration tests, and production builds are complete as of 2026-07-25. Production deployment and the semantic real-model probe have not run because the deployment process has no securely injected `OPC_SSH_PASSWORD`; the credential will not be embedded in a command, log, script, or report. This document therefore does not claim a production version, rollback directory, paid-model token record, request ID, or live citation result.
 
 ## Phase-one closure fixes
 
@@ -15,37 +15,41 @@ Local implementation, automated tests, migration tests, and production builds ar
 
 ## Data model and migration
 
-Migration: `deploy/sql/20260725_agent_runtime.sql`, guarded by `20260725_agent_runtime_precheck.sql` and `20260725_agent_runtime_postcheck.sql`.
+Migrations: `deploy/sql/20260725_agent_runtime.sql` plus the forward-only, idempotent `20260725_agent_runtime_stabilization.sql`, guarded by `20260725_agent_runtime_precheck.sql` and the unified `20260725_agent_runtime_postcheck.sql`.
 
-`ai_agent_sessions` owns a session by `user_id`, stores a 120-character title, `active/archived` status, bounded profile JSON, optimistic `version`, and activity timestamps. User deletion is restricted. The public DELETE API archives rather than physically deletes.
+`ai_agent_sessions` owns a session by `user_id`, stores a 120-character title, `active/archived` status, bounded profile JSON, structured `research_context_json`, optimistic `version`, and activity timestamps. The research context contains pending/resolved fields, clarification count, and the last visible question; only database-verified region and industry/tag IDs enter resolved state. User deletion is restricted. The public DELETE API archives rather than physically deletes.
 
 `ai_agent_messages` stores only visible `user/assistant` messages with `pending/completed/failed` status, stable `sequence_no`, optional run link, bounded citation JSON, and creation time. `(session_id, sequence_no)` is unique. Physical session deletion cascades to messages; run deletion sets the optional message run link to null.
 
 `ai_agent_tool_calls` belongs to a real `ai_analysis_runs` row and stores a unique step number, whitelisted tool name, validated bounded arguments, bounded result summary, evidence hash/count, status, diagnostic, latency, and timestamps. Run deletion cascades to its tool audits.
 
-`ai_analysis_runs` remains the unified ledger and adds `session_id`, `user_message_id`, `idempotency_key`, `step_count`, `tool_call_count`, `current_stage`, `visible_progress`, `cancelled_at`, `completed_at`, and generated `session_active_guard`. Foreign keys restrict deletion of referenced sessions/messages. Unique guards enforce one running task per user, one running Agent task per session, and one Agent run per `(user_id, task_type, idempotency_key)`.
+`ai_analysis_runs` remains the unified ledger and adds the Phase-Two session/message links plus `lease_owner`, `lease_expires_at`, `heartbeat_at`, `execution_attempts`, `next_attempt_at`, `last_recovery_reason`, `settlement_status`, `provider_dispatched_at`, `settled_at`, and `settlement_version`. Generated nonterminal guards cover both `received` and `running`. Foreign keys restrict deletion of referenced sessions/messages. Unique guards enforce one nonterminal Agent run per user, one per session, and one run per `(user_id, task_type, idempotency_key)`.
 
-`ai_model_settings` adds `agent_enabled`, `agent_max_model_rounds`, `agent_max_tool_calls`, `agent_max_tokens`, `agent_history_window`, `agent_timeout_seconds`, and `agent_tool_mode`. Defaults are `false`, 4, 6, 8,000, 12, 120 seconds, and `json_plan`. Allowed administrator ranges are 1-8 rounds, 1-12 calls, 512-32,000 tokens, 1-24 history messages, and 10-600 seconds; tool mode is `json_plan` or `native`.
+`ai_agent_provider_calls` records each `(analysis_run_id, round_no)` exactly once with an internal request ID, separately nullable provider request ID, reservation and settlement state, prompt/completion/total tokens, finish reason, latency, dispatch/settlement timestamps, and no raw response or secret. It is the idempotent reconciliation source for actual or estimated usage after cancellation, failure, expiry, timeout, or process recovery.
 
-The migration is additive and rerunnable through `information_schema` guards. The postcheck requires 3 Agent tables, 10 run columns, 7 settings columns, 6 foreign keys, 4 unique indexes, and 0 invalid settings rows. Real MySQL tests execute the migration twice.
+`ai_model_settings` adds the bounded Agent settings plus `agent_rollout_state`, `agent_rollout_changed_at`, and `agent_rollout_changed_by_admin_id`. Agent defaults to `false` and `explicitly_disabled`; provider `enabled` never enables it implicitly. Already explicit Agent settings are preserved during the forward migration, and subsequent changes require the authenticated administrator flow. Runtime defaults remain 4 rounds, 6 calls, 8,000 tokens, 12 history messages, 120 seconds, and `json_plan`.
+
+The migrations are additive and rerunnable through `information_schema` guards. The postcheck requires 4 Agent tables, 21 Agent run columns, 10 settings columns, 7 foreign keys, 8 unique indexes, all 15 expected named indexes, no unexpected Agent indexes, and 0 rollout/settings inconsistencies. Composite indexes are counted by distinct index name. Real MySQL 8.4 tests cover first execution, repeat execution, complete postcheck, composite-index accounting, and incomplete-structure failure.
 
 ## State machine
 
 The externally observable states are `received`, `clarification_needed`, `planning`, `waiting_for_model`, `tool_requested`, `tool_running`, `synthesizing`, `completed`, `evidence_insufficient`, `failed`, `cancelled`, and `expired`.
 
-The deterministic clarification policy runs before persistence of a provider-backed run. If region, industry, or research objective is missing, it writes one visible clarification question and a safe `clarification_needed` audit without calling the provider or tools. Otherwise submission reserves quota and returns `202 Accepted`; the worker loads a bounded history, iterates at most the configured rounds, validates each requested tool, records tool results, replays their evidence hashes before synthesis, validates final citations, and atomically settles usage and status.
+The deterministic clarification policy merges the latest verified answer, persisted session context, and initial profile in that order. If region, industry, or research objective is missing or ambiguous, it writes one visible clarification question and a safe `clarification_needed` audit without calling the provider or tools. Answers such as `湖北省` resolve against current database regions before planning. Clarification is bounded; exhausting the limit enters `evidence_insufficient` instead of looping or inventing context.
 
-Only these progress summaries are user-visible: analyzing requirements, planning research, searching/verifying evidence, and organizing the answer. No chain-of-thought is requested, stored, or returned. Cancellation changes only a running row; usage/stage/completion updates require `status='running'`, so late provider results cannot overwrite cancelled, failed, or expired runs.
+An information-complete submission locks the session, persists the visible message, idempotency key, quota reservation, and `received` run, then returns `202 Accepted`. Executor dispatch is only a wake-up optimization. A scheduled worker atomically leases eligible database rows, renews the lease for the bounded execution window, heartbeats during work, recovers expired leases after restart, records every recovery reason/attempt, and moves exhausted work to a terminal state. Two instances cannot own the same lease, and terminal states cannot be reclaimed.
+
+Only these progress summaries are user-visible: analyzing requirements, planning research, searching/verifying evidence, and organizing the answer. No chain-of-thought is requested, stored, or returned. Cancellation changes the visible run state immediately but does not erase already dispatched usage. Late provider results may idempotently settle the provider-call ledger and token totals, while guarded status updates prevent them from overwriting cancelled, failed, or expired states.
 
 ## Tool contracts
 
 ### `search_cases`
 
-Arguments: optional `regionId`, `industryTagId`, `industry` (100 characters), `keywords` (120), `category` (50), and `limit` (1-10, default 5). It returns bounded `caseId`, title, region, category, summary, business model, outcome, `sourceId`, verified evidence status, and match reason. SQL returns only published, verified cases whose sources are also published and verified.
+Arguments: optional `regionId`, `industryTagId`, `industry` (100 characters), `query` (120), `category` (50), and `limit` (1-10, default 5). It returns bounded `caseId`, title, region, category, summary, business model, outcome, `sourceId`, verified evidence status, and match reason. SQL returns only published, verified cases whose sources are also published and verified.
 
 ### `search_policies`
 
-Arguments: required `regionId`; optional `industryTagId`, `industry` (100), `keywords` (120), and `limit` (1-10, default 5). It searches the selected region and its hierarchy and returns bounded policy identity, type, summary, support measures, `specific/general/unclassified` applicability, geographic level, `sourceId`, and match reason. `unclassified` is labelled only as a regional reference, never an industry-specific policy.
+Arguments: required `regionId`; optional `industryTagId`, `industry` (100), `query` (120), and `limit` (1-10, default 5). It searches the selected region and its hierarchy and returns bounded policy identity, type, summary, support measures, `specific/general/unclassified` applicability, geographic level, `sourceId`, and match reason. `unclassified` is labelled only as a regional reference, never an industry-specific policy.
 
 ### `get_source`
 
@@ -55,7 +59,7 @@ Argument: required `sourceId`. The ID must already be allowed by a prior tool re
 
 Arguments: 2-3 distinct `caseIds` already returned by `search_cases`, plus up to six dimensions from `businessModel`, `technicalPath`, `targetCustomer`, `outcome`, `regionalContext`, and `evidenceStrength`. The backend deterministically reads the still-published/verified case-source chain and returns bounded case summaries and per-dimension conclusions with `sourceId`.
 
-Every tool has a provider-neutral interface, JSON Schema, strong DTO, Bean Validation, result limits, run-local authorization, evidence hash, latency/status/diagnostic audit, and redacted model-facing output. There is no SQL, internet, arbitrary URL, or write-capable tool.
+Every tool has one provider-neutral metadata definition used by native calls, the JSON-plan catalog, JSON Schema, runtime validation, administrator audit labels, and automated tests. All objects, including nested objects, use `additionalProperties: false`; strong DTO/Bean validation enforces required fields, types, enums, lengths, arrays, and result limits. Unknown fields/tools, SQL, arbitrary URLs, and unauthorized IDs are audited as controlled failures before any tool executes.
 
 ## API contract
 
@@ -88,7 +92,7 @@ They expose run/session identifiers, masked user identity, state, provider/model
 
 `json_plan` is the default compatibility mode and is parsed with Jackson against a closed schema. `native` tool calls are enabled only by an administrator setting; the production model's official support has not been verified, so no capability is inferred from its name.
 
-The existing token ledger reserves the configured per-run maximum against the daily user quota, aggregates every model round's prompt/completion/total tokens, and releases the unused reservation at a terminal state. Generated unique guards prevent concurrent runs per user and per session. Idempotency returns the existing run instead of inserting or charging twice.
+The run ledger reserves the configured per-run maximum against the daily user quota, and the provider-call ledger records dispatch and settles every model round exactly once. Cancellation before dispatch releases the reservation. Dispatched calls settle actual usage when available; timeout/crash paths retain a bounded estimate, and a late actual callback may replace the estimate idempotently without reopening the run or charging twice. Cancelled, failed, and expired usage still counts, so cancellation cannot bypass daily quota. Generated nonterminal guards prevent concurrent runs per user and per session; idempotency returns the existing run and reservation.
 
 User text and database text are marked as untrusted data in the system contract. The runtime accepts only four registered tools, closed argument schemas, known dimensions, run-local case/source IDs, published/verified data, and backend-built queries. It rejects prompt-injected tool names, SQL, arbitrary URLs, unknown citations, blank citation claims, missing citations, stale evidence, oversized input/history/results, excessive rounds/calls/tokens, and abnormal provider endings.
 
@@ -104,16 +108,20 @@ The existing administrator settings page adds bounded Agent controls and an `Age
 
 ## Verification
 
-- Maven full suite: 247 tests, 0 failures, 0 errors, 0 skipped.
-- MySQL Testcontainers: 36 tests against MySQL 8.4, all passed.
-- Frontend Vitest: 13 tests in 2 files, all passed; `AssistantView` contributes 12.
-- Frontend package scripts: all 8 passed (`auth-session`, `assistant`, `assistant-component`, two evidence-review scripts, evidence-workbench, admin-concurrency, policy-applicability).
+- Maven full suite: 270 tests, 0 failures, 0 errors, 1 skipped opt-in real DeepSeek smoke.
+- MySQL Testcontainers: 48 tests against MySQL 8.4, all passed.
+- Frontend Vitest: 14 tests in 2 files, all passed; `AssistantView` contributes 13.
+- Frontend package scripts: all repository-defined contract scripts passed; the component script is covered by the full Vitest run.
 - Frontend build: passed with 1,705 transformed modules.
-- Python deployment/migration tests: 13 passed; syntax compilation passed.
-- Backend package: passed after tests.
-- Deterministic golden evaluation: 20 questions passed. Completion 1.0, legal citations 1.0, citation/claim consistency 1.0, accepted unknown source IDs 0, tool success 1.0, evidence-insufficient refusal 1.0, average rounds 2.1, average tools 1.1, average tokens 31.5, P50 40 ms, P95 60 ms.
+- Python deployment/migration tests: 17 passed; syntax compilation passed.
+- Backend executable JAR package: passed after the full test suite.
+- Repository checks: `git diff --check`, `.codegraph/` ignore, tracked build-artifact scan, and high-confidence secret scan passed; the only scanner candidates are a variable-presence check and an explicit test-only fake key.
+- Deterministic golden evaluation: 20 fixtures passed. Contract pass rate 1.0, expected completion rate 1.0, controlled failures 8, evidence-insufficient cases 2, accepted unknown citations 0, average rounds 0.8, average tools 0.7, average tokens 12.45, P50 40 ms, P95 60 ms. These are deterministic runtime-contract metrics, not DeepSeek quality metrics.
+- Real DeepSeek evaluation: separate `AgentDeepSeekSmokeTest`, disabled unless `OPC_RUN_REAL_DEEPSEEK_EVAL=true`; it made no paid call during local verification.
 
 ## Changed-file inventory
+
+The stabilization pass additionally owns `20260725_agent_runtime_stabilization.sql`, `AiAgentProviderCall.java`, `AiAgentProviderCallMapper.java`, `AgentRunDispatcher.java`, `AgentRunQueueService.java`, `AgentClarificationDecision.java`, `AgentDeepSeekSmokeTest.java`, and `AgentResearchServiceTest.java`. Existing lifecycle, session, settings, tool, migration, deployment, evaluation, and Assistant files were updated in place; no framework or runtime was replaced.
 
 - Deployment and documentation: `.codex_deploy_opc.py` adds Agent migrations, semantic probe, cleanup, and rollback gating; `scripts/test_deployment_hardening.py` covers the new deployment requirements; `task_plan.md`, `findings.md`, `progress.md`, `AI_READINESS.md`, and this document record decisions, verification, privacy limits, and deployment status; the three `deploy/sql/20260725_agent_runtime*.sql` files provide precheck, migration, and postcheck.
 - Existing AI provider/settings/audit files: `AiCapabilitiesController.java`, `AiModelSettingsUpdateDTO.java`, `AiAnalysisRun.java`, `AiModelSettings.java`, `AiResponseValidationException.java`, `AiAnalysisRunMapper.java`, `AiProviderRequest.java`, `AiProviderResponse.java`, `OpenAiCompatibleAiClient.java`, `AiSettingsService.java`, `CaseAnalysisService.java`, and `AiModelSettingsVO.java` add Agent settings, provider-neutral messages/tool calls, multi-round audit fields, detailed response diagnostics, and safe case-analysis closure behavior.
@@ -130,6 +138,6 @@ The existing administrator settings page adds bounded Agent controls and an `Age
 
 ## Production gate and remaining work
 
-Before Phase Two can be declared complete, the existing secure SSH credential path must be restored. The deployment script will then create a timestamped backup/release, precheck and apply the migration, validate the 3/10/7/6/4/0 postcheck, switch frontend/backend together, validate Nginx and health, and run a temporary QA-user research probe. The probe must execute at least one tool, complete, return at least one legal citation, persist completed run/tool audits with provider/model/finish reason/request ID/token/latency metadata, clean up all QA rows, and automatically roll back on any failure.
+Before Phase Two can be declared complete, `OPC_SSH_PASSWORD` must be injected through a secure process environment. The deployment script will then create a timestamped backup/release, precheck and apply both Agent migrations, validate the 4/21/10/7/8 postcheck plus exact index names and rollout consistency, switch frontend/backend together, validate Nginx and health, and run a temporary QA-user research probe. The probe must execute at least one tool, complete, return at least one legal citation from its tool evidence snapshot, persist completed run/tool/provider-call audits with provider/model/finish reason/internal request ID/provider request ID/token/latency metadata, verify anonymous/ordinary/disabled-user boundaries, clean up all QA rows, and automatically disable Agent plus roll back on any failure.
 
 Current production inspection, before deployment: provider `deepseek`, model `deepseek-v4-flash`, provider enabled, encrypted API key configured, and prior connection test successful. Agent fields are absent on the deployed Phase-One schema. There is no verified case, so the initial production probe is designed around a verified policy. Native tool-call support is not assumed; controlled `json_plan` remains the deployment default unless official capability is confirmed and explicitly configured.

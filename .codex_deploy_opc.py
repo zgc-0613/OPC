@@ -2,6 +2,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -15,7 +16,12 @@ from pathlib import Path
 import bcrypt
 import paramiko
 
-from scripts.deployment_hardening import is_loopback_listener
+from scripts.deployment_hardening import (
+    is_loopback_listener,
+    require_secret_environment,
+    validate_agent_probe_record,
+    validate_agent_runtime_postcheck,
+)
 
 
 HOST = "39.105.25.189"
@@ -37,13 +43,14 @@ POLICY_APPLICABILITY_MIGRATION = ROOT / "deploy" / "sql" / "20260725_policy_appl
 AI_RESPONSE_DIAGNOSTICS_MIGRATION = ROOT / "deploy" / "sql" / "20260725_ai_response_diagnostics.sql"
 AGENT_RUNTIME_PRECHECK = ROOT / "deploy" / "sql" / "20260725_agent_runtime_precheck.sql"
 AGENT_RUNTIME_MIGRATION = ROOT / "deploy" / "sql" / "20260725_agent_runtime.sql"
+AGENT_RUNTIME_STABILIZATION_MIGRATION = ROOT / "deploy" / "sql" / "20260725_agent_runtime_stabilization.sql"
 AGENT_RUNTIME_POSTCHECK = ROOT / "deploy" / "sql" / "20260725_agent_runtime_postcheck.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 
 
 def connect():
-    password = os.environ["OPC_SSH_PASSWORD"]
+    password = require_secret_environment(os.environ, "OPC_SSH_PASSWORD")
 
     class PinnedFingerprintPolicy(paramiko.MissingHostKeyPolicy):
         def missing_host_key(self, client, hostname, key):
@@ -148,6 +155,29 @@ def request_json(url, method="GET", payload=None, headers=None, expected_code=20
     return status, data
 
 
+def ai_settings_update_payload(settings, agent_enabled):
+    return {
+        "provider": settings.get("provider"),
+        "apiFormat": settings.get("apiFormat"),
+        "apiBaseUrl": settings.get("apiBaseUrl"),
+        "modelId": settings.get("modelId"),
+        "models": settings.get("models") or [],
+        "temperature": settings.get("temperature"),
+        "maxOutputTokens": settings.get("maxOutputTokens"),
+        "timeoutSeconds": settings.get("timeoutSeconds"),
+        "retryCount": settings.get("retryCount"),
+        "dailyTokenQuota": settings.get("dailyTokenQuota"),
+        "enabled": bool(settings.get("enabled")),
+        "agentEnabled": bool(agent_enabled),
+        "agentMaxModelRounds": settings.get("agentMaxModelRounds") or 4,
+        "agentMaxToolCalls": settings.get("agentMaxToolCalls") or 6,
+        "agentMaxTokens": settings.get("agentMaxTokens") or 8000,
+        "agentHistoryWindow": settings.get("agentHistoryWindow") or 12,
+        "agentTimeoutSeconds": settings.get("agentTimeoutSeconds") or 120,
+        "agentToolMode": settings.get("agentToolMode") or "json_plan",
+    }
+
+
 def assert_external_backend_closed():
     try:
         connection = socket.create_connection((HOST, 8082), timeout=3)
@@ -229,6 +259,7 @@ def deploy(client):
         AI_RESPONSE_DIAGNOSTICS_MIGRATION,
         AGENT_RUNTIME_PRECHECK,
         AGENT_RUNTIME_MIGRATION,
+        AGENT_RUNTIME_STABILIZATION_MIGRATION,
         AGENT_RUNTIME_POSTCHECK,
     ]
     for path in required:
@@ -250,6 +281,9 @@ def deploy(client):
     assistant_probe = None
     agent_probe = None
     unclassified_policy_count = None
+    admin_headers = None
+    agent_disable_payload = None
+    agent_rollout_enabled_by_deploy = False
 
     _, previous_current, _ = run(
         client,
@@ -290,6 +324,7 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     sftp.put(str(AI_RESPONSE_DIAGNOSTICS_MIGRATION), f"{release}/ai-response-diagnostics.sql")
     sftp.put(str(AGENT_RUNTIME_PRECHECK), f"{release}/agent-runtime-precheck.sql")
     sftp.put(str(AGENT_RUNTIME_MIGRATION), f"{release}/agent-runtime.sql")
+    sftp.put(str(AGENT_RUNTIME_STABILIZATION_MIGRATION), f"{release}/agent-runtime-stabilization.sql")
     sftp.put(str(AGENT_RUNTIME_POSTCHECK), f"{release}/agent-runtime-postcheck.sql")
     sftp.put(str(NGINX), uploaded_nginx)
     sftp.put(str(SYSTEMD), uploaded_systemd)
@@ -310,6 +345,7 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"{release}/ai-response-diagnostics.sql": sha256(AI_RESPONSE_DIAGNOSTICS_MIGRATION),
         f"{release}/agent-runtime-precheck.sql": sha256(AGENT_RUNTIME_PRECHECK),
         f"{release}/agent-runtime.sql": sha256(AGENT_RUNTIME_MIGRATION),
+        f"{release}/agent-runtime-stabilization.sql": sha256(AGENT_RUNTIME_STABILIZATION_MIGRATION),
         f"{release}/agent-runtime-postcheck.sql": sha256(AGENT_RUNTIME_POSTCHECK),
         uploaded_nginx: sha256(NGINX),
         uploaded_systemd: sha256(SYSTEMD),
@@ -391,13 +427,20 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
             "set -euo pipefail\n" + DB_ENV
             + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/agent-runtime.sql'",
         )
+        run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/agent-runtime-stabilization.sql'",
+        )
         _, agent_postcheck_output, _ = run(
             client,
             "set -euo pipefail\n" + DB_ENV
             + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/agent-runtime-postcheck.sql'",
         )
-        if agent_postcheck_output.splitlines()[-1:] != ["3\t10\t7\t6\t4\t0"]:
-            raise RuntimeError("Agent Runtime database postcheck failed")
+        try:
+            validate_agent_runtime_postcheck(agent_postcheck_output)
+        except ValueError as exception:
+            raise RuntimeError(f"Agent Runtime database postcheck failed: {exception}") from exception
         run(
             client,
             "set -euo pipefail\n"
@@ -540,6 +583,21 @@ exit 1
             and ai_settings_data.get("modelId")
         ):
             raise RuntimeError("Enabled AI provider is missing required production configuration")
+        agent_disable_payload = ai_settings_update_payload(ai_settings_data, False)
+        _, disabled_agent_body = request_json(
+            "https://admin.findopc.online/api/admin/ai-settings",
+            method="PUT",
+            headers=admin_headers,
+            payload=agent_disable_payload,
+        )
+        disabled_agent_data = disabled_agent_body.get("data") or {}
+        if (
+            disabled_agent_body.get("code") != 200
+            or disabled_agent_data.get("agentEnabled")
+            or disabled_agent_data.get("agentRolloutState") != "explicitly_disabled"
+        ):
+            raise RuntimeError("Agent Runtime could not be placed in explicit disabled rollout state")
+        ai_settings_data = disabled_agent_data
 
         _, anonymous_analysis = request_json(
             "https://findopc.online/api/ai/case-analysis",
@@ -571,6 +629,11 @@ exit 1
         )
         if anonymous_industry_resolution.get("code") != 401:
             raise RuntimeError("Anonymous industry resolution request was not rejected")
+        _, anonymous_agent_sessions = request_json(
+            "https://findopc.online/api/ai/research/sessions",
+        )
+        if anonymous_agent_sessions.get("code") != 401:
+            raise RuntimeError("Anonymous user reached Agent Runtime sessions")
 
         ai_qa_username = f"aiqa_{stamp.replace('-', '')[-10:]}"
         ai_qa_email = f"{ai_qa_username}@example.invalid"
@@ -585,6 +648,28 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
         database_command(client, ai_qa_sql)
         try:
             user_headers = {"Authorization": f"Bearer {ai_qa_token}"}
+            _, ordinary_admin_audit = request_json(
+                "https://admin.findopc.online/api/admin/ai-agent-runs?limit=1",
+                headers=user_headers,
+            )
+            if ordinary_admin_audit.get("code") != 401:
+                raise RuntimeError("Ordinary user reached administrator Agent audit")
+            database_command(
+                client,
+                f"UPDATE platform_users SET status='disabled' WHERE username='{ai_qa_username}';\n",
+            )
+            _, disabled_agent_sessions = request_json(
+                "https://findopc.online/api/ai/research/sessions",
+                method="POST",
+                headers=user_headers,
+                payload={"title": "Disabled probe", "profile": {}},
+            )
+            if disabled_agent_sessions.get("code") not in {401, 403}:
+                raise RuntimeError("Disabled QA user reached Agent Runtime")
+            database_command(
+                client,
+                f"UPDATE platform_users SET status='active' WHERE username='{ai_qa_username}';\n",
+            )
             _, capabilities_body = request_json(
                 "https://findopc.online/api/ai/capabilities",
                 headers=user_headers,
@@ -674,8 +759,30 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 "analysis_run_diagnostic_code": analysis_run[3] or None,
                 "analysis_run_request_id": analysis_run[4] or None,
             }
-            if not ai_settings_data.get("agentEnabled"):
-                raise RuntimeError("Production Agent Runtime is not enabled after migration")
+            _, connection_test_body = request_json(
+                "https://admin.findopc.online/api/admin/ai-settings/test-connection",
+                method="POST",
+                headers=admin_headers,
+                timeout=90,
+            )
+            if connection_test_body.get("code") != 200 or not (connection_test_body.get("data") or {}).get("success"):
+                raise RuntimeError("Production AI Provider connection test failed before Agent rollout")
+            agent_enable_payload = ai_settings_update_payload(ai_settings_data, True)
+            _, enabled_agent_body = request_json(
+                "https://admin.findopc.online/api/admin/ai-settings",
+                method="PUT",
+                headers=admin_headers,
+                payload=agent_enable_payload,
+            )
+            enabled_agent_data = enabled_agent_body.get("data") or {}
+            if (
+                enabled_agent_body.get("code") != 200
+                or not enabled_agent_data.get("agentEnabled")
+                or enabled_agent_data.get("agentRolloutState") != "explicitly_enabled"
+            ):
+                raise RuntimeError("Production Agent Runtime explicit rollout failed")
+            ai_settings_data = enabled_agent_data
+            agent_rollout_enabled_by_deploy = True
             _, agent_session_body = request_json(
                 "https://findopc.online/api/ai/research/sessions",
                 method="POST",
@@ -702,7 +809,7 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 headers=user_headers,
                 expected_code=202,
                 payload={
-                    "content": "请检索湖北省已核验的人工智能相关政策，并用引用概括一项可用支持。",
+                    "content": "检索湖北省已核验的人工智能相关政策，并引用证据概括一项可用支持。",
                     "idempotencyKey": f"deploy-agent-{stamp.replace('-', '')}",
                 },
                 timeout=30,
@@ -735,44 +842,88 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 raise RuntimeError("Production Agent probe completed without a tool call")
             if len(agent_run_data.get("citations") or []) < 1:
                 raise RuntimeError("Production Agent probe completed without a legal citation")
+            agent_run_id_sql = int(agent_run_id)
             _, agent_audit_output, _ = database_command(
                 client,
-                "SELECT r.status,r.provider,r.model_id,COALESCE(r.finish_reason,''),"
-                "COALESCE(r.provider_request_id,''),r.prompt_tokens,r.completion_tokens,r.total_tokens,"
-                "r.latency_ms,(SELECT COUNT(*) FROM ai_agent_tool_calls tc "
-                "WHERE tc.analysis_run_id=r.id AND tc.status='completed'),"
-                "COALESCE(JSON_LENGTH(m.citations_json),0) "
-                "FROM ai_analysis_runs r LEFT JOIN ai_agent_messages m "
-                "ON m.run_id=r.id AND m.role='assistant' "
-                f"WHERE r.id={int(agent_run_id)} LIMIT 1;\n",
+                "WITH authorized_sources AS ("
+                " SELECT DISTINCT source_id FROM ("
+                "  SELECT item_source.source_id FROM ai_agent_tool_calls tc"
+                "  JOIN JSON_TABLE(COALESCE(tc.result_summary_json,JSON_OBJECT()),'$.items[*]'"
+                "   COLUMNS(source_id BIGINT PATH '$.sourceId')) item_source"
+                f"  WHERE tc.analysis_run_id={agent_run_id_sql} AND tc.status='completed'"
+                "  UNION ALL"
+                "  SELECT conclusion_source.source_id FROM ai_agent_tool_calls tc"
+                "  JOIN JSON_TABLE(COALESCE(tc.result_summary_json,JSON_OBJECT()),'$.conclusions[*]'"
+                "   COLUMNS(source_id BIGINT PATH '$.sourceId')) conclusion_source"
+                f"  WHERE tc.analysis_run_id={agent_run_id_sql} AND tc.status='completed'"
+                " ) evidence_ids WHERE source_id IS NOT NULL"
+                "), cited_sources AS ("
+                " SELECT cited.source_id FROM ai_agent_messages message"
+                " JOIN JSON_TABLE(COALESCE(message.citations_json,JSON_ARRAY()),'$[*]'"
+                "  COLUMNS(source_id BIGINT PATH '$.sourceId')) cited"
+                f" WHERE message.run_id={agent_run_id_sql} AND message.role='assistant'"
+                ")"
+                " SELECT r.status,r.provider,r.model_id,COALESCE(r.finish_reason,''),"
+                " COALESCE((SELECT pc.provider_request_id FROM ai_agent_provider_calls pc"
+                "   WHERE pc.analysis_run_id=r.id ORDER BY pc.round_no DESC LIMIT 1),'not_provided'),"
+                " r.prompt_tokens,r.completion_tokens,r.total_tokens,r.latency_ms,r.step_count,r.tool_call_count,"
+                " (SELECT COUNT(*) FROM ai_agent_tool_calls tc"
+                "   WHERE tc.analysis_run_id=r.id AND tc.status='completed'),"
+                " COALESCE(JSON_LENGTH(m.citations_json),0),"
+                " COALESCE((SELECT pc.internal_request_id FROM ai_agent_provider_calls pc"
+                "   WHERE pc.analysis_run_id=r.id ORDER BY pc.round_no DESC LIMIT 1),''),"
+                " (SELECT COUNT(*) FROM ai_agent_provider_calls pc WHERE pc.analysis_run_id=r.id),"
+                " (SELECT COUNT(*) FROM cited_sources cited LEFT JOIN authorized_sources allowed"
+                "   ON allowed.source_id=cited.source_id WHERE allowed.source_id IS NULL)"
+                " FROM ai_analysis_runs r LEFT JOIN ai_agent_messages m"
+                " ON m.run_id=r.id AND m.role='assistant'"
+                f" WHERE r.id={agent_run_id_sql} LIMIT 1;\n",
             )
             agent_audit_lines = agent_audit_output.splitlines()
             agent_audit = agent_audit_lines[-1].split("\t") if len(agent_audit_lines) > 1 else []
-            if (
-                len(agent_audit) != 11
-                or agent_audit[0] != "completed"
-                or int(agent_audit[9]) < 1
-                or int(agent_audit[10]) < 1
-                or not agent_audit[4]
-            ):
+            if len(agent_audit) != 16:
                 raise RuntimeError("Production Agent database audit is incomplete")
             agent_probe = {
-                "question": "请检索湖北省已核验的人工智能相关政策，并用引用概括一项可用支持。",
+                "question": "检索湖北省已核验的人工智能相关政策，并引用证据概括一项可用支持。",
                 "run_id": int(agent_run_id),
                 "session_id": int(agent_session_id),
                 "status": agent_audit[0],
                 "provider": agent_audit[1],
                 "model": agent_audit[2],
                 "finish_reason": agent_audit[3],
-                "request_id": agent_audit[4],
+                "provider_request_id": agent_audit[4] or "not_provided",
                 "prompt_tokens": int(agent_audit[5]),
                 "completion_tokens": int(agent_audit[6]),
                 "total_tokens": int(agent_audit[7]),
                 "latency_ms": int(agent_audit[8]),
-                "model_rounds": int(agent_run_data.get("stepCount") or 0),
-                "tool_call_count": int(agent_run_data.get("toolCallCount") or 0),
+                "model_rounds": int(agent_audit[9]),
+                "tool_call_count": int(agent_audit[10]),
+                "completed_tool_count": int(agent_audit[11]),
                 "citation_count": len(agent_run_data.get("citations") or []),
+                "internal_request_id": agent_audit[13],
+                "provider_call_count": int(agent_audit[14]),
+                "unknown_citation_count": int(agent_audit[15]),
             }
+            if agent_probe["citation_count"] != int(agent_audit[12]):
+                raise RuntimeError("Production Agent API and database citation counts differ")
+            validate_agent_probe_record(
+                agent_probe,
+                max_model_rounds=int(ai_settings_data.get("agentMaxModelRounds") or 4),
+                max_tool_calls=int(ai_settings_data.get("agentMaxToolCalls") or 6),
+            )
+            _, admin_agent_audit = request_json(
+                f"https://admin.findopc.online/api/admin/ai-agent-runs/{agent_run_id}",
+                headers=admin_headers,
+            )
+            if admin_agent_audit.get("code") != 200:
+                raise RuntimeError("Administrator Agent audit detail failed")
+            admin_agent_audit_text = json.dumps(admin_agent_audit, ensure_ascii=False)
+            if (
+                agent_probe["question"] in admin_agent_audit_text
+                or re.search(r'(?i)\bsk-[a-z0-9._-]{8,}', admin_agent_audit_text)
+                or re.search(r'(?i)"(?:api_?key|authorization|chain_of_thought)"\s*:', admin_agent_audit_text)
+            ):
+                raise RuntimeError("Administrator Agent audit exposed private or secret content")
             _, authorized_analysis = request_json(
                 "https://findopc.online/api/ai/case-analysis",
                 method="POST",
@@ -897,6 +1048,31 @@ test "$(stat -c '%U:%G %a' /opt/opc/application.yaml)" = "root:opc 640"
         backend_runtime = assert_backend_runtime_hardened(client)
         assert_external_backend_closed()
     except Exception:
+        if agent_rollout_enabled_by_deploy:
+            disabled_through_api = False
+            if admin_headers and agent_disable_payload:
+                try:
+                    _, disable_body = request_json(
+                        "https://admin.findopc.online/api/admin/ai-settings",
+                        method="PUT",
+                        headers=admin_headers,
+                        payload=agent_disable_payload,
+                    )
+                    disabled_through_api = disable_body.get("code") == 200
+                except Exception:
+                    disabled_through_api = False
+            if not disabled_through_api:
+                database_command(
+                    client,
+                    "UPDATE ai_model_settings SET agent_enabled=0,"
+                    "agent_rollout_state='explicitly_disabled',agent_rollout_changed_at=NOW(6),"
+                    "agent_rollout_changed_by_admin_id=(SELECT id FROM admin_accounts "
+                    "WHERE status='active' ORDER BY id LIMIT 1) WHERE id=1;\n"
+                    "INSERT INTO ai_settings_audit(admin_id,admin_username,action,change_summary,success) "
+                    "SELECT id,username,'agent_rollout_emergency_disabled',"
+                    "'Deployment probe failed; emergency rollout disable',1 FROM admin_accounts "
+                    "WHERE status='active' ORDER BY id LIMIT 1;\n",
+                )
         if mutated:
             if previous_current:
                 current_rollback = f"ln -sfn '{previous_current}' '{current_link}.rollback.{stamp}' && mv -Tf '{current_link}.rollback.{stamp}' '{current_link}'"
