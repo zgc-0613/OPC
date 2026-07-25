@@ -3,6 +3,7 @@ package com.opc.platform.ai.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -15,11 +16,20 @@ public class AiAgentSession {
     private Long id;
     private Long userId;
     private String title;
+    private String titleMode;
     private String status;
     private String profileJson;
     private String researchContextJson;
+    private LocalDateTime pinnedAt;
+    private LocalDateTime archivedAt;
+    private LocalDateTime deletedAt;
+    private LocalDateTime purgeAfter;
+    private LocalDateTime purgedAt;
     private Long version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime lastMessageAt;
+
+    @TableField(exist = false)
+    private String activeRunStatus;
 }

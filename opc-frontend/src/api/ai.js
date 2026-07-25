@@ -32,12 +32,52 @@ export function getResearchSessions() {
   return request.get('/ai/research/sessions')
 }
 
+export function getResearchHistory({ scope = 'active', q = '', cursor, limit = 30 } = {}) {
+  return request.get('/ai/research/sessions/history', {
+    params: { scope, q, cursor: cursor || undefined, limit },
+  })
+}
+
 export function getResearchSession(sessionId) {
   return request.get(`/ai/research/sessions/${sessionId}`)
 }
 
 export function archiveResearchSession(sessionId) {
   return request.delete(`/ai/research/sessions/${sessionId}`)
+}
+
+export function updateResearchSession(sessionId, payload) {
+  return request.patch(`/ai/research/sessions/${sessionId}`, payload)
+}
+
+export function archiveResearchSessionExplicit(sessionId) {
+  return request.post(`/ai/research/sessions/${sessionId}/archive`)
+}
+
+export function unarchiveResearchSession(sessionId) {
+  return request.post(`/ai/research/sessions/${sessionId}/unarchive`)
+}
+
+export function trashResearchSession(sessionId) {
+  return request.post(`/ai/research/sessions/${sessionId}/trash`)
+}
+
+export function restoreResearchSession(sessionId) {
+  return request.post(`/ai/research/sessions/${sessionId}/restore`)
+}
+
+export function permanentlyDeleteResearchSession(sessionId) {
+  return request.delete(`/ai/research/sessions/${sessionId}/permanent`)
+}
+
+export function getResearchMessages(sessionId, { beforeSequence, limit = 50 } = {}) {
+  return request.get(`/ai/research/sessions/${sessionId}/messages`, {
+    params: { beforeSequence: beforeSequence || undefined, limit },
+  })
+}
+
+export function getResearchUsage() {
+  return request.get('/ai/research/usage')
 }
 
 export function sendResearchMessage(sessionId, payload) {

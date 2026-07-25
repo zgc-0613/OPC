@@ -314,3 +314,16 @@ Phase 21 (Agent Runtime stabilization accepted locally; production deployment bl
 - [x] Pass 270 backend tests, including 48 MySQL 8.4 integration tests; 14 Vitest tests; all frontend contract scripts; 17 Python deployment tests; both production builds; diff, secret, artifact, and ignore checks.
 - [ ] Run the repository deployment workflow, database postcheck, dual-domain checks, and real DeepSeek Agent probe.
 - **Status:** local acceptance complete. Deployment cannot start until `OPC_SSH_PASSWORD` is injected into the deployment process without placing plaintext credentials in a command, log, script, or report.
+
+### Phase 22: Assistant Research Workspace And Server History
+- [x] Add forward-only, repeatable Assistant Workspace precheck/migration/postcheck SQL without rewriting prior migrations.
+- [x] Add stable scoped history search, strict cursors, message pagination, automatic/manual titles, usage projection, and explicit session lifecycle APIs.
+- [x] Add archive, unarchive, trash, restore, permanent content purge, and a bounded multi-instance-safe purge scheduler.
+- [x] Preserve minimal run/token audit while scrubbing session profiles, research context, messages, citations, tool arguments/results, evidence snapshots, and run result content.
+- [x] Replace the single-page Assistant form with a persistent Prisma Light research desk, independent history sidebar, mobile drawer, safe Markdown, citations/process drawer, per-session drafts, and resilient polling.
+- [x] Delay server session creation until the first user message and keep a created session visible/recoverable if message submission fails.
+- [x] Add Vue behavior, Markdown XSS, utility, service, controller, MySQL 8.4 migration/query/purge, and deployment-order tests.
+- [x] Extend deployment upload/checksum/migration gates and the temporary production Agent probe for history, pagination, latest run, usage, title, pin, archive, trash, and restore.
+- [x] Pass 287 backend tests including 52 MySQL 8.4 tests, 22 Vitest tests, all 8 frontend scripts, 26 Python tests, both production builds, and repository diff/ignore/artifact/secret checks.
+- [ ] Deploy the combined release and pass the expanded real DeepSeek production probe.
+- **Status:** local implementation and verification complete; production remains unchanged until secure deployment credentials are available.

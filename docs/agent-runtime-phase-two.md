@@ -108,12 +108,12 @@ The existing administrator settings page adds bounded Agent controls and an `Age
 
 ## Verification
 
-- Maven full suite: 270 tests, 0 failures, 0 errors, 1 skipped opt-in real DeepSeek smoke.
-- MySQL Testcontainers: 48 tests against MySQL 8.4, all passed.
-- Frontend Vitest: 14 tests in 2 files, all passed; `AssistantView` contributes 13.
+- Maven full suite: 287 tests, 0 failures, 0 errors, 1 skipped opt-in real DeepSeek smoke.
+- MySQL Testcontainers: 52 tests against MySQL 8.4, all passed.
+- Frontend Vitest: 22 tests in 6 files, all passed; the focused `AssistantView` suite contributes 10.
 - Frontend package scripts: all repository-defined contract scripts passed; the component script is covered by the full Vitest run.
-- Frontend build: passed with 1,705 transformed modules.
-- Python deployment/migration tests: 17 passed; syntax compilation passed.
+- Frontend build: passed with 1,800 transformed modules.
+- Python deployment/migration tests: 26 passed; syntax compilation passed.
 - Backend executable JAR package: passed after the full test suite.
 - Repository checks: `git diff --check`, `.codegraph/` ignore, tracked build-artifact scan, and high-confidence secret scan passed; the only scanner candidates are a variable-presence check and an explicit test-only fake key.
 - Deterministic golden evaluation: 20 fixtures passed. Contract pass rate 1.0, expected completion rate 1.0, controlled failures 8, evidence-insufficient cases 2, accepted unknown citations 0, average rounds 0.8, average tools 0.7, average tokens 12.45, P50 40 ms, P95 60 ms. These are deterministic runtime-contract metrics, not DeepSeek quality metrics.
@@ -141,3 +141,9 @@ The stabilization pass additionally owns `20260725_agent_runtime_stabilization.s
 Before Phase Two can be declared complete, `OPC_SSH_PASSWORD` must be injected through a secure process environment. The deployment script will then create a timestamped backup/release, precheck and apply both Agent migrations, validate the 4/21/10/7/8 postcheck plus exact index names and rollout consistency, switch frontend/backend together, validate Nginx and health, and run a temporary QA-user research probe. The probe must execute at least one tool, complete, return at least one legal citation from its tool evidence snapshot, persist completed run/tool/provider-call audits with provider/model/finish reason/internal request ID/provider request ID/token/latency metadata, verify anonymous/ordinary/disabled-user boundaries, clean up all QA rows, and automatically disable Agent plus roll back on any failure.
 
 Current production inspection, before deployment: provider `deepseek`, model `deepseek-v4-flash`, provider enabled, encrypted API key configured, and prior connection test successful. Agent fields are absent on the deployed Phase-One schema. There is no verified case, so the initial production probe is designed around a verified policy. Native tool-call support is not assumed; controlled `json_plan` remains the deployment default unless official capability is confirmed and explicitly configured.
+
+## Assistant workspace addendum (2026-07-25)
+
+The subsequent workspace pass replaces the original archive-only privacy statement and simple session selector. It adds server-backed active/archived/trash history, strict cursor search, latest-50 plus upward message pagination, automatic/manual titles, pin/rename, daily usage, `latestRun`, 30-day trash retention, restore, and permanent conversation-content purge. The old `GET /sessions` and DELETE-as-archive routes remain compatible.
+
+The `/assistant` client is now split into history, research boundary, conversation, composer, run progress, session menu, and citation/process components. It uses per-session local drafts, delayed first-send session creation, safe Markdown, a document-style answer layout, mobile history drawer, fixed composer, older-message scroll preservation, and bounded network retry without fabricating terminal states. Full delivery details and superseding verification counts are in `docs/assistant-research-workspace.md`.

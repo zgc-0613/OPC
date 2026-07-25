@@ -54,14 +54,21 @@ public class AgentResearchQueryService {
 
     public AgentSessionDetailVO sessionDetail(AuthenticatedUser user, Long sessionId) {
         AiAgentSession session = sessionService.requireOwned(user, sessionId);
-        List<AiAgentMessage> messages = messageMapper.selectSessionMessages(sessionId, 200);
+        List<AiAgentMessage> descending = messageMapper.selectMessagePage(sessionId, null, 51);
+        List<AiAgentMessage> safe = descending == null ? List.of() : descending;
+        boolean hasMore = safe.size() > 50;
+        List<AiAgentMessage> messages = new java.util.ArrayList<>(safe.subList(0, Math.min(50, safe.size())));
+        java.util.Collections.reverse(messages);
         AiAnalysisRun latest = runMapper.selectLatestAgentRunForSession(sessionId);
         AgentRunStatusVO active = latest != null && Set.of("received", "running").contains(latest.getStatus())
                 ? toRun(latest) : null;
         return new AgentSessionDetailVO(
                 toSession(session),
                 (messages == null ? List.<AiAgentMessage>of() : messages).stream().map(this::toMessage).toList(),
-                active
+                hasMore && !messages.isEmpty() ? messages.get(0).getSequenceNo() : null,
+                hasMore,
+                active,
+                latest == null ? null : toRun(latest)
         );
     }
 
@@ -111,7 +118,10 @@ public class AgentResearchQueryService {
 
     private AgentSessionVO toSession(AiAgentSession session) {
         return new AgentSessionVO(
-                session.getId(), session.getTitle(), session.getStatus(), parseJson(session.getProfileJson(), true),
+                session.getId(), session.getTitle(), session.getTitleMode(), session.getStatus(),
+                parseJson(session.getProfileJson(), true), session.getPinnedAt() != null,
+                session.getArchivedAt(), session.getDeletedAt(), session.getPurgeAfter(),
+                session.getActiveRunStatus(),
                 session.getCreatedAt(), session.getUpdatedAt(), session.getLastMessageAt()
         );
     }

@@ -90,6 +90,34 @@ def validate_agent_runtime_postcheck(output):
     }
 
 
+def validate_assistant_workspace_postcheck(output):
+    lines = [line for line in output.splitlines() if line.strip()]
+    if not lines:
+        raise ValueError("assistant workspace postcheck returned no result")
+
+    fields = lines[-1].split("\t")
+    if len(fields) == 5:
+        fields.append("")
+    if len(fields) != 6:
+        raise ValueError(f"assistant workspace postcheck returned {len(fields)} fields instead of 6")
+
+    columns, indexes, message_index_columns, invalid_modes, missing_archived, missing_indexes = fields
+    if [columns, indexes, message_index_columns, invalid_modes, missing_archived] != ["6", "3", "2", "0", "0"] \
+            or missing_indexes:
+        raise ValueError(
+            "assistant workspace database postcheck failed "
+            f"(columns={columns}, indexes={indexes}, message_index_columns={message_index_columns}, "
+            f"invalid_title_modes={invalid_modes}, missing_archived={missing_archived}, "
+            f"missing_indexes={missing_indexes or 'none'})"
+        )
+
+    return {
+        "workspace_columns": int(columns),
+        "workspace_indexes": int(indexes),
+        "message_index_columns": int(message_index_columns),
+    }
+
+
 def is_loopback_listener(value, expected_port):
     listeners = [line.strip() for line in value.splitlines() if line.strip()]
     if not listeners:

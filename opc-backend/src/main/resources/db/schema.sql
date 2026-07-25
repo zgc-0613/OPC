@@ -368,6 +368,7 @@ CREATE TABLE IF NOT EXISTS ai_agent_sessions (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT NOT NULL,
     title VARCHAR(120) NOT NULL,
+    title_mode VARCHAR(10) NOT NULL DEFAULT 'auto',
     status VARCHAR(20) NOT NULL DEFAULT 'active',
     profile_json JSON NULL,
     research_context_json JSON NULL,
@@ -375,10 +376,18 @@ CREATE TABLE IF NOT EXISTS ai_agent_sessions (
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     last_message_at DATETIME(6) NULL,
+    pinned_at DATETIME(6) NULL,
+    archived_at DATETIME(6) NULL,
+    deleted_at DATETIME(6) NULL,
+    purge_after DATETIME(6) NULL,
+    purged_at DATETIME(6) NULL,
     CONSTRAINT chk_agent_session_status CHECK (status IN ('active', 'archived')),
     CONSTRAINT fk_agent_sessions_user FOREIGN KEY (user_id) REFERENCES platform_users(id)
         ON DELETE RESTRICT ON UPDATE RESTRICT,
-    INDEX idx_agent_sessions_user_activity (user_id, status, last_message_at, id)
+    INDEX idx_agent_sessions_user_activity (user_id, status, last_message_at, id),
+    INDEX idx_agent_sessions_history_active (user_id, deleted_at, pinned_at, last_message_at, id),
+    INDEX idx_agent_sessions_history_archived (user_id, archived_at, last_message_at, id),
+    INDEX idx_agent_sessions_purge_due (purge_after, purged_at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='User-owned Agent research sessions';
 

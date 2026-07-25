@@ -4,6 +4,9 @@ import com.opc.platform.ai.config.AiWebMvcConfig;
 import com.opc.platform.ai.service.AgentResearchReceipt;
 import com.opc.platform.ai.service.AgentResearchQueryService;
 import com.opc.platform.ai.service.AgentResearchService;
+import com.opc.platform.ai.service.AgentSessionHistoryService;
+import com.opc.platform.ai.vo.AgentSessionHistoryPageVO;
+import com.opc.platform.ai.vo.AgentSessionVO;
 import com.opc.platform.common.config.SecurityConfig;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
@@ -26,6 +29,7 @@ import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -34,6 +38,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -43,11 +48,12 @@ class AgentResearchControllerTest {
     @Autowired private WebApplicationContext applicationContext;
     @Autowired private UserAuthService userAuthService;
     @Autowired private AgentResearchService researchService;
+    @Autowired private AgentSessionHistoryService historyService;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        reset(userAuthService, researchService);
+        reset(userAuthService, researchService, historyService);
         mockMvc = MockMvcBuilders.webAppContextSetup(applicationContext)
                 .apply(springSecurity()).build();
     }
@@ -103,6 +109,42 @@ class AgentResearchControllerTest {
         verify(researchService, never()).submit(any(), anyLong(), any());
     }
 
+    @Test
+    void authenticatedUserCanReadThePaginatedHistoryContract() throws Exception {
+        UserLoginVO user = new UserLoginVO();
+        user.setUserId(42L);
+        user.setUsername("owner");
+        user.setEmail("owner@example.com");
+        when(userAuthService.getCurrentUser("valid-token")).thenReturn(user);
+        AgentSessionVO session = new AgentSessionVO(
+                10L, "湖北人工智能创业机会", "auto", "active", null,
+                true, null, null, null, null, null, null, null);
+        when(historyService.history(any(), any(), any(), any(), anyInt()))
+                .thenReturn(new AgentSessionHistoryPageVO(java.util.List.of(session), "next", true));
+
+        mockMvc.perform(get("/api/ai/research/sessions/history")
+                        .header("Authorization", "Bearer valid-token")
+                        .param("scope", "active")
+                        .param("limit", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].sessionId").value(10))
+                .andExpect(jsonPath("$.data.items[0].title").value("湖北人工智能创业机会"))
+                .andExpect(jsonPath("$.data.nextCursor").value("next"))
+                .andExpect(jsonPath("$.data.hasMore").value(true));
+    }
+
+    @Test
+    void anonymousHistoryRequestNeverReachesHistoryService() throws Exception {
+        doThrow(new BusinessException(ErrorCode.UNAUTHORIZED, "请先登录"))
+                .when(userAuthService).getCurrentUser(null);
+
+        mockMvc.perform(get("/api/ai/research/sessions/history"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(401));
+
+        verify(historyService, never()).history(any(), any(), any(), any(), anyInt());
+    }
+
     @Configuration
     @EnableWebMvc
     @Import({
@@ -116,5 +158,6 @@ class AgentResearchControllerTest {
         @Bean UserAuthService userAuthService() { return mock(UserAuthService.class); }
         @Bean AgentResearchService agentResearchService() { return mock(AgentResearchService.class); }
         @Bean AgentResearchQueryService agentResearchQueryService() { return mock(AgentResearchQueryService.class); }
+        @Bean AgentSessionHistoryService agentSessionHistoryService() { return mock(AgentSessionHistoryService.class); }
     }
 }

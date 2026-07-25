@@ -21,6 +21,7 @@ from scripts.deployment_hardening import (
     require_secret_environment,
     validate_agent_probe_record,
     validate_agent_runtime_postcheck,
+    validate_assistant_workspace_postcheck,
 )
 
 
@@ -45,6 +46,9 @@ AGENT_RUNTIME_PRECHECK = ROOT / "deploy" / "sql" / "20260725_agent_runtime_prech
 AGENT_RUNTIME_MIGRATION = ROOT / "deploy" / "sql" / "20260725_agent_runtime.sql"
 AGENT_RUNTIME_STABILIZATION_MIGRATION = ROOT / "deploy" / "sql" / "20260725_agent_runtime_stabilization.sql"
 AGENT_RUNTIME_POSTCHECK = ROOT / "deploy" / "sql" / "20260725_agent_runtime_postcheck.sql"
+ASSISTANT_WORKSPACE_PRECHECK = ROOT / "deploy" / "sql" / "20260725_assistant_workspace_precheck.sql"
+ASSISTANT_WORKSPACE_MIGRATION = ROOT / "deploy" / "sql" / "20260725_assistant_workspace.sql"
+ASSISTANT_WORKSPACE_POSTCHECK = ROOT / "deploy" / "sql" / "20260725_assistant_workspace_postcheck.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 
@@ -261,6 +265,9 @@ def deploy(client):
         AGENT_RUNTIME_MIGRATION,
         AGENT_RUNTIME_STABILIZATION_MIGRATION,
         AGENT_RUNTIME_POSTCHECK,
+        ASSISTANT_WORKSPACE_PRECHECK,
+        ASSISTANT_WORKSPACE_MIGRATION,
+        ASSISTANT_WORKSPACE_POSTCHECK,
     ]
     for path in required:
         if not path.exists():
@@ -326,6 +333,9 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     sftp.put(str(AGENT_RUNTIME_MIGRATION), f"{release}/agent-runtime.sql")
     sftp.put(str(AGENT_RUNTIME_STABILIZATION_MIGRATION), f"{release}/agent-runtime-stabilization.sql")
     sftp.put(str(AGENT_RUNTIME_POSTCHECK), f"{release}/agent-runtime-postcheck.sql")
+    sftp.put(str(ASSISTANT_WORKSPACE_PRECHECK), f"{release}/assistant-workspace-precheck.sql")
+    sftp.put(str(ASSISTANT_WORKSPACE_MIGRATION), f"{release}/assistant-workspace.sql")
+    sftp.put(str(ASSISTANT_WORKSPACE_POSTCHECK), f"{release}/assistant-workspace-postcheck.sql")
     sftp.put(str(NGINX), uploaded_nginx)
     sftp.put(str(SYSTEMD), uploaded_systemd)
     sftp.close()
@@ -347,6 +357,9 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"{release}/agent-runtime.sql": sha256(AGENT_RUNTIME_MIGRATION),
         f"{release}/agent-runtime-stabilization.sql": sha256(AGENT_RUNTIME_STABILIZATION_MIGRATION),
         f"{release}/agent-runtime-postcheck.sql": sha256(AGENT_RUNTIME_POSTCHECK),
+        f"{release}/assistant-workspace-precheck.sql": sha256(ASSISTANT_WORKSPACE_PRECHECK),
+        f"{release}/assistant-workspace.sql": sha256(ASSISTANT_WORKSPACE_MIGRATION),
+        f"{release}/assistant-workspace-postcheck.sql": sha256(ASSISTANT_WORKSPACE_POSTCHECK),
         uploaded_nginx: sha256(NGINX),
         uploaded_systemd: sha256(SYSTEMD),
     }
@@ -441,6 +454,27 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
             validate_agent_runtime_postcheck(agent_postcheck_output)
         except ValueError as exception:
             raise RuntimeError(f"Agent Runtime database postcheck failed: {exception}") from exception
+        _, assistant_precheck_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/assistant-workspace-precheck.sql'",
+        )
+        if assistant_precheck_output.splitlines()[-1:] != ["3\t5\t3"]:
+            raise RuntimeError("Assistant workspace database precheck failed")
+        run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/assistant-workspace.sql'",
+        )
+        _, assistant_postcheck_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/assistant-workspace-postcheck.sql'",
+        )
+        try:
+            validate_assistant_workspace_postcheck(assistant_postcheck_output)
+        except ValueError as exception:
+            raise RuntimeError(f"Assistant workspace database postcheck failed: {exception}") from exception
         run(
             client,
             "set -euo pipefail\n"
@@ -788,7 +822,6 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 method="POST",
                 headers=user_headers,
                 payload={
-                    "title": "Deployment Agent probe",
                     "profile": {
                         "ventureType": "solo_company",
                         "regionId": hubei["id"],
@@ -911,6 +944,64 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 max_model_rounds=int(ai_settings_data.get("agentMaxModelRounds") or 4),
                 max_tool_calls=int(ai_settings_data.get("agentMaxToolCalls") or 6),
             )
+            _, agent_session_detail = request_json(
+                f"https://findopc.online/api/ai/research/sessions/{agent_session_id}",
+                headers=user_headers,
+            )
+            agent_detail_data = agent_session_detail.get("data") or {}
+            detail_session = agent_detail_data.get("session") or {}
+            latest_run = agent_detail_data.get("latestRun") or {}
+            if (
+                agent_session_detail.get("code") != 200
+                or detail_session.get("titleMode") != "auto"
+                or detail_session.get("title") in (None, "", "新研究")
+                or int(latest_run.get("runId") or 0) != int(agent_run_id)
+            ):
+                raise RuntimeError("Production Agent session detail did not restore automatic title or latestRun")
+            _, message_page = request_json(
+                f"https://findopc.online/api/ai/research/sessions/{agent_session_id}/messages?limit=50",
+                headers=user_headers,
+            )
+            if message_page.get("code") != 200 or len((message_page.get("data") or {}).get("items") or []) < 2:
+                raise RuntimeError("Production Agent message pagination failed")
+            _, usage_body = request_json(
+                "https://findopc.online/api/ai/research/usage",
+                headers=user_headers,
+            )
+            if usage_body.get("code") != 200 or int((usage_body.get("data") or {}).get("usedTokens") or 0) < 1:
+                raise RuntimeError("Production Agent usage projection failed")
+            _, updated_session = request_json(
+                f"https://findopc.online/api/ai/research/sessions/{agent_session_id}",
+                method="PATCH",
+                headers=user_headers,
+                payload={"title": "Deployment Agent probe", "pinned": True},
+            )
+            updated_data = updated_session.get("data") or {}
+            if updated_session.get("code") != 200 or updated_data.get("titleMode") != "manual" or not updated_data.get("pinned"):
+                raise RuntimeError("Production Agent rename or pin failed")
+            _, history_body = request_json(
+                "https://findopc.online/api/ai/research/sessions/history?scope=active&q=Deployment%20Agent%20probe&limit=10",
+                headers=user_headers,
+            )
+            history_ids = [int(row.get("sessionId")) for row in ((history_body.get("data") or {}).get("items") or [])]
+            if history_body.get("code") != 200 or int(agent_session_id) not in history_ids:
+                raise RuntimeError("Production Agent server history search failed")
+            lifecycle_probes = (
+                ("archive", "archived"),
+                ("unarchive", "active"),
+                ("trash", "trash"),
+                ("restore", "active"),
+            )
+            for action, expected_state in lifecycle_probes:
+                _, lifecycle_body = request_json(
+                    f"https://findopc.online/api/ai/research/sessions/{agent_session_id}/{action}",
+                    method="POST",
+                    headers=user_headers,
+                )
+                lifecycle_data = lifecycle_body.get("data") or {}
+                actual_state = "trash" if lifecycle_data.get("deletedAt") else lifecycle_data.get("status")
+                if lifecycle_body.get("code") != 200 or actual_state != expected_state:
+                    raise RuntimeError(f"Production Agent session {action} probe failed")
             _, admin_agent_audit = request_json(
                 f"https://admin.findopc.online/api/admin/ai-agent-runs/{agent_run_id}",
                 headers=admin_headers,

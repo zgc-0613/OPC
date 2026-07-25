@@ -41,9 +41,31 @@ public interface AiAgentMessageMapper extends BaseMapper<AiAgentMessage> {
     );
 
     @Select("""
+            <script>
+            SELECT * FROM ai_agent_messages
+            WHERE session_id=#{sessionId}
+            <if test="beforeSequence != null">AND sequence_no &lt; #{beforeSequence}</if>
+            ORDER BY sequence_no DESC
+            LIMIT #{limit}
+            </script>
+            """)
+    List<AiAgentMessage> selectMessagePage(
+            @Param("sessionId") Long sessionId,
+            @Param("beforeSequence") Integer beforeSequence,
+            @Param("limit") int limit
+    );
+
+    @Select("""
             SELECT * FROM ai_agent_messages
             WHERE run_id=#{runId} AND role='assistant' AND status='completed'
             ORDER BY sequence_no DESC LIMIT 1
             """)
     AiAgentMessage selectFinalByRun(@Param("runId") Long runId);
+
+    @Update("""
+            UPDATE ai_agent_messages
+            SET content='[已删除]', citations_json=JSON_ARRAY()
+            WHERE session_id=#{sessionId}
+            """)
+    int purgeSessionContent(@Param("sessionId") Long sessionId);
 }

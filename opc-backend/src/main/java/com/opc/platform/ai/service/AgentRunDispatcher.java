@@ -61,7 +61,8 @@ public class AgentRunDispatcher {
         AiAgentSession session = sessionMapper.selectById(run.getSessionId());
         AiAgentMessage message = messageMapper.selectById(run.getUserMessageId());
         if (storedUser == null || !"active".equals(storedUser.getStatus())
-                || session == null || message == null || !"active".equals(session.getStatus())) {
+                || session == null || message == null || !"active".equals(session.getStatus())
+                || session.getDeletedAt() != null || session.getPurgedAt() != null) {
             lifecycle.fail(lease, "failed", ErrorCode.CONFLICT, "AGENT_RECOVERY_CONTEXT_INVALID");
             return;
         }

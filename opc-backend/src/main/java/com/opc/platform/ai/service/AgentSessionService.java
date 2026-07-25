@@ -31,6 +31,7 @@ public class AgentSessionService {
     private final AiAgentSessionMapper sessionMapper;
     private final AiAgentMessageMapper messageMapper;
     private final AiAnalysisRunMapper runMapper;
+    private final AgentSessionTitlePolicy titlePolicy;
 
     public AiAgentSession create(AuthenticatedUser user, String requestedTitle, String profileJson) {
         String title = StringUtils.hasText(requestedTitle) ? requestedTitle.trim() : "新研究";
@@ -43,6 +44,7 @@ public class AgentSessionService {
         AiAgentSession session = new AiAgentSession();
         session.setUserId(user.userId());
         session.setTitle(title);
+        session.setTitleMode(StringUtils.hasText(requestedTitle) ? "manual" : "auto");
         session.setStatus("active");
         session.setProfileJson(profileJson);
         session.setVersion(0L);
@@ -53,6 +55,8 @@ public class AgentSessionService {
     public List<AiAgentSession> list(AuthenticatedUser user) {
         List<AiAgentSession> sessions = sessionMapper.selectList(new LambdaQueryWrapper<AiAgentSession>()
                 .eq(AiAgentSession::getUserId, user.userId())
+                .isNull(AiAgentSession::getDeletedAt)
+                .isNull(AiAgentSession::getPurgedAt)
                 .orderByDesc(AiAgentSession::getLastMessageAt)
                 .orderByDesc(AiAgentSession::getId)
                 .last("LIMIT 100"));
@@ -61,7 +65,7 @@ public class AgentSessionService {
 
     public AiAgentSession requireOwned(AuthenticatedUser user, Long sessionId) {
         AiAgentSession session = sessionMapper.selectOwned(sessionId, user.userId());
-        if (session == null) {
+        if (session == null || session.getPurgedAt() != null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "研究会话不存在");
         }
         return session;
@@ -69,7 +73,7 @@ public class AgentSessionService {
 
     public AiAgentSession lockOwned(AuthenticatedUser user, Long sessionId) {
         AiAgentSession session = sessionMapper.selectOwnedForUpdate(sessionId, user.userId());
-        if (session == null) {
+        if (session == null || session.getPurgedAt() != null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "研究会话不存在");
         }
         return session;
@@ -115,7 +119,8 @@ public class AgentSessionService {
         if (session == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "研究会话不存在");
         }
-        if (!"active".equals(session.getStatus())) {
+        if (!"active".equals(session.getStatus()) || session.getDeletedAt() != null
+                || session.getPurgedAt() != null) {
             throw new BusinessException(ErrorCode.CONFLICT, "已归档会话不能继续发送消息");
         }
         validateMessage(role, content, status, citationsJson);
@@ -128,6 +133,10 @@ public class AgentSessionService {
         message.setRunId(runId);
         message.setCitationsJson(citationsJson);
         messageMapper.insert(message);
+        if ("user".equals(role)) {
+            sessionMapper.applyAutomaticTitle(
+                    sessionId, user.userId(), titlePolicy.fromFirstQuestion(content));
+        }
         if (sessionMapper.touchActive(sessionId, user.userId()) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "研究会话状态已改变");
         }

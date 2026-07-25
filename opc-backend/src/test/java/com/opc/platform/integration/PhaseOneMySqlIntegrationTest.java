@@ -22,6 +22,7 @@ import com.opc.platform.ai.provider.AiProviderRequest;
 import com.opc.platform.ai.provider.AiProviderResponse;
 import com.opc.platform.ai.service.AiTaskExecutionService;
 import com.opc.platform.ai.service.AgentSessionService;
+import com.opc.platform.ai.service.AgentSessionHistoryService;
 import com.opc.platform.ai.service.AgentResearchService;
 import com.opc.platform.ai.service.AgentResearchQueryService;
 import com.opc.platform.ai.service.AgentOrchestrator;
@@ -96,7 +97,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(properties = {
         "spring.main.lazy-initialization=true",
-        "opc.ai.agent.worker-enabled=false"
+        "opc.ai.agent.worker-enabled=false",
+        "opc.ai.agent.history-purge-enabled=false"
 })
 @Testcontainers(disabledWithoutDocker = false)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -137,6 +139,7 @@ class PhaseOneMySqlIntegrationTest {
     @Autowired private SourceMapper sourceMapper;
     @Autowired private IndustryTagService industryTagService;
     @Autowired private AgentSessionService agentSessionService;
+    @Autowired private AgentSessionHistoryService agentSessionHistoryService;
     @Autowired private AgentToolRegistry agentToolRegistry;
     @Autowired private AgentResearchService agentResearchService;
     @Autowired private AgentResearchQueryService agentResearchQueryService;
@@ -211,6 +214,128 @@ class PhaseOneMySqlIntegrationTest {
                     (analysis_run_id,step_no,tool_name,arguments_json,status)
                 VALUES (999,1,'search_cases','{}','pending')
                 """));
+    }
+
+    @Test
+    void assistantWorkspaceMigrationIsRepeatableAndBackfillsArchivedSessions() throws Exception {
+        jdbc.execute("""
+                CREATE TABLE platform_users (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    username VARCHAR(100) NOT NULL,
+                    email VARCHAR(255),
+                    status VARCHAR(20) NOT NULL DEFAULT 'active'
+                ) ENGINE=InnoDB
+                """);
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (1,'owner','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES (10,1,'Archived research','archived')");
+
+        runAssistantWorkspaceMigration();
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES (11,1,'New automatic research','active')");
+        runAssistantWorkspaceMigration();
+
+        Map<String, Object> result = jdbc.queryForMap(Files.readString(
+                Path.of("..", "deploy", "sql", "20260725_assistant_workspace_postcheck.sql")));
+        assertEquals(6, ((Number) result.get("workspace_columns")).intValue());
+        assertEquals(3, ((Number) result.get("workspace_indexes")).intValue());
+        assertEquals(2, ((Number) result.get("message_order_index_columns")).intValue());
+        assertEquals(0, ((Number) result.get("invalid_title_modes")).intValue());
+        assertEquals(0, ((Number) result.get("missing_archived_timestamps")).intValue());
+        assertEquals("", result.get("missing_indexes"));
+        assertEquals("manual", jdbc.queryForObject(
+                "SELECT title_mode FROM ai_agent_sessions WHERE id=10", String.class));
+        assertEquals("auto", jdbc.queryForObject(
+                "SELECT title_mode FROM ai_agent_sessions WHERE id=11", String.class));
+        assertNotNull(jdbc.queryForObject(
+                "SELECT archived_at FROM ai_agent_sessions WHERE id=10", LocalDateTime.class));
+    }
+
+    @Test
+    void assistantWorkspaceScheduledPurgeUsesMySqlLockingAndScrubsReadableContent() throws Exception {
+        jdbc.execute("""
+                CREATE TABLE platform_users (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    username VARCHAR(100) NOT NULL,
+                    email VARCHAR(255),
+                    status VARCHAR(20) NOT NULL DEFAULT 'active'
+                ) ENGINE=InnoDB
+                """);
+        runAgentRuntimeWorkspaceMigrations();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (1,'owner','active')");
+        jdbc.update("""
+                INSERT INTO ai_agent_sessions
+                    (id,user_id,title,title_mode,status,profile_json,deleted_at,purge_after)
+                VALUES (10,1,'Private research','manual','active',JSON_OBJECT('region','Hubei'),
+                        DATE_SUB(NOW(6),INTERVAL 31 DAY),DATE_SUB(NOW(6),INTERVAL 1 DAY))
+                """);
+        jdbc.update("""
+                INSERT INTO ai_agent_messages
+                    (session_id,role,content,status,sequence_no,citations_json)
+                VALUES (10,'user','Sensitive question','completed',1,JSON_ARRAY(JSON_OBJECT('title','Private source')))
+                """);
+
+        assertEquals(1, agentSessionHistoryService.purgeDue());
+
+        Map<String, Object> session = jdbc.queryForMap("""
+                SELECT title,title_mode,profile_json,purged_at
+                FROM ai_agent_sessions WHERE id=10
+                """);
+        assertEquals("[已删除]", session.get("title"));
+        assertEquals("manual", session.get("title_mode"));
+        assertEquals(null, session.get("profile_json"));
+        assertNotNull(session.get("purged_at"));
+        Map<String, Object> message = jdbc.queryForMap(
+                "SELECT content,JSON_LENGTH(citations_json) AS citation_count FROM ai_agent_messages WHERE session_id=10");
+        assertEquals("[已删除]", message.get("content"));
+        assertEquals(0, ((Number) message.get("citation_count")).intValue());
+    }
+
+    @Test
+    void legacySessionListHidesTrashAndPurgedSessionsAndPurgedDetailsAreUnreadable() throws Exception {
+        jdbc.execute("""
+                CREATE TABLE platform_users (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    username VARCHAR(100) NOT NULL,
+                    email VARCHAR(255),
+                    status VARCHAR(20) NOT NULL DEFAULT 'active'
+                ) ENGINE=InnoDB
+                """);
+        runAgentRuntimeWorkspaceMigrations();
+        jdbc.update("INSERT INTO platform_users (id,username,email,status) VALUES (42,'owner','owner@example.com','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES (10,42,'Visible','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status,deleted_at,purge_after) VALUES (11,42,'Trash','active',NOW(6),DATE_ADD(NOW(6),INTERVAL 30 DAY))");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status,deleted_at,purge_after,purged_at) VALUES (12,42,'[已删除]','active',DATE_SUB(NOW(6),INTERVAL 31 DAY),DATE_SUB(NOW(6),INTERVAL 1 DAY),NOW(6))");
+        AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
+
+        assertEquals(List.of(10L), agentSessionService.list(owner).stream().map(session -> session.getId()).toList());
+        assertThrows(BusinessException.class, () -> agentSessionService.requireOwned(owner, 12L));
+    }
+
+    @Test
+    void assistantUsageProjectionReadsOnlyTodaysAgentTokensFromMySql() throws Exception {
+        jdbc.execute("""
+                CREATE TABLE platform_users (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    username VARCHAR(100) NOT NULL,
+                    email VARCHAR(255),
+                    status VARCHAR(20) NOT NULL DEFAULT 'active'
+                ) ENGINE=InnoDB
+                """);
+        runAgentRuntimeWorkspaceMigrations();
+        jdbc.update("INSERT INTO platform_users (id,username,email,status) VALUES (42,'owner','owner@example.com','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES (10,42,'Usage','active')");
+        jdbc.update("INSERT INTO ai_agent_messages (id,session_id,role,content,status,sequence_no) VALUES (20,10,'user','Question','completed',1)");
+        jdbc.update("""
+                INSERT INTO ai_analysis_runs
+                    (id,user_id,task_type,session_id,user_message_id,idempotency_key,status,
+                     provider,model_id,prompt_version,evidence_hash,prompt_tokens,completion_tokens,total_tokens)
+                VALUES (30,42,'agent_research',10,20,'usage-today','completed',
+                        'fake','fake','agent-v1',REPEAT('a',64),10,5,15)
+                """);
+        AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
+
+        assertEquals(15L, agentSessionHistoryService.usage(owner).usedTokens());
     }
 
     @Test
@@ -572,8 +697,7 @@ class PhaseOneMySqlIntegrationTest {
                     status VARCHAR(20) NOT NULL DEFAULT 'active'
                 ) ENGINE=InnoDB
                 """);
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active'),(43,'other','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         AuthenticatedUser other = new AuthenticatedUser(43L, "other", "other@example.com");
@@ -598,8 +722,7 @@ class PhaseOneMySqlIntegrationTest {
     @Test
     void receivedRunPreventsArchiveAndRemainsVisibleAfterRefresh() throws Exception {
         createAgentUserTable();
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var session = agentSessionService.create(owner, "Durable received run", null);
@@ -805,8 +928,7 @@ class PhaseOneMySqlIntegrationTest {
                     status VARCHAR(20) NOT NULL DEFAULT 'active'
                 ) ENGINE=InnoDB
                 """);
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         jdbc.update("""
                 UPDATE ai_model_settings
@@ -841,8 +963,7 @@ class PhaseOneMySqlIntegrationTest {
     @Test
     void disabledAgentRuntimeRejectsClarificationWithoutPersistingConversation() throws Exception {
         createAgentUserTable();
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var session = agentSessionService.create(owner, "Disabled runtime", null);
@@ -872,8 +993,7 @@ class PhaseOneMySqlIntegrationTest {
                     status VARCHAR(20) NOT NULL DEFAULT 'active'
                 ) ENGINE=InnoDB
                 """);
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         insertSource(1L, "Policy source", "published", "verified", 0L);
         insertPolicy(21L, 1L, "Hubei support", "verified", 0L);
@@ -937,8 +1057,7 @@ class PhaseOneMySqlIntegrationTest {
     @Test
     void sameUserCannotStartConcurrentAgentRunsAcrossSessions() throws Exception {
         createAgentUserTable();
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var firstSession = agentSessionService.create(owner, "First run", null);
@@ -987,8 +1106,7 @@ class PhaseOneMySqlIntegrationTest {
     @Test
     void evidenceChangeAfterToolSearchPreventsAgentCompletion() throws Exception {
         createAgentUserTable();
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         insertSource(1L, "Policy source", "published", "verified", 0L);
         insertPolicy(21L, 1L, "Hubei support", "verified", 0L);
@@ -1049,8 +1167,7 @@ class PhaseOneMySqlIntegrationTest {
     @Test
     void concurrentAgentMessagesKeepUniqueStableSequenceNumbers() throws Exception {
         createAgentUserTable();
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var session = agentSessionService.create(owner, "Concurrent messages", null);
@@ -1080,8 +1197,7 @@ class PhaseOneMySqlIntegrationTest {
     @Test
     void otherUserCannotCancelOwnedRun() throws Exception {
         createAgentUserTable();
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active'),(43,'other','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         AuthenticatedUser other = new AuthenticatedUser(43L, "other", "other@example.com");
@@ -1100,8 +1216,7 @@ class PhaseOneMySqlIntegrationTest {
     @Test
     void cancelledAgentRunRejectsLateCompletionSettlement() throws Exception {
         createAgentUserTable();
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var session = agentSessionService.create(owner, "Cancellation race", null);
@@ -1147,8 +1262,7 @@ class PhaseOneMySqlIntegrationTest {
     @Test
     void expiredAgentCleanupUsesExpiredTerminalState() throws Exception {
         createAgentUserTable();
-        runAgentRuntimeMigration();
-        runAgentRuntimeStabilizationMigration();
+        runAgentRuntimeWorkspaceMigrations();
         jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
         AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
         var session = agentSessionService.create(owner, "Expired run", null);
@@ -1687,6 +1801,19 @@ class PhaseOneMySqlIntegrationTest {
             ScriptUtils.executeSqlScript(connection, new FileSystemResource(
                     Path.of("..", "deploy", "sql", "20260725_agent_runtime_stabilization.sql")));
         }
+    }
+
+    private void runAssistantWorkspaceMigration() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource(
+                    Path.of("..", "deploy", "sql", "20260725_assistant_workspace.sql")));
+        }
+    }
+
+    private void runAgentRuntimeWorkspaceMigrations() throws SQLException {
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        runAssistantWorkspaceMigration();
     }
 
     private void insertSource(Long id, String title, String status, String evidenceStatus, Long revision) {

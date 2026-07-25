@@ -43,6 +43,14 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
     Long sumCompletedTokensToday(@Param("userId") Long userId);
 
     @Select("""
+            SELECT COALESCE(SUM(total_tokens),0)
+            FROM ai_analysis_runs
+            WHERE user_id=#{userId} AND task_type='agent_research'
+              AND created_at >= CURRENT_DATE()
+            """)
+    Long sumAgentTokensToday(@Param("userId") Long userId);
+
+    @Select("""
             SELECT COUNT(*)
             FROM ai_analysis_runs
             WHERE user_id = #{userId}
@@ -218,6 +226,13 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
             ORDER BY id DESC LIMIT 1
             """)
     AiAnalysisRun selectLatestAgentRunForSession(@Param("sessionId") Long sessionId);
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET result_json=NULL
+            WHERE session_id=#{sessionId} AND task_type='agent_research'
+            """)
+    int purgeSessionContent(@Param("sessionId") Long sessionId);
 
     @Update("""
             UPDATE ai_analysis_runs

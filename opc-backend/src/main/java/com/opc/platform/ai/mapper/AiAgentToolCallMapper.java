@@ -5,6 +5,7 @@ import com.opc.platform.ai.entity.AiAgentToolCall;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -17,4 +18,13 @@ public interface AiAgentToolCallMapper extends BaseMapper<AiAgentToolCall> {
             ORDER BY step_no ASC
             """)
     List<AiAgentToolCall> selectByRunId(@Param("runId") Long runId);
+
+    @Update("""
+            UPDATE ai_agent_tool_calls tc
+            JOIN ai_analysis_runs r ON r.id=tc.analysis_run_id
+            SET tc.arguments_json=JSON_OBJECT(), tc.result_summary_json=JSON_OBJECT(),
+                tc.evidence_hash=NULL
+            WHERE r.session_id=#{sessionId} AND r.task_type='agent_research'
+            """)
+    int purgeSessionContent(@Param("sessionId") Long sessionId);
 }

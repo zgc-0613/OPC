@@ -7,6 +7,7 @@ from scripts.deployment_hardening import (
     require_secret_environment,
     validate_agent_probe_record,
     validate_agent_runtime_postcheck,
+    validate_assistant_workspace_postcheck,
 )
 
 
@@ -74,6 +75,14 @@ class DeploymentHardeningTest(unittest.TestCase):
             validate_agent_runtime_postcheck(
                 "4\t21\t10\t7\t7\tai_agent_messages.idx_agent_messages_run\t"
                 "ai_agent_messages.idx_agent_messages_extra\t0"
+            )
+
+    def test_assistant_workspace_postcheck_requires_columns_indexes_and_clean_backfills(self):
+        validate_assistant_workspace_postcheck("6\t3\t2\t0\t0\t")
+
+        with self.assertRaisesRegex(ValueError, "assistant workspace"):
+            validate_assistant_workspace_postcheck(
+                "6\t2\t2\t1\t1\tidx_agent_sessions_history_active"
             )
 
     def test_agent_runtime_stabilization_migration_runs_before_postcheck(self):
@@ -259,6 +268,21 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertLess(execution.index("agent-runtime.sql'"), execution.index("agent-runtime-postcheck.sql"))
         self.assertIn("Agent Runtime database postcheck failed", body)
 
+    def test_assistant_workspace_migration_runs_after_agent_runtime_and_before_service_restart(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
+
+        for name in (
+            "20260725_assistant_workspace_precheck.sql",
+            "20260725_assistant_workspace.sql",
+            "20260725_assistant_workspace_postcheck.sql",
+        ):
+            self.assertIn(name, deploy)
+        self.assertLess(body.index("agent-runtime-postcheck.sql'"), body.index("assistant-workspace-precheck.sql'"))
+        self.assertLess(body.index("assistant-workspace-precheck.sql'"), body.index("assistant-workspace.sql'"))
+        self.assertLess(body.index("assistant-workspace.sql'"), body.index("assistant-workspace-postcheck.sql'"))
+        self.assertIn("Assistant workspace database postcheck failed", body)
+
     def test_agent_probe_requires_async_completion_tool_citation_and_database_audit(self):
         deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
@@ -267,6 +291,14 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertIn("/messages", body)
         self.assertIn("expected_code=202", body)
         self.assertIn("/api/ai/research/runs/", body)
+        self.assertIn("/sessions/history?scope=active", body)
+        self.assertIn("/messages?limit=50", body)
+        self.assertIn("/api/ai/research/usage", body)
+        self.assertIn('method="PATCH"', body)
+        self.assertIn('("archive", "archived")', body)
+        self.assertIn('("trash", "trash")', body)
+        self.assertIn('detail_session.get("titleMode") != "auto"', body)
+        self.assertIn('latest_run.get("runId")', body)
         self.assertIn('agent_run_data.get("status") != "completed"', body)
         self.assertIn('agent_run_data.get("toolCallCount", 0) < 1', body)
         self.assertIn('len(agent_run_data.get("citations") or []) < 1', body)
