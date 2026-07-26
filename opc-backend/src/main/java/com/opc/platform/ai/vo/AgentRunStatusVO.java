@@ -9,6 +9,7 @@ public record AgentRunStatusVO(
         Long runId,
         Long sessionId,
         String status,
+        String retryContent,
         String currentStage,
         Integer stepCount,
         Integer toolCallCount,
@@ -24,6 +25,7 @@ public record AgentRunStatusVO(
         String finishReason,
         String requestId,
         Long latencyMs,
+        JsonNode structuredResult,
         LocalDateTime createdAt,
         LocalDateTime completedAt
 ) {

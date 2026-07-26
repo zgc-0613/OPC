@@ -1,5 +1,5 @@
 <template>
-  <div ref="transcript" class="conversation" @scroll="handleScroll">
+  <div ref="transcript" class="conversation" data-scroll-owner="conversation" role="log" aria-live="polite" aria-relevant="additions" @scroll="handleScroll">
     <button v-if="hasMore" class="load-older" type="button" :disabled="loadingOlder" @click="$emit('load-older')">
       <LoaderCircle v-if="loadingOlder" class="spin" :size="15" /><ArrowUp v-else :size="15" />{{ loadingOlder ? '正在读取' : '加载更早消息' }}
     </button>
@@ -16,7 +16,7 @@
     <article v-for="message in messages" :key="message.messageId" class="message" :class="`is-${message.role}`">
       <header><span>{{ message.role === 'user' ? '你的问题' : 'SOLOFIRM 智能体' }}</span><time>{{ formatDate(message.createdAt) }}</time></header>
       <p v-if="message.role === 'user'">{{ message.content }}</p>
-      <div v-else class="assistant-markdown" v-html="renderSafeMarkdown(message.content)"></div>
+      <div v-else class="assistant-markdown" v-html="renderMessage(message)"></div>
       <footer v-if="message.role === 'assistant'">
         <button type="button" @click="copyMessage(message)"><Check v-if="copiedId === message.messageId" :size="15" /><Copy v-else :size="15" />{{ copiedId === message.messageId ? '已复制' : '复制回答' }}</button>
         <button v-if="message.citations?.length" class="citation-trigger" type="button" @click="$emit('citations', message)"><BookOpen :size="15" />{{ message.citations.length }} 条引用</button>
@@ -25,6 +25,13 @@
       </footer>
     </article>
 
+    <AssistantEvidencePanel
+      v-if="evidenceRunId"
+      :run-id="evidenceRunId"
+      :items="evidenceItems"
+      :loading="evidenceLoading"
+      :error="evidenceError"
+    />
     <AssistantRunProgress :run="run" :network-status="networkStatus" :cancelling="cancelling" @cancel="$emit('cancel')" @retry="$emit('retry')" @resume="$emit('resume')" />
     <div ref="bottom"></div>
     <button v-if="showJump" class="jump-bottom" type="button" @click="scrollToEnd('smooth')"><ArrowDown :size="17" />回到底部</button>
@@ -35,9 +42,16 @@
 import { nextTick, ref } from 'vue'
 import { ArrowDown, ArrowUp, BookOpen, BriefcaseBusiness, Check, Copy, FileCheck2, FileSearch, GitCompareArrows, Landmark, ListTree, LoaderCircle } from 'lucide-vue-next'
 import AssistantRunProgress from './AssistantRunProgress.vue'
+import AssistantEvidencePanel from './AssistantEvidencePanel.vue'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 
-defineProps({ messages: { type: Array, default: () => [] }, run: { type: Object, default: null }, hasMore: Boolean, loadingOlder: Boolean, draftMode: Boolean, networkStatus: { type: String, default: 'connected' }, cancelling: Boolean })
+const props = defineProps({
+  messages: { type: Array, default: () => [] }, run: { type: Object, default: null },
+  evidenceRunId: { type: [Number, String], default: null }, evidenceItems: { type: Array, default: () => [] },
+  evidenceLoading: Boolean, evidenceError: { type: String, default: '' },
+  hasMore: Boolean, loadingOlder: Boolean, draftMode: Boolean,
+  networkStatus: { type: String, default: 'connected' }, cancelling: Boolean,
+})
 defineEmits(['load-older', 'prefill', 'citations', 'process', 'cancel', 'retry', 'resume'])
 const transcript = ref(null)
 const bottom = ref(null)
@@ -50,6 +64,14 @@ const starters = [
   { icon: FileCheck2, title: '核验资料来源', detail: '确认政策或案例证据链', prompt: '请核验一条与本次研究相关的政策或案例来源，并说明其能支撑哪些结论。' },
 ]
 
+function renderMessage(message) {
+  const ownsVisibleEvidence = String(message.runId || '') === String(props.evidenceRunId || '')
+  return renderSafeMarkdown(message.content, ownsVisibleEvidence ? {
+    runId: message.runId,
+    sourceIds: (message.citations || []).map((citation) => citation.sourceId),
+  } : {})
+}
+
 async function copyMessage(message) {
   await navigator.clipboard?.writeText(message.content)
   copiedId.value = message.messageId
@@ -60,6 +82,16 @@ function handleScroll() {
   if (!el) return
   showJump.value = el.scrollHeight - el.scrollTop - el.clientHeight > 180
 }
+function isNearBottom(threshold = 120) {
+  const el = transcript.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
+}
+async function applyIncoming(follow, behavior = 'smooth') {
+  await nextTick()
+  if (follow) await scrollToEnd(behavior)
+  else showJump.value = true
+}
 async function scrollToEnd(behavior = 'auto') {
   await nextTick()
   transcript.value?.scrollTo({ top: transcript.value.scrollHeight, behavior: reducedMotion() ? 'auto' : behavior })
@@ -69,9 +101,9 @@ function scrollSnapshot() { return { height: transcript.value?.scrollHeight || 0
 async function restoreSnapshot(snapshot) { await nextTick(); if (transcript.value) transcript.value.scrollTop = snapshot.top + transcript.value.scrollHeight - snapshot.height }
 function formatDate(value) { return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '' }
 function reducedMotion() { return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches }
-defineExpose({ scrollToEnd, scrollSnapshot, restoreSnapshot, element: transcript })
+defineExpose({ scrollToEnd, scrollSnapshot, restoreSnapshot, isNearBottom, applyIncoming, element: transcript })
 </script>
 
 <style scoped>
-.conversation{position:relative;min-height:0;overflow:auto;padding:18px max(24px,calc((100% - 880px)/2)) 32px;scrollbar-gutter:stable}.load-older{display:flex;align-items:center;justify-content:center;gap:7px;min-height:40px;margin:0 auto 14px;border:0;background:transparent;color:#5c635c}.conversation-empty{display:grid;justify-items:center;gap:9px;max-width:880px;margin:8vh auto 0;text-align:center}.conversation-empty h2{margin:0;font-family:'Noto Serif SC',STSong,SimSun,serif;font-size:clamp(1.3rem,3vw,2rem);font-weight:500}.caption{color:#737a72;font-family:'Bookman Old Style',Georgia,serif;font-size:.66rem;font-weight:700}.starter-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;width:100%;margin-top:20px;border:1px solid #ccd0ca;background:#ccd0ca}.starter-grid button{display:grid;grid-template-columns:26px minmax(0,1fr);gap:3px 10px;min-height:96px;padding:17px;border:0;background:#fbfbf7;color:#282d28;text-align:left}.starter-grid button svg{grid-row:1/3}.starter-grid strong{font-family:'Noto Serif SC',STSong,SimSun,serif;font-size:.88rem}.starter-grid span{color:#747a73;font-size:.7rem}.message{max-width:880px;margin:0 auto;padding:20px 0;border-bottom:1px solid #d7dad5}.message.is-user{margin-top:8px;padding:16px;background:#f1f0e9}.message header{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px}.message header span{color:#4f564f;font-size:.68rem;font-weight:800}.message time{color:#858b84;font-size:.62rem}.message>p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.75}.assistant-markdown{overflow-wrap:anywhere;color:#272c27;line-height:1.78}.assistant-markdown :deep(h1),.assistant-markdown :deep(h2),.assistant-markdown :deep(h3){margin:1.1em 0 .45em;font-family:'Noto Serif SC',STSong,SimSun,serif;font-weight:600}.assistant-markdown :deep(h1){font-size:1.35rem}.assistant-markdown :deep(h2){font-size:1.15rem}.assistant-markdown :deep(h3){font-size:1rem}.assistant-markdown :deep(p){margin:.65em 0}.assistant-markdown :deep(pre){overflow:auto;padding:13px;border:1px solid #d1d4cf;background:#f2f1ec}.assistant-markdown :deep(code){font-family:Consolas,'Courier New',monospace;font-size:.86em}.assistant-markdown :deep(table){display:block;width:100%;overflow:auto;border-collapse:collapse}.assistant-markdown :deep(th),.assistant-markdown :deep(td){padding:8px 10px;border:1px solid #d0d4ce;text-align:left}.assistant-markdown :deep(a){color:#305b41;text-decoration:underline;text-underline-offset:3px}.message footer{display:flex;flex-wrap:wrap;align-items:center;gap:4px 13px;margin-top:13px;color:#777d76;font-size:.65rem}.message footer button{display:flex;align-items:center;gap:5px;min-height:36px;padding:0;border:0;background:transparent;color:#4d554d}.message footer span{margin-left:auto}.jump-bottom{position:sticky;bottom:12px;display:flex;align-items:center;gap:6px;min-height:42px;margin:0 auto;padding:0 13px;border:1px solid #bfc5bd;border-radius:3px;background:#fbfbf7;color:#303630}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:640px){.conversation{padding:12px 14px 24px}.starter-grid{grid-template-columns:1fr}.starter-grid button{min-height:88px}.message.is-user{padding:14px}.message footer span{width:100%;margin-left:0}.message footer button{min-height:44px}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.conversation{position:relative;min-width:0;min-height:0;flex:1 1 auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;padding:18px max(24px,calc((100% - 880px)/2)) 32px;scrollbar-gutter:stable}.load-older{display:flex;align-items:center;justify-content:center;gap:7px;min-height:40px;margin:0 auto 14px;padding:0 10px;border:1px solid transparent;border-radius:3px;background:transparent;color:#5c635c}.conversation-empty{display:grid;justify-items:center;gap:9px;max-width:880px;margin:8vh auto 0;text-align:center}.conversation-empty h2{margin:0;font-family:'Noto Serif SC',STSong,SimSun,serif;font-size:clamp(1.3rem,3vw,2rem);font-weight:500}.caption{color:#737a72;font-family:'Bookman Old Style',Georgia,serif;font-size:.66rem;font-weight:700}.starter-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;width:100%;margin-top:20px;border:1px solid #ccd0ca;background:#ccd0ca}.starter-grid button{display:grid;grid-template-columns:26px minmax(0,1fr);gap:3px 10px;min-height:96px;padding:17px;border:0;background:#fbfbf7;color:#282d28;text-align:left}.starter-grid button svg{grid-row:1/3}.starter-grid strong{font-family:'Noto Serif SC',STSong,SimSun,serif;font-size:.88rem}.starter-grid span{color:#747a73;font-size:.7rem}.message{max-width:880px;margin:0 auto;padding:20px 0;border-bottom:1px solid #d7dad5}.message.is-user{margin-top:8px;padding:16px;background:#f1f0e9}.message header{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px}.message header span{color:#4f564f;font-size:.68rem;font-weight:800}.message time{color:#858b84;font-size:.62rem}.message>p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.75}.assistant-markdown{overflow-wrap:anywhere;color:#272c27;line-height:1.78}.assistant-markdown :deep(h1),.assistant-markdown :deep(h2),.assistant-markdown :deep(h3){margin:1.1em 0 .45em;font-family:'Noto Serif SC',STSong,SimSun,serif;font-weight:600}.assistant-markdown :deep(h1){font-size:1.35rem}.assistant-markdown :deep(h2){font-size:1.15rem}.assistant-markdown :deep(h3){font-size:1rem}.assistant-markdown :deep(p){margin:.65em 0}.assistant-markdown :deep(pre){overflow:auto;padding:13px;border:1px solid #d1d4cf;background:#f2f1ec}.assistant-markdown :deep(code){font-family:Consolas,'Courier New',monospace;font-size:.86em}.assistant-markdown :deep(table){display:block;width:100%;overflow:auto;border-collapse:collapse}.assistant-markdown :deep(th),.assistant-markdown :deep(td){padding:8px 10px;border:1px solid #d0d4ce;text-align:left}.assistant-markdown :deep(a){color:#305b41;text-decoration:underline;text-underline-offset:3px}.message footer{display:flex;flex-wrap:wrap;align-items:center;gap:4px 13px;margin-top:13px;color:#777d76;font-size:.65rem}.message footer button{display:flex;align-items:center;gap:5px;min-height:36px;padding:0 5px;border:1px solid transparent;border-radius:3px;background:transparent;color:#4d554d}.message footer button:is(:hover,:focus-visible),.load-older:is(:hover,:focus-visible){border-color:#bfc5bd;background:#f0f1ec}.message footer button:focus-visible,.load-older:focus-visible,.jump-bottom:focus-visible{outline:2px solid rgba(74,82,74,.34);outline-offset:2px}.message footer button:active,.load-older:active,.jump-bottom:active{background:#e5e7e1}.message footer span{margin-left:auto}.jump-bottom{position:sticky;bottom:12px;display:flex;align-items:center;gap:6px;min-height:42px;margin:0 auto;padding:0 13px;border:1px solid #bfc5bd;border-radius:3px;background:#fbfbf7;color:#303630}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:640px),(pointer:coarse){.load-older,.jump-bottom,.message footer button{min-height:44px}.conversation{padding:12px 14px 24px}.starter-grid{grid-template-columns:1fr}.starter-grid button{min-height:88px}.message.is-user{padding:14px}.message footer span{width:100%;margin-left:0}}@media(max-height:680px){.conversation-empty{margin-top:18px}.starter-grid{margin-top:8px}.starter-grid button{min-height:76px;padding:12px}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

@@ -9,6 +9,9 @@ import lombok.Data;
 public class SearchCasesArguments {
 
     private Long regionId;
+
+    @Size(max = 50)
+    private String regionName;
     private Long industryTagId;
 
     @Size(max = 100)

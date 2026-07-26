@@ -11,6 +11,16 @@ DEPLOY_SCRIPT = ROOT / ".codex_deploy_opc.py"
 EVIDENCE_WORKBENCH = ROOT / "deploy" / "sql" / "20260725_evidence_workbench.sql"
 PHASE_ONE_FINALIZATION = ROOT / "deploy" / "sql" / "20260725_phase_one_finalization.sql"
 AI_RESPONSE_DIAGNOSTICS = ROOT / "deploy" / "sql" / "20260725_ai_response_diagnostics.sql"
+ASSISTANT_WORKSPACE_STABILIZATION = (
+    ROOT / "deploy" / "sql" / "20260725_assistant_workspace_stabilization.sql"
+)
+ASSISTANT_WORKSPACE_PRECHECK = (
+    ROOT / "deploy" / "sql" / "20260725_assistant_workspace_precheck.sql"
+)
+ASSISTANT_WORKSPACE_POSTCHECK = (
+    ROOT / "deploy" / "sql" / "20260725_assistant_workspace_postcheck.sql"
+)
+SCHEMA = ROOT / "opc-backend" / "src" / "main" / "resources" / "db" / "schema.sql"
 
 
 class AiStabilizationMigrationTest(unittest.TestCase):
@@ -139,6 +149,119 @@ class AiStabilizationMigrationTest(unittest.TestCase):
         deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("AI_RESPONSE_DIAGNOSTICS_MIGRATION", deploy)
         self.assertIn("ai-response-diagnostics.sql", deploy)
+
+    def test_assistant_workspace_stabilization_recovers_interrupted_title_backfill(self):
+        sql = ASSISTANT_WORKSPACE_STABILIZATION.read_text(encoding="utf-8")
+
+        self.assertIn("@assistant_workspace_backfill_cutoff", sql)
+        self.assertRegex(
+            sql,
+            r"UPDATE\s+ai_agent_sessions\s+SET\s+title_mode\s*=\s*'manual'\s+"
+            r"WHERE\s+title_mode\s*=\s*'auto'\s+AND\s+created_at\s*<\s*"
+            r"@assistant_workspace_backfill_cutoff",
+        )
+
+    def test_assistant_workspace_stabilization_repairs_exact_index_definitions(self):
+        sql = ASSISTANT_WORKSPACE_STABILIZATION.read_text(encoding="utf-8")
+
+        expected = {
+            "idx_agent_sessions_history_active": "user_id,deleted_at,pinned_at,last_message_at,id",
+            "idx_agent_sessions_history_archived": "user_id,archived_at,last_message_at,id",
+            "idx_agent_sessions_purge_due": "purge_after,purged_at,id",
+            "uk_agent_message_sequence": "session_id,sequence_no",
+            "idx_agent_messages_session_created": "session_id,created_at,id",
+        }
+        for index_name, columns in expected.items():
+            self.assertIn(index_name, sql)
+            self.assertIn(columns, sql)
+        self.assertIn("non_unique", sql)
+        self.assertIn("seq_in_index", sql)
+        self.assertIn("ADD UNIQUE INDEX uk_agent_message_sequence", sql)
+        self.assertLess(
+            sql.index("ADD INDEX idx_agent_messages_session_created"),
+            sql.index("DROP INDEX uk_agent_message_sequence"),
+        )
+
+    def test_assistant_workspace_stabilization_adds_start_and_purge_barrier_columns(self):
+        sql = ASSISTANT_WORKSPACE_STABILIZATION.read_text(encoding="utf-8")
+        schema = SCHEMA.read_text(encoding="utf-8")
+        expected = {
+            "ai_agent_sessions": {
+                "content_generation": "BIGINT NOT NULL DEFAULT 0",
+            },
+            "ai_analysis_runs": {
+                "submission_kind": "VARCHAR(20) NOT NULL DEFAULT 'message'",
+                "request_content_hash": "CHAR(64) NULL",
+                "start_profile_hash": "CHAR(64) NULL",
+                "session_content_generation": "BIGINT NOT NULL DEFAULT 0",
+            },
+        }
+
+        for table_name, columns in expected.items():
+            for column_name, definition in columns.items():
+                self.assertRegex(
+                    sql,
+                    rf"table_name\s*=\s*'{table_name}'\s+AND\s+column_name\s*=\s*'{column_name}'",
+                )
+                dynamic_definition = definition.replace("'", "''")
+                self.assertIn(f"ADD COLUMN {column_name} {dynamic_definition}", sql)
+                self.assertIn(f"{column_name} {definition}", schema)
+
+    def test_assistant_workspace_postcheck_reports_exact_index_and_backfill_failures(self):
+        sql = ASSISTANT_WORKSPACE_POSTCHECK.read_text(encoding="utf-8")
+
+        for token in (
+            "seq_in_index",
+            "non_unique",
+            "invalid_index_definitions",
+            "historic_auto_titles",
+            "stability_columns",
+            "rollout_boundary_settings",
+            "assistant_workspace_backfill_cutoff",
+        ):
+            self.assertIn(token, sql)
+
+    def test_assistant_workspace_purge_audit_table_is_independent_and_idempotent(self):
+        expected_fragments = (
+            "id BIGINT PRIMARY KEY AUTO_INCREMENT",
+            "operation VARCHAR(40) NOT NULL",
+            "session_id BIGINT NOT NULL",
+            "user_id BIGINT NULL",
+            "operator_type VARCHAR(20) NOT NULL",
+            "operator_id BIGINT NULL",
+            "result VARCHAR(20) NOT NULL",
+            "diagnostic_code VARCHAR(80) NULL",
+            "created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)",
+            "idx_agent_purge_audits_session_created (session_id,created_at)",
+            "idx_agent_purge_audits_user_created (user_id,created_at)",
+        )
+
+        for source_path in (ASSISTANT_WORKSPACE_STABILIZATION, SCHEMA):
+            source = source_path.read_text(encoding="utf-8")
+            start = source.index("CREATE TABLE IF NOT EXISTS ai_agent_content_purge_audits")
+            table = source[start : source.index(";", start) + 1]
+            for fragment in expected_fragments:
+                self.assertIn(fragment, table)
+            self.assertNotIn("FOREIGN KEY", table)
+
+    def test_assistant_workspace_postcheck_requires_purge_audit_schema(self):
+        sql = ASSISTANT_WORKSPACE_POSTCHECK.read_text(encoding="utf-8")
+
+        for token in (
+            "purge_audit_tables",
+            "purge_audit_columns",
+            "purge_audit_indexes",
+            "purge_audit_foreign_keys",
+            "idx_agent_purge_audits_session_created",
+            "idx_agent_purge_audits_user_created",
+        ):
+            self.assertIn(token, sql)
+
+    def test_assistant_workspace_precheck_reports_existing_purge_audit_table(self):
+        sql = ASSISTANT_WORKSPACE_PRECHECK.read_text(encoding="utf-8")
+
+        self.assertIn("ai_agent_content_purge_audits", sql)
+        self.assertIn("existing_purge_audit_tables", sql)
 
 
 if __name__ == "__main__":

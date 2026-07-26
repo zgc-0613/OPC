@@ -24,6 +24,17 @@ describe('assistant drafts', () => {
 
     expect(drafts.load(101).length).toBe(8000)
     expect([...Array(localStorage.length)].map((_, index) => localStorage.key(index)))
-      .toEqual(['opc_assistant_draft:101'])
+      .toEqual(['opc_assistant:anonymous:draft:101'])
+  })
+
+  it('isolates drafts for different authenticated users sharing one browser', () => {
+    const userA = createAssistantDraftStore(localStorage, 'user:42')
+    const userB = createAssistantDraftStore(localStorage, 'user:84')
+
+    userA.save(101, '用户 A 的未发送研究')
+    userB.save(101, '用户 B 的未发送研究')
+
+    expect(userA.load(101)).toBe('用户 A 的未发送研究')
+    expect(userB.load(101)).toBe('用户 B 的未发送研究')
   })
 })

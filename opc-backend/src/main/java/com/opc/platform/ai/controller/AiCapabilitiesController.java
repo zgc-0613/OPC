@@ -25,7 +25,7 @@ public class AiCapabilitiesController {
     private static final String ENTREPRENEURSHIP_ADVISOR_ID = "entrepreneurship-advisor";
     private static final String ENTREPRENEURSHIP_ADVISOR_VERSION = "entrepreneurship-advisor-v1";
     private static final String AGENT_RUNTIME_ID = "agent-runtime";
-    private static final String AGENT_RUNTIME_VERSION = "agent-research-v1";
+    private static final String AGENT_RUNTIME_VERSION = "agent-research-v2";
 
     private final AiClient aiClient;
     private final ObjectProvider<AgentRuntimeConfigProvider> agentConfigProvider;

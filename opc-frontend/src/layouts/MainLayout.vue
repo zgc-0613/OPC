@@ -2,7 +2,12 @@
   <div
     class="app-shell archive-shell"
     :class="[
-      { 'home-shell': isHome, 'sidebar-collapsed': sidebarCollapsed, 'mobile-sidebar-open': mobileSidebarOpen },
+      {
+        'home-shell': isHome,
+        'assistant-route-shell': isAssistant,
+        'sidebar-collapsed': sidebarCollapsed,
+        'mobile-sidebar-open': mobileSidebarOpen,
+      },
       routeClass,
     ]"
   >
@@ -125,7 +130,7 @@
     </aside>
 
     <main class="main archive-main">
-      <header v-if="!isHome" class="public-page-heading">
+      <header v-if="!isHome && !isAssistant" class="public-page-heading">
         <div>
           <h1>{{ routeTitle }}</h1>
           <p>{{ routeSubtitle }}</p>
@@ -136,13 +141,13 @@
         </div>
       </header>
 
-      <section class="content content-shell">
+      <section :class="isAssistant ? 'assistant-content-shell' : 'content content-shell'">
         <RouterView />
       </section>
     </main>
 
     <button
-      v-if="showBackToTop"
+      v-if="showBackToTop && !isAssistant"
       class="public-back-to-top"
       type="button"
       aria-label="返回页面顶部"
@@ -164,6 +169,7 @@ import { isUserAuthenticated } from '@/api/auth'
 const route = useRoute()
 
 const isHome = computed(() => route.name === 'home')
+const isAssistant = computed(() => route.name === 'assistant')
 const sidebarCollapsed = ref(false)
 const mobileSidebarOpen = ref(false)
 const showBackToTop = ref(false)
@@ -240,3 +246,21 @@ onUnmounted(() => {
   window.removeEventListener('scroll', updateBackToTopVisibility)
 })
 </script>
+
+<style scoped>
+.assistant-route-shell {
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.assistant-route-shell .archive-main,
+.assistant-content-shell {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+</style>

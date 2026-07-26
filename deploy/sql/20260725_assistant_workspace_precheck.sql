@@ -7,4 +7,12 @@ SELECT
        AND column_name IN ('user_id','title','status','version','last_message_at')) AS required_session_columns,
     (SELECT COUNT(*) FROM information_schema.columns
      WHERE table_schema=DATABASE() AND table_name='ai_agent_messages'
-       AND column_name IN ('session_id','sequence_no','content')) AS required_message_columns;
+       AND column_name IN ('session_id','sequence_no','content')) AS required_message_columns,
+    (SELECT COUNT(*) FROM information_schema.columns
+     WHERE table_schema=DATABASE() AND table_name='ai_agent_sessions'
+       AND column_name IN ('title_mode','pinned_at','archived_at','deleted_at','purge_after','purged_at'))
+       AS existing_workspace_columns,
+    (SELECT COUNT(*) FROM information_schema.tables
+     WHERE table_schema=DATABASE()
+       AND table_name='ai_agent_content_purge_audits'
+       AND table_type='BASE TABLE') AS existing_purge_audit_tables;

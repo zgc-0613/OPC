@@ -1,6 +1,7 @@
 package com.opc.platform.common.exception;
 
 import com.opc.platform.ai.exception.AiResponseValidationException;
+import com.opc.platform.ai.exception.AgentHistoryCursorStaleException;
 import com.opc.platform.ai.vo.AiFailureDetailVO;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.result.Result;
@@ -17,6 +18,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AiResponseValidationException.class)
     public Result<AiFailureDetailVO> handleAiResponseValidationException(
             AiResponseValidationException exception
+    ) {
+        return new Result<>(
+                exception.getErrorCode().getCode(),
+                exception.getMessage(),
+                new AiFailureDetailVO(exception.getDiagnosticCode())
+        );
+    }
+
+    @ExceptionHandler(AgentHistoryCursorStaleException.class)
+    public Result<AiFailureDetailVO> handleHistoryCursorStaleException(
+            AgentHistoryCursorStaleException exception
     ) {
         return new Result<>(
                 exception.getErrorCode().getCode(),

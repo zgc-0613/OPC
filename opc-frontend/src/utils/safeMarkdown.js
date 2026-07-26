@@ -14,11 +14,13 @@ const ALLOWED_TAGS = [
   'strong', 'em', 's', 'br',
 ]
 
-export function renderSafeMarkdown(value) {
-  const source = DOMPurify.sanitize(String(value || ''), {
+export function renderSafeMarkdown(value, evidenceContext = {}) {
+  const allowedRunId = normalizedId(evidenceContext.runId)
+  const allowedSourceIds = new Set((evidenceContext.sourceIds || []).map(normalizedId).filter(Boolean))
+  const source = linkEvidenceReferences(DOMPurify.sanitize(String(value || ''), {
     ALLOWED_TAGS: [],
     ALLOWED_ATTR: [],
-  }).replace(/\]\(\s*(?:javascript|data):[^)]*\)/gi, '](#blocked)')
+  }).replace(/\]\(\s*(?:javascript|data):[^)]*\)/gi, '](#blocked)'), allowedRunId, allowedSourceIds)
   const rendered = markdown.render(source)
   const sanitized = DOMPurify.sanitize(rendered, {
     ALLOWED_TAGS,
@@ -29,6 +31,12 @@ export function renderSafeMarkdown(value) {
   template.innerHTML = sanitized
   template.content.querySelectorAll('a').forEach((link) => {
     const href = link.getAttribute('href') || ''
+    const evidence = /^#evidence-([1-9]\d*)-([1-9]\d*)$/.exec(href)
+    if (evidence && evidence[1] === allowedRunId && allowedSourceIds.has(evidence[2])) {
+      link.removeAttribute('target')
+      link.removeAttribute('rel')
+      return
+    }
     if (!/^https?:\/\//i.test(href)) {
       link.removeAttribute('href')
       link.removeAttribute('target')
@@ -39,4 +47,19 @@ export function renderSafeMarkdown(value) {
     link.setAttribute('rel', 'noopener noreferrer')
   })
   return template.innerHTML
+}
+
+function linkEvidenceReferences(source, runId, allowedSourceIds) {
+  if (!runId || !allowedSourceIds.size) return source
+  return source.replace(/\[来源\s+(\d+(?:\s*[、,，]\s*\d+)*)\]/g, (_match, values) => {
+    const links = values.split(/[、,，]/).map((value) => value.trim()).filter(Boolean).map((sourceId) => (
+      allowedSourceIds.has(sourceId) ? `[${sourceId}](#evidence-${runId}-${sourceId})` : sourceId
+    ))
+    return `来源 ${links.join('、')}`
+  })
+}
+
+function normalizedId(value) {
+  const text = String(value ?? '').trim()
+  return /^[1-9]\d*$/.test(text) ? text : ''
 }

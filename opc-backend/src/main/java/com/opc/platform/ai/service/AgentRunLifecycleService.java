@@ -1,5 +1,6 @@
 package com.opc.platform.ai.service;
 
+import com.opc.platform.ai.contract.AgentResearchContract;
 import com.opc.platform.ai.entity.AiAnalysisRun;
 import com.opc.platform.ai.entity.AiAgentProviderCall;
 import com.opc.platform.ai.mapper.AiAgentProviderCallMapper;
@@ -29,24 +30,35 @@ import java.util.UUID;
 @Service
 public class AgentRunLifecycleService {
 
-    private static final String PROMPT_VERSION = "agent-research-v1";
-
     private final AiAnalysisRunMapper runMapper;
     private final AiClient aiClient;
     private final AiRuntimeSettingsProvider settingsProvider;
     private final AiAgentProviderCallMapper providerCallMapper;
+    private final AgentProviderSettlementService settlementService;
 
     @Autowired
     public AgentRunLifecycleService(
             AiAnalysisRunMapper runMapper,
             AiClient aiClient,
             AiRuntimeSettingsProvider settingsProvider,
-            AiAgentProviderCallMapper providerCallMapper
+            AiAgentProviderCallMapper providerCallMapper,
+            AgentProviderSettlementService settlementService
     ) {
         this.runMapper = runMapper;
         this.aiClient = aiClient;
         this.settingsProvider = settingsProvider;
         this.providerCallMapper = providerCallMapper;
+        this.settlementService = settlementService;
+    }
+
+    public AgentRunLifecycleService(
+            AiAnalysisRunMapper runMapper,
+            AiClient aiClient,
+            AiRuntimeSettingsProvider settingsProvider,
+            AiAgentProviderCallMapper providerCallMapper
+    ) {
+        this(runMapper, aiClient, settingsProvider, providerCallMapper,
+                providerCallMapper == null ? null : new AgentProviderSettlementService(runMapper, providerCallMapper));
     }
 
     public AgentRunLifecycleService(
@@ -54,7 +66,7 @@ public class AgentRunLifecycleService {
             AiClient aiClient,
             AiRuntimeSettingsProvider settingsProvider
     ) {
-        this(runMapper, aiClient, settingsProvider, null);
+        this(runMapper, aiClient, settingsProvider, null, null);
     }
 
     public AgentRunLease begin(
@@ -65,7 +77,8 @@ public class AgentRunLifecycleService {
             AgentRuntimeConfig config
     ) {
         runMapper.failExpiredRunning(LocalDateTime.now());
-        return reserve(user, sessionId, userMessageId, idempotencyKey, config, "running");
+        return reserve(user, sessionId, userMessageId, idempotencyKey, config, "running",
+                new AgentSubmissionIdentity("message", null, null, 0L));
     }
 
     public AiAnalysisRun enqueue(
@@ -75,7 +88,19 @@ public class AgentRunLifecycleService {
             String idempotencyKey,
             AgentRuntimeConfig config
     ) {
-        return reserve(user, sessionId, userMessageId, idempotencyKey, config, "received").run();
+        return enqueue(user, sessionId, userMessageId, idempotencyKey, config,
+                new AgentSubmissionIdentity("message", null, null, 0L));
+    }
+
+    public AiAnalysisRun enqueue(
+            AuthenticatedUser user,
+            Long sessionId,
+            Long userMessageId,
+            String idempotencyKey,
+            AgentRuntimeConfig config,
+            AgentSubmissionIdentity identity
+    ) {
+        return reserve(user, sessionId, userMessageId, idempotencyKey, config, "received", identity).run();
     }
 
     public AgentRunLease resume(AiAnalysisRun run, AgentRuntimeConfig config) {
@@ -106,7 +131,8 @@ public class AgentRunLifecycleService {
             Long userMessageId,
             String idempotencyKey,
             AgentRuntimeConfig config,
-            String initialStatus
+            String initialStatus,
+            AgentSubmissionIdentity identity
     ) {
         if (!config.enabled()) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Agent Runtime 尚未启用");
@@ -124,10 +150,14 @@ public class AgentRunLifecycleService {
         run.setSessionId(sessionId);
         run.setUserMessageId(userMessageId);
         run.setIdempotencyKey(idempotencyKey);
+        run.setSubmissionKind(identity == null || identity.kind() == null ? "message" : identity.kind());
+        run.setRequestContentHash(identity == null ? null : identity.contentHash());
+        run.setStartProfileHash(identity == null ? null : identity.profileHash());
+        run.setSessionContentGeneration(identity == null ? 0L : identity.sessionContentGeneration());
         run.setStatus(initialStatus);
         run.setProvider(descriptor.provider());
         run.setModelId(descriptor.model());
-        run.setPromptVersion(PROMPT_VERSION);
+        run.setPromptVersion(AgentResearchContract.PROMPT_VERSION);
         run.setEvidenceHash(hash(sessionId + ":" + userMessageId + ":" + idempotencyKey));
         run.setPromptTokens(0);
         run.setCompletionTokens(0);
@@ -192,43 +222,14 @@ public class AgentRunLifecycleService {
         providerCallMapper.insert(call);
 
         AiProviderResponse response = aiClient.generate(request, lease.runtime());
-        int prompt = Math.max(0, response.promptTokens());
-        int completion = Math.max(0, response.completionTokens());
-        int total = Math.max(Math.max(0, response.totalTokens()), prompt + completion);
-        String providerRequestId = response.requestId() == null || response.requestId().isBlank()
-                ? "not_provided" : response.requestId();
-        LocalDateTime settledAt = LocalDateTime.now();
-        if (providerCallMapper.settleActual(
-                call.getId(), prompt, completion, total, Math.max(0, response.latencyMs()),
-                providerRequestId, response.finishReason(), settledAt) == 1) {
-            if (runMapper.settleAgentUsageActual(
-                    lease.run().getId(), prompt, completion, total, Math.max(0, response.latencyMs()),
-                    providerRequestId, response.finishReason(), settledAt) != 1) {
-                throw new BusinessException(ErrorCode.CONFLICT, "Agent usage settlement state changed");
-            }
+        if (settlementService.settleActual(call.getId(), response)) {
             lease.add(response);
         }
         return response;
     }
 
-    @Transactional
     public boolean settleLateUsage(Long providerCallId, AiProviderResponse response) {
-        if (providerCallMapper == null || providerCallId == null || response == null) return false;
-        AiAgentProviderCall call = providerCallMapper.selectForUpdate(providerCallId);
-        if (call == null || !"settled_estimated".equals(call.getSettlementStatus())) return false;
-        int prompt = Math.max(0, response.promptTokens());
-        int completion = Math.max(0, response.completionTokens());
-        int total = Math.max(Math.max(0, response.totalTokens()), prompt + completion);
-        String providerRequestId = response.requestId() == null || response.requestId().isBlank()
-                ? "not_provided" : response.requestId();
-        LocalDateTime now = LocalDateTime.now();
-        if (providerCallMapper.replaceEstimateWithActual(
-                providerCallId, prompt, completion, total, Math.max(0, response.latencyMs()),
-                providerRequestId, response.finishReason(), now) != 1) return false;
-        if (runMapper.reconcileAgentProviderUsage(call.getAnalysisRunId(), now) != 1) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Agent usage reconciliation failed");
-        }
-        return true;
+        return settlementService != null && settlementService.settleLateUsage(providerCallId, response);
     }
 
     public void updateStage(AgentRunLease lease, String stage, int stepCount, int toolCallCount) {
@@ -249,6 +250,12 @@ public class AgentRunLifecycleService {
     }
 
     public void fail(AgentRunLease lease, String status, ErrorCode errorCode, String diagnosticCode) {
+        if (settlementService != null) {
+            settlementService.settleFailure(
+                    lease.run().getId(), status, errorCode.name(), diagnosticCode,
+                    lease.modelRounds(), lease.toolCallCount());
+            return;
+        }
         LocalDateTime failedAt = LocalDateTime.now();
         int estimatedCalls = 0;
         if (providerCallMapper != null) {

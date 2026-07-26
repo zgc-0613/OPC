@@ -78,7 +78,8 @@ public class OpenAiCompatibleAiClient implements AiClient {
             payload.put("model", settings.model());
             payload.put("messages", buildMessages(request));
             payload.put("temperature", settings.temperature());
-            payload.put("max_tokens", settings.maxOutputTokens());
+            payload.put("max_tokens", request.maxOutputTokens() == null
+                    ? settings.maxOutputTokens() : request.maxOutputTokens());
             if (request.jsonResponse()) {
                 payload.put("response_format", Map.of("type", "json_object"));
             }

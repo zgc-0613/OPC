@@ -172,6 +172,11 @@ class AgentRunLifecycleServiceTest {
             invocation.<AiAgentProviderCall>getArgument(0).setId(501L);
             return 1;
         });
+        AiAgentProviderCall dispatched = new AiAgentProviderCall();
+        dispatched.setId(501L);
+        dispatched.setAnalysisRunId(91L);
+        dispatched.setSettlementStatus("provider_dispatched");
+        when(providerCalls.selectForUpdate(501L)).thenReturn(dispatched);
         when(runMapper.markAgentProviderDispatched(anyLong(), any())).thenReturn(1);
         when(providerCalls.settleActual(anyLong(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any()))
                 .thenReturn(1);
@@ -194,6 +199,52 @@ class AgentRunLifecycleServiceTest {
                 eq(91L), eq(10), eq(5), eq(15), eq(20L), eq("req-late"), eq("stop"), any());
         verify(runMapper, never()).settleAgentCompleted(anyLong(), any(), anyInt(), anyInt(), anyInt(), anyLong(),
                 any(), any(), anyInt(), anyInt(), any(), any());
+    }
+
+    @Test
+    void providerResponseReplacesConcurrentEstimateExactlyOnce() {
+        AiAnalysisRunMapper runMapper = mock(AiAnalysisRunMapper.class);
+        AiAgentProviderCallMapper providerCalls = mock(AiAgentProviderCallMapper.class);
+        AiClient aiClient = mock(AiClient.class);
+        AiRuntimeSettingsProvider settingsProvider = mock(AiRuntimeSettingsProvider.class);
+        AiRuntimeSettings runtime = new AiRuntimeSettings(
+                "deepseek", "openai_compatible", "https://api.example.com/v1", "model", "secret",
+                0.2, 1200, Duration.ofSeconds(20), 0, true);
+        when(settingsProvider.snapshot()).thenReturn(new AiRuntimeSnapshot(runtime, 100_000L));
+        when(aiClient.descriptor(runtime)).thenReturn(new AiProviderDescriptor("deepseek", "model", true));
+        when(runMapper.reserve(any(AiAnalysisRun.class), anyLong(), anyInt())).thenAnswer(invocation -> {
+            invocation.<AiAnalysisRun>getArgument(0).setId(95L);
+            return 1;
+        });
+        when(runMapper.markAgentProviderDispatched(eq(95L), any())).thenReturn(1);
+        when(providerCalls.insert(any(AiAgentProviderCall.class))).thenAnswer(invocation -> {
+            invocation.<AiAgentProviderCall>getArgument(0).setId(502L);
+            return 1;
+        });
+        AiAgentProviderCall estimated = new AiAgentProviderCall();
+        estimated.setId(502L);
+        estimated.setAnalysisRunId(95L);
+        estimated.setSettlementStatus("settled_estimated");
+        when(providerCalls.selectForUpdate(502L)).thenReturn(estimated);
+        when(providerCalls.replaceEstimateWithActual(
+                anyLong(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any())).thenReturn(1);
+        when(runMapper.reconcileAgentProviderUsage(eq(95L), any())).thenReturn(1);
+        when(aiClient.generate(any(AiProviderRequest.class), eq(runtime)))
+                .thenReturn(new AiProviderResponse("{}", 9, 4, 13, 30, "req-actual", "stop"));
+        AgentRunLifecycleService lifecycle = new AgentRunLifecycleService(
+                runMapper, aiClient, settingsProvider, providerCalls);
+        AgentRunLease lease = lifecycle.begin(
+                new AuthenticatedUser(42L, "owner", "owner@example.com"), 10L, 20L, "idem-estimate-123",
+                new AgentRuntimeConfig(true, 4, 6, 8000, 12, Duration.ofSeconds(120), "json_plan"));
+
+        AiProviderResponse response = lifecycle.invoke(
+                lease, new AiProviderRequest("agent", "v2", "system", "user", "{}"));
+
+        assertEquals(13, response.totalTokens());
+        verify(providerCalls).replaceEstimateWithActual(
+                eq(502L), eq(9), eq(4), eq(13), eq(30L), eq("req-actual"), eq("stop"), any());
+        verify(runMapper).reconcileAgentProviderUsage(eq(95L), any());
+        assertEquals(13, lease.totalTokens());
     }
 
     @Test

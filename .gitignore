@@ -80,6 +80,7 @@ outputs/
 output/
 
 # Local environment and application secrets
+.local-secrets/
 .env
 .env.*
 !.env.example

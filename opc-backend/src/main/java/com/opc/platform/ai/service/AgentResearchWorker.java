@@ -40,7 +40,8 @@ public class AgentResearchWorker {
                     lease.config().historyWindow());
             AgentOrchestratorOutcome outcome = orchestrator.execute(
                     new AgentOrchestratorInput(
-                            lease.run().getId(), user.userId(), profileJson, userMessage, history, lease.config()
+                            lease.run().getId(), user.userId(), profileJson, userMessage, history,
+                            lease.run().getLeaseOwner(), lease.config()
                     ),
                     request -> lifecycle.invoke(lease, request),
                     progress -> lifecycle.updateStage(

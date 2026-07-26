@@ -38,6 +38,12 @@ class AgentResearchServiceTest {
         AgentRuntimeConfigProvider configProvider = mock(AgentRuntimeConfigProvider.class);
         AgentRunDispatcher dispatcher = mock(AgentRunDispatcher.class);
         AgentClarificationPolicy clarification = mock(AgentClarificationPolicy.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentProfilePolicy profilePolicy = new AgentProfilePolicy(
+                objectMapper,
+                mock(com.opc.platform.region.mapper.RegionMapper.class),
+                mock(com.opc.platform.tag.mapper.TagMapper.class));
+        AgentSessionHistoryService historyService = mock(AgentSessionHistoryService.class);
         TransactionTemplate transactions = mock(TransactionTemplate.class);
         TaskExecutor rejectingExecutor = task -> { throw new TaskRejectedException("queue full"); };
         AgentRuntimeConfig config = new AgentRuntimeConfig(
@@ -70,11 +76,11 @@ class AgentResearchServiceTest {
         run.setSessionId(10L);
         run.setUserMessageId(20L);
         run.setStatus("received");
-        when(lifecycle.enqueue(any(), anyLong(), anyLong(), any(), any())).thenReturn(run);
+        when(lifecycle.enqueue(any(), anyLong(), anyLong(), any(), any(), any())).thenReturn(run);
         when(messages.attachRun(20L, 30L)).thenReturn(1);
         AgentResearchService service = new AgentResearchService(
                 sessions, messages, runs, lifecycle, configProvider, dispatcher, clarification,
-                transactions, rejectingExecutor, new ObjectMapper());
+                profilePolicy, historyService, transactions, rejectingExecutor, objectMapper);
         AgentMessageCreateDTO request = new AgentMessageCreateDTO();
         request.setContent("Research Hubei AI opportunities");
         request.setIdempotencyKey("idem-queue-123");
@@ -84,7 +90,7 @@ class AgentResearchServiceTest {
 
         assertEquals("received", receipt.status());
         assertEquals(30L, receipt.runId());
-        verify(lifecycle).enqueue(any(), anyLong(), anyLong(), any(), any());
+        verify(lifecycle).enqueue(any(), anyLong(), anyLong(), any(), any(), any());
         verify(sessions).updateResearchContext(any(), anyLong(), any());
         verify(dispatcher, never()).processNext();
     }

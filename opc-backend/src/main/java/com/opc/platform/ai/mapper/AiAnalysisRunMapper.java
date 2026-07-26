@@ -51,6 +51,17 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
     Long sumAgentTokensToday(@Param("userId") Long userId);
 
     @Select("""
+            SELECT COALESCE(SUM(total_tokens),0) AS used_tokens,
+                   COALESCE(SUM(CASE
+                     WHEN status IN ('received','running') OR settlement_status='provider_dispatched'
+                     THEN GREATEST(reserved_tokens-total_tokens,0)
+                     ELSE 0 END),0) AS reserved_tokens
+            FROM ai_analysis_runs
+            WHERE user_id=#{userId} AND created_at >= CURRENT_DATE()
+            """)
+    AgentUsageLedgerRow selectAgentUsageLedgerToday(@Param("userId") Long userId);
+
+    @Select("""
             SELECT COUNT(*)
             FROM ai_analysis_runs
             WHERE user_id = #{userId}
@@ -65,16 +76,27 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
             """)
     int countNonTerminalForSession(@Param("sessionId") Long sessionId);
 
+    @Select("""
+            SELECT COUNT(*) FROM ai_analysis_runs
+            WHERE session_id=#{sessionId} AND task_type='agent_research'
+              AND settlement_status='provider_dispatched'
+            """)
+    int countPendingProviderSettlementForSession(@Param("sessionId") Long sessionId);
+
     @Insert("""
             INSERT INTO ai_analysis_runs (
                 user_id, task_type, case_id, session_id, user_message_id, idempotency_key,
+                submission_kind, request_content_hash, start_profile_hash, session_content_generation,
                 status, provider, model_id, current_stage, visible_progress,
                 prompt_version, evidence_hash, reserved_tokens, started_at,
                 deadline_at, heartbeat_at
             )
             SELECT
                 #{run.userId}, #{run.taskType}, #{run.caseId}, #{run.sessionId},
-                #{run.userMessageId}, #{run.idempotencyKey}, #{run.status},
+                #{run.userMessageId}, #{run.idempotencyKey},
+                COALESCE(#{run.submissionKind}, 'message'),
+                #{run.requestContentHash}, #{run.startProfileHash},
+                COALESCE(#{run.sessionContentGeneration}, 0), #{run.status},
                 #{run.provider}, #{run.modelId}, #{run.currentStage}, #{run.visibleProgress},
                 #{run.promptVersion}, #{run.evidenceHash},
                 #{reservedTokens}, #{run.startedAt}, #{run.deadlineAt}, #{run.heartbeatAt}
@@ -223,13 +245,22 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
     @Select("""
             SELECT * FROM ai_analysis_runs
             WHERE session_id=#{sessionId} AND task_type='agent_research'
+              AND status NOT IN ('received','running')
             ORDER BY id DESC LIMIT 1
             """)
     AiAnalysisRun selectLatestAgentRunForSession(@Param("sessionId") Long sessionId);
 
+    @Select("""
+            SELECT * FROM ai_analysis_runs
+            WHERE session_id=#{sessionId} AND task_type='agent_research'
+              AND status IN ('received','running')
+            ORDER BY id DESC LIMIT 1
+            """)
+    AiAnalysisRun selectActiveAgentRunForSession(@Param("sessionId") Long sessionId);
+
     @Update("""
             UPDATE ai_analysis_runs
-            SET result_json=NULL
+            SET result_json=NULL, request_content_hash=NULL, start_profile_hash=NULL
             WHERE session_id=#{sessionId} AND task_type='agent_research'
             """)
     int purgeSessionContent(@Param("sessionId") Long sessionId);

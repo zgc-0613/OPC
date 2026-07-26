@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 
 import {
   confirmIndustrySuggestion,
+  createCanonicalFingerprint,
   createLatestRequestGate,
   decideIndustryResolution,
   industrySuggestionKey,
+  isDeterministicRequestFailure,
   readinessPresentation,
 } from '../src/utils/assistantWorkflow.js'
 
@@ -52,5 +54,15 @@ assert.deepEqual(readinessPresentation('partial'), { canSubmit: true, warning: t
 assert.deepEqual(readinessPresentation('insufficient'), { canSubmit: false, warning: false })
 assert.deepEqual(readinessPresentation(null, { loading: true }), { canSubmit: false, warning: false })
 assert.deepEqual(readinessPresentation(null, { error: true }), { canSubmit: false, warning: false })
+
+assert.equal(
+  createCanonicalFingerprint({ content: 'same', profile: { regionId: 42, industry: 'AI' } }),
+  createCanonicalFingerprint({ profile: { industry: 'AI', regionId: 42 }, content: 'same' }),
+)
+assert.equal(isDeterministicRequestFailure({ businessCode: 409 }), true)
+assert.equal(isDeterministicRequestFailure({ response: { status: 400 } }), true)
+assert.equal(isDeterministicRequestFailure({ response: { status: 429 } }), false)
+assert.equal(isDeterministicRequestFailure({ response: { status: 500 } }), false)
+assert.equal(isDeterministicRequestFailure(new Error('network down')), false)
 
 console.log('assistant industry confirmation and readiness workflow: ok')

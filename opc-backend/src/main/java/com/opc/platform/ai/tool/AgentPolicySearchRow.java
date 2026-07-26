@@ -13,6 +13,7 @@ public class AgentPolicySearchRow {
     private String supportMeasures;
     private String applicabilityMode;
     private String geographicLevel;
+    private Long regionId;
     private Long sourceId;
     private Long policyRevision;
     private Long sourceRevision;

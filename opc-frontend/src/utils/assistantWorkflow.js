@@ -58,9 +58,27 @@ export function readinessPresentation(status, flags = {}) {
   }
 }
 
+export function createCanonicalFingerprint(value) {
+  return JSON.stringify(canonicalize(value))
+}
+
+export function isDeterministicRequestFailure(error) {
+  const code = Number(error?.businessCode ?? error?.response?.data?.code ?? error?.response?.status)
+  return Number.isFinite(code) && code >= 400 && code < 500 && ![408, 429].includes(code)
+}
+
 function normalize(value) {
   return String(value || '')
     .normalize('NFKC')
     .toLocaleLowerCase()
     .replace(/[\s\p{P}\p{S}]+/gu, '')
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize)
+  if (!value || typeof value !== 'object') return value
+  return Object.keys(value).sort().reduce((result, key) => {
+    if (value[key] !== undefined) result[key] = canonicalize(value[key])
+    return result
+  }, {})
 }

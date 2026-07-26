@@ -198,6 +198,7 @@ CREATE TABLE IF NOT EXISTS platform_users (
     email VARCHAR(255) NOT NULL COMMENT 'Login email',
     password_hash VARCHAR(100) NULL COMMENT 'BCrypt password hash; NULL for legacy email-code accounts',
     status VARCHAR(20) NOT NULL DEFAULT 'active' COMMENT 'active/disabled',
+    assistant_history_revision BIGINT NOT NULL DEFAULT 0 COMMENT 'Assistant history metadata revision',
     last_login_at DATETIME NULL COMMENT 'Last login time',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created time',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated time',
@@ -381,6 +382,7 @@ CREATE TABLE IF NOT EXISTS ai_agent_sessions (
     deleted_at DATETIME(6) NULL,
     purge_after DATETIME(6) NULL,
     purged_at DATETIME(6) NULL,
+    content_generation BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT chk_agent_session_status CHECK (status IN ('active', 'archived')),
     CONSTRAINT fk_agent_sessions_user FOREIGN KEY (user_id) REFERENCES platform_users(id)
         ON DELETE RESTRICT ON UPDATE RESTRICT,
@@ -390,6 +392,21 @@ CREATE TABLE IF NOT EXISTS ai_agent_sessions (
     INDEX idx_agent_sessions_purge_due (purge_after, purged_at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='User-owned Agent research sessions';
+
+CREATE TABLE IF NOT EXISTS ai_agent_content_purge_audits (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    operation VARCHAR(40) NOT NULL,
+    session_id BIGINT NOT NULL,
+    user_id BIGINT NULL,
+    operator_type VARCHAR(20) NOT NULL,
+    operator_id BIGINT NULL,
+    result VARCHAR(20) NOT NULL,
+    diagnostic_code VARCHAR(80) NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    INDEX idx_agent_purge_audits_session_created (session_id,created_at),
+    INDEX idx_agent_purge_audits_user_created (user_id,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Content purge outcomes without raw Assistant content';
 
 CREATE TABLE IF NOT EXISTS ai_agent_messages (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -415,10 +432,14 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT NOT NULL,
     task_type VARCHAR(40) NOT NULL DEFAULT 'case_analysis',
+    submission_kind VARCHAR(20) NOT NULL DEFAULT 'message',
     case_id BIGINT NULL,
     session_id BIGINT NULL,
+    session_content_generation BIGINT NOT NULL DEFAULT 0,
     user_message_id BIGINT NULL,
     idempotency_key VARCHAR(64) NULL,
+    request_content_hash CHAR(64) NULL,
+    start_profile_hash CHAR(64) NULL,
     status VARCHAR(30) NOT NULL,
     active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'running' THEN user_id ELSE NULL END) STORED,
     session_active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'running' THEN session_id ELSE NULL END) STORED,
@@ -577,5 +598,6 @@ INSERT INTO app_settings (setting_key, setting_value, `sensitive`) VALUES
     ('smtp.security_mode', 'ssl', 0),
     ('smtp.timeout_seconds', '12', 0),
     ('mail.verification_subject', '[{{site_name}}] 邮箱验证码', 0),
-    ('mail.verification_html', '__SOLOFIRM_DEFAULT__', 0)
+    ('mail.verification_html', '__SOLOFIRM_DEFAULT__', 0),
+    ('migration.assistant_workspace_rollout_at', '2026-07-25 21:56:34.000000', 0)
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);

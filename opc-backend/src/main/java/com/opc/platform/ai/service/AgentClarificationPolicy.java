@@ -84,6 +84,35 @@ public class AgentClarificationPolicy {
         return evaluate(profileJson, null, content).question();
     }
 
+    public String runtimeProfile(String profileJson, String contextJson) {
+        try {
+            ObjectNode merged = object(profileJson).deepCopy();
+            ObjectNode context = object(contextJson);
+            JsonNode resolved = context.path("resolvedFields");
+            if (!resolved.isObject()) return merged.toString();
+
+            copyPositiveId(resolved, merged, "regionId");
+            copyPositiveId(resolved, merged, "industryTagId");
+            copyText(resolved, merged, "regionName", 100);
+            copyText(resolved, merged, "industry", 100);
+            String researchGoal = resolved.path("researchGoal").asText("").trim();
+            if (StringUtils.hasText(researchGoal)) merged.put("goal", bounded(researchGoal, 200));
+            return objectMapper.writeValueAsString(merged);
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "研究画像或澄清上下文格式无效");
+        }
+    }
+
+    private void copyPositiveId(JsonNode source, ObjectNode target, String field) {
+        JsonNode value = source.path(field);
+        if (value.isIntegralNumber() && value.asLong() > 0) target.put(field, value.asLong());
+    }
+
+    private void copyText(JsonNode source, ObjectNode target, String field, int maxLength) {
+        String value = source.path(field).asText("").trim();
+        if (StringUtils.hasText(value)) target.put(field, bounded(value, maxLength));
+    }
+
     private void resolveRegionAnswer(ObjectNode resolved, String content) {
         if (!StringUtils.hasText(content) || regionMapper == null) return;
         String input = normalize(content);

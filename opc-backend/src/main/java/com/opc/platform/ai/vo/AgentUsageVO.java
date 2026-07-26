@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 
 public record AgentUsageVO(
         long usedTokens,
+        long reservedTokens,
+        long dailyLimit,
         long limitTokens,
         long remainingTokens,
         boolean unlimited,

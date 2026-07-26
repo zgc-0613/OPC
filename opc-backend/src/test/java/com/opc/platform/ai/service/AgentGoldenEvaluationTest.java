@@ -286,7 +286,7 @@ class AgentGoldenEvaluationTest {
     private AgentToolRegistry registry(JsonNode toolResults, List<ToolInvocation> attemptedTools) {
         AiAgentToolCallMapper mapper = mock(AiAgentToolCallMapper.class);
         AtomicLong ids = new AtomicLong(1);
-        when(mapper.insert(any(AiAgentToolCall.class))).thenAnswer(invocation -> {
+        when(mapper.insertGuarded(any(AiAgentToolCall.class), any())).thenAnswer(invocation -> {
             AiAgentToolCall audit = invocation.getArgument(0);
             audit.setId(ids.getAndIncrement());
             try {
@@ -297,6 +297,7 @@ class AgentGoldenEvaluationTest {
             }
             return 1;
         });
+        when(mapper.updateGuarded(any(AiAgentToolCall.class), any())).thenReturn(1);
         return new AgentToolRegistry(
                 List.of(
                         fixtureTool("search_cases", SearchCasesArguments.class, toolResults.path("search_cases")),

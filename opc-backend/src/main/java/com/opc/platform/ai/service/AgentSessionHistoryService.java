@@ -5,10 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.dto.AgentSessionUpdateDTO;
 import com.opc.platform.ai.entity.AiAgentMessage;
 import com.opc.platform.ai.entity.AiAgentSession;
+import com.opc.platform.ai.exception.AgentHistoryCursorStaleException;
 import com.opc.platform.ai.mapper.AiAgentMessageMapper;
 import com.opc.platform.ai.mapper.AiAgentSessionMapper;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
+import com.opc.platform.ai.mapper.AgentUsageLedgerRow;
 import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.ai.vo.AgentMessagePageVO;
 import com.opc.platform.ai.vo.AgentMessageVO;
@@ -18,8 +20,9 @@ import com.opc.platform.ai.vo.AgentUsageVO;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.userauth.AuthenticatedUser;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -31,9 +34,12 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.security.MessageDigest;
+import java.util.HexFormat;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 @Service
-@RequiredArgsConstructor
 public class AgentSessionHistoryService {
 
     private static final String PURGED_TITLE = "[已删除]";
@@ -44,7 +50,31 @@ public class AgentSessionHistoryService {
     private final AiAgentToolCallMapper toolCallMapper;
     private final AiRuntimeSettingsProvider settingsProvider;
     private final ObjectMapper objectMapper;
+    private final String cursorSecret;
+    private final AgentContentPurgeAuditService purgeAuditService;
 
+    public AgentSessionHistoryService(
+            AiAgentSessionMapper sessionMapper,
+            AiAgentMessageMapper messageMapper,
+            AiAnalysisRunMapper runMapper,
+            AiAgentToolCallMapper toolCallMapper,
+            AiRuntimeSettingsProvider settingsProvider,
+            ObjectMapper objectMapper,
+            @Value("${opc.ai.agent.history-cursor-secret:${OPC_ASSISTANT_CURSOR_HMAC_SECRET:}}")
+            String cursorSecret,
+            AgentContentPurgeAuditService purgeAuditService
+    ) {
+        this.sessionMapper = sessionMapper;
+        this.messageMapper = messageMapper;
+        this.runMapper = runMapper;
+        this.toolCallMapper = toolCallMapper;
+        this.settingsProvider = settingsProvider;
+        this.objectMapper = objectMapper;
+        this.cursorSecret = cursorSecret;
+        this.purgeAuditService = purgeAuditService;
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public AgentSessionHistoryPageVO history(
             AuthenticatedUser user, String requestedScope, String query, String encodedCursor, int requestedLimit
     ) {
@@ -55,9 +85,21 @@ public class AgentSessionHistoryService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "历史搜索词不能超过 100 个字符");
         }
         String queryLike = trimmedQuery.isEmpty() ? null : "%" + escapeLike(trimmedQuery) + "%";
-        HistoryCursor cursor = decodeCursor(encodedCursor);
+        String queryHash = sha256(trimmedQuery);
+        HistoryCursor cursor = decodeCursor(encodedCursor, user.userId(), scope, queryHash);
+        long historyRevision = value(sessionMapper.selectHistoryRevision(user.userId()));
+        if (cursor != null && cursor.revision() != historyRevision) {
+            throw new AgentHistoryCursorStaleException();
+        }
+        LocalDateTime snapshotAt;
+        if (cursor == null) {
+            snapshotAt = sessionMapper.selectCurrentTimestamp();
+            if (snapshotAt == null) snapshotAt = LocalDateTime.now();
+        } else {
+            snapshotAt = cursor.snapshotAt();
+        }
         List<AiAgentSession> rows = sessionMapper.selectHistory(
-                user.userId(), scope, queryLike,
+                user.userId(), scope, queryLike, snapshotAt,
                 cursor == null ? null : cursor.pinned(),
                 cursor == null ? null : cursor.activity(),
                 cursor == null ? null : cursor.id(), limit + 1
@@ -66,7 +108,8 @@ public class AgentSessionHistoryService {
         boolean hasMore = safeRows.size() > limit;
         List<AiAgentSession> visible = safeRows.subList(0, Math.min(limit, safeRows.size()));
         String nextCursor = hasMore && !visible.isEmpty()
-                ? encodeCursor(visible.get(visible.size() - 1)) : null;
+                ? encodeCursor(visible.get(visible.size() - 1), user.userId(), scope, queryHash,
+                        snapshotAt, historyRevision) : null;
         return new AgentSessionHistoryPageVO(
                 visible.stream().map(this::toSession).toList(), nextCursor, hasMore);
     }
@@ -92,11 +135,14 @@ public class AgentSessionHistoryService {
     }
 
     public AgentUsageVO usage(AuthenticatedUser user) {
-        long used = Math.max(0L, value(runMapper.sumAgentTokensToday(user.userId())));
+        AgentUsageLedgerRow ledger = runMapper.selectAgentUsageLedgerToday(user.userId());
+        long used = Math.max(0L, ledger == null ? 0L : value(ledger.getUsedTokens()));
+        long reserved = Math.max(0L, ledger == null ? 0L : value(ledger.getReservedTokens()));
         long limit = Math.max(0L, settingsProvider.dailyTokenQuota());
         boolean unlimited = limit == 0;
         return new AgentUsageVO(
-                used, limit, unlimited ? 0 : Math.max(0, limit - used), unlimited,
+                used, reserved, limit, limit,
+                unlimited ? 0 : Math.max(0, limit - used - reserved), unlimited,
                 LocalDate.now().plusDays(1).atStartOfDay()
         );
     }
@@ -174,12 +220,23 @@ public class AgentSessionHistoryService {
 
     @Transactional
     public void purge(AuthenticatedUser user, Long sessionId) {
+        try {
         AiAgentSession session = lockVisible(user, sessionId);
         if (session.getDeletedAt() == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "会话必须先移入回收站");
         }
-        requireNoActiveRun(sessionId);
+        requireSettledForPurge(sessionId);
         scrub(session, LocalDateTime.now());
+        purgeAuditService.success("manual_purge", sessionId, user.userId(), "user", user.userId());
+        } catch (BusinessException exception) {
+            auditFailure("manual_purge", sessionId, user.userId(), "user", user.userId(),
+                    "rejected", exception.getErrorCode().name());
+            throw exception;
+        } catch (RuntimeException exception) {
+            auditFailure("manual_purge", sessionId, user.userId(), "user", user.userId(),
+                    "failed", "PURGE_INTERNAL_ERROR");
+            throw exception;
+        }
     }
 
     @Transactional
@@ -189,9 +246,21 @@ public class AgentSessionHistoryService {
         if (due == null || due.isEmpty()) return 0;
         int purged = 0;
         for (AiAgentSession session : due) {
-            if (runMapper.countNonTerminalForSession(session.getId()) > 0) continue;
-            scrub(session, now);
-            purged++;
+            if (hasActiveRunOrPendingSettlement(session.getId())) {
+                auditFailure("scheduled_purge", session.getId(), session.getUserId(), "system", null,
+                        "rejected", "ACTIVE_RUN");
+                continue;
+            }
+            try {
+                scrub(session, now);
+                purgeAuditService.success(
+                        "scheduled_purge", session.getId(), session.getUserId(), "system", null);
+                purged++;
+            } catch (RuntimeException exception) {
+                auditFailure("scheduled_purge", session.getId(), session.getUserId(), "system", null,
+                        "failed", "PURGE_INTERNAL_ERROR");
+                throw exception;
+            }
         }
         return purged;
     }
@@ -209,7 +278,10 @@ public class AgentSessionHistoryService {
         session.setResearchContextJson(null);
         session.setPinnedAt(null);
         session.setPurgedAt(now);
+        session.setContentGeneration((session.getContentGeneration() == null ? 0L
+                : session.getContentGeneration()) + 1L);
         session.setVersion((session.getVersion() == null ? 0L : session.getVersion()) + 1);
+        incrementHistoryRevision(session.getUserId());
     }
 
     private AiAgentSession lockVisible(AuthenticatedUser user, Long sessionId) {
@@ -226,6 +298,17 @@ public class AgentSessionHistoryService {
         }
     }
 
+    private void requireSettledForPurge(Long sessionId) {
+        if (hasActiveRunOrPendingSettlement(sessionId)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "研究运行或 Token 结算尚未完成");
+        }
+    }
+
+    private boolean hasActiveRunOrPendingSettlement(Long sessionId) {
+        return runMapper.countNonTerminalForSession(sessionId) > 0
+                || runMapper.countPendingProviderSettlementForSession(sessionId) > 0;
+    }
+
     private void requireNotDeleted(AiAgentSession session) {
         if (session.getDeletedAt() != null) {
             throw new BusinessException(ErrorCode.CONFLICT, "回收站中的会话不能执行此操作");
@@ -237,6 +320,7 @@ public class AgentSessionHistoryService {
         if (sessionMapper.updateById(session) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "研究会话状态已变化");
         }
+        incrementHistoryRevision(session.getUserId());
     }
 
     private AgentSessionVO toSession(AiAgentSession session) {
@@ -283,27 +367,49 @@ public class AgentSessionHistoryService {
         return value.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }
 
-    private String encodeCursor(AiAgentSession session) {
-        LocalDateTime activity = session.getLastMessageAt() == null
-                ? session.getCreatedAt() : session.getLastMessageAt();
+    private String encodeCursor(
+            AiAgentSession session, Long userId, String scope, String queryHash,
+            LocalDateTime snapshotAt, long historyRevision
+    ) {
+        LocalDateTime activity = session.getHistoryActivity() != null
+                ? session.getHistoryActivity()
+                : (session.getLastMessageAt() == null ? session.getCreatedAt() : session.getLastMessageAt());
         if (activity == null) activity = LocalDateTime.of(1970, 1, 1, 0, 0);
-        String raw = (session.getPinnedAt() == null ? 0 : 1) + "|" + activity + "|" + session.getId();
+        int pinned = session.getHistoryPinned() == null
+                ? (session.getPinnedAt() == null ? 0 : 1) : session.getHistoryPinned();
+        String payload = "2|" + userId + "|" + scope + "|" + queryHash + "|" + snapshotAt
+                + "|" + historyRevision + "|" + pinned + "|" + activity + "|" + session.getId();
+        String raw = payload + "|" + hmac(payload);
         return Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
-    private HistoryCursor decodeCursor(String encoded) {
+    private HistoryCursor decodeCursor(String encoded, Long userId, String scope, String queryHash) {
         if (encoded == null || encoded.isBlank()) return null;
         try {
             String raw = new String(Base64.getUrlDecoder().decode(encoded), StandardCharsets.UTF_8);
             String[] parts = raw.split("\\|", -1);
-            if (parts.length != 3) throw new IllegalArgumentException();
-            int pinned = Integer.parseInt(parts[0]);
+            boolean legacy = parts.length == 9 && "1".equals(parts[0]);
+            boolean current = parts.length == 10 && "2".equals(parts[0]);
+            if (!legacy && !current) throw new IllegalArgumentException();
+            int signatureIndex = parts.length - 1;
+            String payload = String.join("|", java.util.Arrays.copyOf(parts, signatureIndex));
+            if (!MessageDigest.isEqual(
+                    hmac(payload).getBytes(StandardCharsets.US_ASCII),
+                    parts[signatureIndex].getBytes(StandardCharsets.US_ASCII))) {
+                throw new IllegalArgumentException();
+            }
+            if (!Long.toString(userId).equals(parts[1]) || !scope.equals(parts[2]) || !queryHash.equals(parts[3])) {
+                throw new IllegalArgumentException();
+            }
+            LocalDateTime snapshotAt = LocalDateTime.parse(parts[4]);
+            long revision = legacy ? -1L : Long.parseLong(parts[5]);
+            int pinned = Integer.parseInt(parts[legacy ? 5 : 6]);
             if (pinned != 0 && pinned != 1) throw new IllegalArgumentException();
-            LocalDateTime activity = LocalDateTime.parse(parts[1]);
-            long id = Long.parseLong(parts[2]);
+            LocalDateTime activity = LocalDateTime.parse(parts[legacy ? 6 : 7]);
+            long id = Long.parseLong(parts[legacy ? 7 : 8]);
             if (id < 1) throw new IllegalArgumentException();
-            return new HistoryCursor(pinned, activity, id);
+            return new HistoryCursor(snapshotAt, revision, pinned, activity, id);
         } catch (RuntimeException exception) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "历史游标无效");
         }
@@ -313,6 +419,48 @@ public class AgentSessionHistoryService {
         return value == null ? 0L : value;
     }
 
-    private record HistoryCursor(int pinned, LocalDateTime activity, long id) {
+    private void incrementHistoryRevision(Long userId) {
+        if (sessionMapper.incrementHistoryRevision(userId) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "历史记录状态已变化，请重试");
+        }
+    }
+
+    private void auditFailure(String operation, Long sessionId, Long userId, String operatorType,
+                              Long operatorId, String result, String diagnosticCode) {
+        try {
+            purgeAuditService.failure(
+                    operation, sessionId, userId, operatorType, operatorId, result, diagnosticCode);
+        } catch (RuntimeException ignored) {
+            // Audit storage failure must not replace the original purge outcome.
+        }
+    }
+
+    private String sha256(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("SHA-256 unavailable", exception);
+        }
+    }
+
+    private String hmac(String value) {
+        if (cursorSecret == null || cursorSecret.length() < 32) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE,
+                    "Assistant history cursor signing is not configured");
+        }
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(cursorSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("HmacSHA256 unavailable", exception);
+        }
+    }
+
+    private record HistoryCursor(
+            LocalDateTime snapshotAt, long revision, int pinned, LocalDateTime activity, long id
+    ) {
     }
 }

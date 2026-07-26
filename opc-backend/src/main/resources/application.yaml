@@ -27,6 +27,8 @@ opc:
   ai:
     settings-master-key: ${OPC_AI_SETTINGS_MASTER_KEY:}
     trusted-provider-origins: ${OPC_AI_TRUSTED_PROVIDER_ORIGINS:https://api.deepseek.com}
+    agent:
+      history-cursor-secret: ${OPC_ASSISTANT_CURSOR_HMAC_SECRET:}
   admin:
     session-hours: 12
   settings:

@@ -4,7 +4,7 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 21 (Agent Runtime stabilization accepted locally; production deployment blocked before SSH because the secure password environment variable is absent)
+Phase 26 (research-quality closure complete locally; production deployment pending the real research gate)
 
 ## Phases
 
@@ -298,8 +298,8 @@ Phase 21 (Agent Runtime stabilization accepted locally; production deployment bl
 - [x] Add authenticated asynchronous research-session APIs and administrator-safe run audit APIs.
 - [x] Upgrade the existing `/assistant` Prisma Light workspace and administrator settings surface with persistent sessions, polling recovery, progress, cancellation, retry, citations, and run records.
 - [x] Add a deterministic 20-question golden evaluation set and complete unit, MySQL Testcontainers, frontend, migration, deployment, and build verification.
-- [ ] Deploy through the repository rollback workflow and pass the semantic production Agent probe before declaring completion.
-- **Status:** local implementation and verification complete; production deployment and semantic Agent probe are blocked because the existing `root` SSH credential path is unavailable. Phase two is not declared complete.
+- [x] Deploy through the repository rollback workflow and pass the semantic production Agent probe before declaring completion.
+- **Status:** complete and deployed in release `20260725-215634`; the real Agent probe completed with legal evidence and zero unknown citations.
 
 ### Phase 21: Agent Runtime Stabilization, Trusted Evaluation, And Production Gate
 - [x] Fix named-index postcheck accounting and add the forward-only stabilization migration.
@@ -312,8 +312,8 @@ Phase 21 (Agent Runtime stabilization accepted locally; production deployment bl
 - [x] Harden the deployment probe for provider metadata, positive token accounting, tool evidence snapshots, permissions, and secret redaction.
 - [x] Remove the remaining heavy Agent UI rails/shadows while preserving Prisma Light structure and interactions.
 - [x] Pass 270 backend tests, including 48 MySQL 8.4 integration tests; 14 Vitest tests; all frontend contract scripts; 17 Python deployment tests; both production builds; diff, secret, artifact, and ignore checks.
-- [ ] Run the repository deployment workflow, database postcheck, dual-domain checks, and real DeepSeek Agent probe.
-- **Status:** local acceptance complete. Deployment cannot start until `OPC_SSH_PASSWORD` is injected into the deployment process without placing plaintext credentials in a command, log, script, or report.
+- [x] Run the repository deployment workflow, database postcheck, dual-domain checks, and real DeepSeek Agent probe.
+- **Status:** complete and deployed in release `20260725-215634`; backup and rollback artifacts are retained.
 
 ### Phase 22: Assistant Research Workspace And Server History
 - [x] Add forward-only, repeatable Assistant Workspace precheck/migration/postcheck SQL without rewriting prior migrations.
@@ -325,5 +325,68 @@ Phase 21 (Agent Runtime stabilization accepted locally; production deployment bl
 - [x] Add Vue behavior, Markdown XSS, utility, service, controller, MySQL 8.4 migration/query/purge, and deployment-order tests.
 - [x] Extend deployment upload/checksum/migration gates and the temporary production Agent probe for history, pagination, latest run, usage, title, pin, archive, trash, and restore.
 - [x] Pass 287 backend tests including 52 MySQL 8.4 tests, 22 Vitest tests, all 8 frontend scripts, 26 Python tests, both production builds, and repository diff/ignore/artifact/secret checks.
-- [ ] Deploy the combined release and pass the expanded real DeepSeek production probe.
-- **Status:** local implementation and verification complete; production remains unchanged until secure deployment credentials are available.
+- [x] Deploy the combined release and pass the expanded real DeepSeek production probe.
+- **Status:** complete and deployed in release `20260725-215634`; expanded Assistant history/lifecycle and Agent evidence probes passed.
+
+### Phase 23: Assistant Workspace Stability, Concurrency, Purge, And Responsive Completion
+- [x] Replace split first submission with request-bound atomic `/sessions/start` and durable replay semantics.
+- [x] Add signed, user/scope/query-bound history snapshot cursors and verify concurrent activity without duplicates or omissions in MySQL 8.4.
+- [x] Separate `activeRun` from terminal `latestRun`, restore owned retry content, and gate stale frontend responses.
+- [x] Enforce one-time automatic titles, canonical industry confirmation, shared usage-ledger semantics, purge generations, guarded late writes, and content-free purge audits.
+- [x] Stabilize the dedicated Assistant shell, container-responsive research profile, scroll/draft/IME behavior, focus-managed drawers, and the unified searchable industry combobox.
+- [x] Add the forward, repeatable workspace stabilization migration and exact precheck/postcheck/index recovery coverage.
+- [x] Pass 299 Spring tests including 58 MySQL 8.4 tests, 57 Vitest tests, all 8 frontend scripts, 63 default Python tests plus the explicit MySQL migration run, both production builds and repository security gates.
+- [x] Deploy the stabilization release and pass the expanded production probes.
+- **Status:** complete and deployed in release `20260726-015858`; migration/postcheck, dual-domain, atomic start, history second page, purge, authorization and real DeepSeek evidence probes passed.
+
+### Phase 24: Probe Cleanup, History Consistency, Tablet Layout, And Purge Concurrency
+- [x] Make the temporary probe administrator identity available before database writes and clean partial creation by exact unique username.
+- [x] Preserve the original deployment failure while reporting any separate, sanitized cleanup failure; verify administrator counts return to their pre-probe value.
+- [x] Add a per-user history metadata revision to signed cursors and return controlled `HISTORY_CURSOR_STALE` conflicts after rename, pin, archive, trash, restore, or purge changes.
+- [x] Refresh the first history page once on a stale cursor while preserving the selected session and current search query.
+- [x] Correct the research-profile container layout to six-track desktop, explicit two-column tablet grouping, and one-column phone behavior.
+- [x] Add real MySQL latch-controlled purge races for active-run rejection and late callback denial after the terminal purge boundary.
+- [x] Pass 306 Spring tests including 62 MySQL 8.4 integration tests, 60 Vitest tests, all 8 frontend scripts, 73 default Python cases, 7 MySQL migration cases, both production builds, and final repository gates.
+- [x] Deploy the forward migration and application release, pass dual-domain, authorization, stale-cursor, temporary-account cleanup, and real DeepSeek probes, then repeat production preflight independently.
+- **Status:** complete and deployed in release `20260726-080227`; backup, database dump, backend rollback artifact, and previous release remain available.
+
+### Phase 25: Readiness Trigger, First-Question UX, Settlement, And History Closure
+- [x] Split local profile persistence from evidence dependencies so only region and canonical industry changes schedule readiness or industry resolution.
+- [x] Give new research and existing sessions distinct Composer labels/placeholders while retaining atomic start and ordinary message routes.
+- [x] Keep the Composer in the dedicated viewport shell, add coarse-pointer tablet targets, and scroll keyboard-active industry options only inside the listbox.
+- [x] Block permanent purge while a cancelled Provider call still owes usage, then settle actual usage once without publishing an answer.
+- [x] Increment history revision exactly once for an automatic title and serialize concurrent atomic starts before child-row creation to avoid MySQL lock-upgrade deadlocks.
+- [x] Preserve the original deployment exception when rollback also fails and attach only a fixed sanitized recovery note.
+- [x] Pass 307 Spring tests including 63 MySQL 8.4 tests, 65 Vitest tests, all 8 frontend scripts, 74 explicit Python tests, both production builds, and repository gates.
+- [x] Deploy, pass migration/postcheck, dual-domain, authorization, readiness/start/message/history, cleanup and real DeepSeek probes, then repeat preflight independently.
+- **Status:** complete and deployed in release `20260726-092000`; backup, database dump, backend rollback artifact, and previous release remain available.
+
+### Phase 26: Research Orchestration, Evidence Workspace, And Reliability Closure
+- [x] Reproduce and fix the low-height Assistant clipping path with one bounded flex height chain, one conversation scroll owner, and a non-shrinking Composer.
+- [x] Give Assistant commands explicit secondary/danger states, keyboard focus, active feedback, accessible names, and coarse-pointer touch targets.
+- [x] Add an owned, sanitized and bounded run-evidence API plus a grouped Prisma Light evidence panel beside the answer.
+- [x] Publish `agent-research-v2`: closed intent/plan/result schemas, multiple validated tool requests, deterministic dependencies, structured synthesis, and compatibility Markdown.
+- [x] Expand case lookup to selected-region descendants, policy lookup to descendants/selected/ancestors, and preserve exact industry-tag matches before bounded relevance ordering.
+- [x] Distinguish sufficient, partial and insufficient evidence so partial verified evidence remains useful without weakening publication or verification requirements.
+- [x] Add the ten-scenario research-quality evaluation separately from the existing runtime protocol evaluation.
+- [x] Make Provider Call settlement and Run usage reconciliation atomic and replay-safe in an independent transaction, including cancellation and concurrent estimate replacement.
+- [x] Replace compatibility-session Active Run N+1 reads with one owner-scoped projection and preserve automatic-title revision behavior.
+- [x] Preserve the original deployment exception across reconnect, shutdown, rollback and cleanup failures; strengthen the real production probe for v2 mixed research and evidence.
+- [x] Pass Spring `322` (`321` passed, `1` opt-in Provider smoke skipped), MySQL 8.4 `67/67`, Vitest `73/73`, all `8` frontend scripts, Python default `77` (`70` passed, `7` explicit MySQL skipped), explicit Python MySQL `7/7`, both production builds and repository gates.
+- [x] Exercise the real deployment gate through four `TRUNCATED_RESPONSE`, two `UNCITED_FACT`, one `INVALID_OUTPUT_SECTIONS`, one `INVALID_STRUCTURED_RESULT`, one `UNKNOWN_SOURCE_ID` and one legacy `INVALID_AGENT_PLAN` rollback plus two pre-rollout Provider connection rejections; close each deterministic mismatch with a red-capable contract test and re-run the complete backend suite. Planning failures now use fixed content-free diagnostics instead of the generic plan code.
+- [x] Deploy the verified release and record the backup, rollback path, remote hashes, mixed-evidence DeepSeek metrics and temporary-data cleanup.
+- **Status:** complete and deployed in release `20260726-162930`; independent preflight confirmed hashes, service ownership, one backend process and restored temporary-account counts.
+
+### Phase 27: Predeploy Provider Evaluation, Contract Convergence, And Assistant Quality Closure
+- [x] Centralize Agent v2 prompt version, planning/synthesis output budgets, field limits, aggregate limits, output sections and controlled diagnostics in `AgentResearchContract`.
+- [x] Generate separate closed planning and synthesis schemas from the same contract constants used by Java validation and prompt boundary text.
+- [x] Add twelve sanitized replay fixtures for truncation, unknown fields, invalid arrays, source-ID confusion, uncited content, invalid structured results and Provider connection failure.
+- [x] Derive evidence coverage from current-run authorized tool evidence rather than trusting model-declared counts or status.
+- [x] Add database-backed region resolution and authorize only resolved or profile-owned region IDs before cross-region retrieval.
+- [x] Bind Assistant citations and evidence items to the message Run so historical citations cannot resolve against the latest Run.
+- [x] Move the real Provider connection and complete Agent v2 contract probe ahead of `/opt/opc/current` switching by using an isolated candidate database and transient runtime.
+- [x] Add complete candidate audit validation for Provider calls, rounds, tool completion, citations, Token settlement, latency, three evidence-count categories and an explicit `release_switched=false` record.
+- [x] Pass Spring `341` (`340` passed, `1` opt-in real Provider smoke skipped), MySQL 8.4 `68/68`, Vitest `77/77`, all `8` frontend scripts, Python deployment/migration `83/83`, explicit Python MySQL `7/7`, both production builds and repository gates.
+- [x] Run the mandatory real DeepSeek candidate probe before rollout, then switch production only after its contract, citation, coverage and settlement gates pass.
+- [x] Complete postdeploy compatibility and Agent probes plus an independent service/hash/process preflight.
+- **Status:** complete and deployed in release `20260726-213258`; candidate validation ran before the production symlink switch and the previous release remains available.

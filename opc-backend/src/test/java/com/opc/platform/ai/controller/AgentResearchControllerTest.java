@@ -2,8 +2,10 @@ package com.opc.platform.ai.controller;
 
 import com.opc.platform.ai.config.AiWebMvcConfig;
 import com.opc.platform.ai.service.AgentResearchReceipt;
+import com.opc.platform.ai.exception.AgentHistoryCursorStaleException;
 import com.opc.platform.ai.service.AgentResearchQueryService;
 import com.opc.platform.ai.service.AgentResearchService;
+import com.opc.platform.ai.service.AgentRunEvidenceService;
 import com.opc.platform.ai.service.AgentSessionHistoryService;
 import com.opc.platform.ai.vo.AgentSessionHistoryPageVO;
 import com.opc.platform.ai.vo.AgentSessionVO;
@@ -39,6 +41,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -78,6 +81,44 @@ class AgentResearchControllerTest {
                 .andExpect(jsonPath("$.data.sessionId").value(10))
                 .andExpect(jsonPath("$.data.messageId").value(20))
                 .andExpect(jsonPath("$.data.runId").value(30));
+    }
+
+    @Test
+    void authenticatedAtomicSessionStartIsAccepted() throws Exception {
+        UserLoginVO user = new UserLoginVO();
+        user.setUserId(42L);
+        user.setUsername("owner");
+        user.setEmail("owner@example.com");
+        when(userAuthService.getCurrentUser("valid-token")).thenReturn(user);
+
+        mockMvc.perform(post("/api/ai/research/sessions/start")
+                        .header("Authorization", "Bearer valid-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "profile":{"regionId":1,"industry":"AI"},
+                                  "content":"Research Hubei AI opportunities",
+                                  "idempotencyKey":"idem-start-12345"
+                                }
+                                """))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.code").value(200));
+    }
+
+    @Test
+    void compatibilityDeleteUsesTheExplicitArchiveLifecycle() throws Exception {
+        UserLoginVO user = new UserLoginVO();
+        user.setUserId(42L);
+        user.setUsername("owner");
+        user.setEmail("owner@example.com");
+        when(userAuthService.getCurrentUser("valid-token")).thenReturn(user);
+
+        mockMvc.perform(delete("/api/ai/research/sessions/10")
+                        .header("Authorization", "Bearer valid-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(historyService).archive(any(), org.mockito.ArgumentMatchers.eq(10L));
     }
 
     @Test
@@ -134,6 +175,25 @@ class AgentResearchControllerTest {
     }
 
     @Test
+    void staleHistoryCursorReturnsAControlledDiagnosticInsteadOfAnInternalError() throws Exception {
+        UserLoginVO user = new UserLoginVO();
+        user.setUserId(42L);
+        user.setUsername("owner");
+        user.setEmail("owner@example.com");
+        when(userAuthService.getCurrentUser("valid-token")).thenReturn(user);
+        when(historyService.history(any(), any(), any(), any(), anyInt()))
+                .thenThrow(new AgentHistoryCursorStaleException());
+
+        mockMvc.perform(get("/api/ai/research/sessions/history")
+                        .header("Authorization", "Bearer valid-token")
+                        .param("scope", "active")
+                        .param("cursor", "signed-stale-cursor"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(409))
+                .andExpect(jsonPath("$.data.diagnosticCode").value("HISTORY_CURSOR_STALE"));
+    }
+
+    @Test
     void anonymousHistoryRequestNeverReachesHistoryService() throws Exception {
         doThrow(new BusinessException(ErrorCode.UNAUTHORIZED, "请先登录"))
                 .when(userAuthService).getCurrentUser(null);
@@ -143,6 +203,30 @@ class AgentResearchControllerTest {
                 .andExpect(jsonPath("$.code").value(401));
 
         verify(historyService, never()).history(any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
+    void authenticatedUserCanRequestTheSanitizedRunEvidenceContract() throws Exception {
+        UserLoginVO user = new UserLoginVO();
+        user.setUserId(42L);
+        user.setUsername("owner");
+        user.setEmail("owner@example.com");
+        when(userAuthService.getCurrentUser("valid-token")).thenReturn(user);
+
+        mockMvc.perform(get("/api/ai/research/runs/30/evidence")
+                        .header("Authorization", "Bearer valid-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+    }
+
+    @Test
+    void anonymousRunEvidenceRequestNeverReachesTheQueryService() throws Exception {
+        doThrow(new BusinessException(ErrorCode.UNAUTHORIZED, "请先登录"))
+                .when(userAuthService).getCurrentUser(null);
+
+        mockMvc.perform(get("/api/ai/research/runs/30/evidence"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(401));
     }
 
     @Configuration
@@ -159,5 +243,6 @@ class AgentResearchControllerTest {
         @Bean AgentResearchService agentResearchService() { return mock(AgentResearchService.class); }
         @Bean AgentResearchQueryService agentResearchQueryService() { return mock(AgentResearchQueryService.class); }
         @Bean AgentSessionHistoryService agentSessionHistoryService() { return mock(AgentSessionHistoryService.class); }
+        @Bean AgentRunEvidenceService agentRunEvidenceService() { return mock(AgentRunEvidenceService.class); }
     }
 }

@@ -14,7 +14,7 @@
         @trash="trashSession" @restore="restoreSession" @purge="purgeSession"
       />
 
-      <main class="research-desk" aria-labelledby="assistant-title">
+      <main class="research-desk" data-layout="bounded-workspace" aria-labelledby="assistant-title">
         <header class="desk-header">
           <button ref="mobileHistoryButton" class="mobile-history-command" type="button" aria-label="打开研究历史" @click="mobileHistoryOpen = true"><Menu :size="20" /></button>
           <div><span class="caption">SOLOFIRM RESEARCH DESK</span><h1 id="assistant-title">{{ currentSession?.title || '新研究' }}</h1></div>
@@ -24,13 +24,18 @@
         <AssistantResearchProfile
           v-model="profile" :editable="!currentSession" :regions="regions" :industries="industries"
           :readiness="readiness" :readiness-loading="readinessLoading" :readiness-error="readinessError"
-          :agent-ready="agentReady" :provider-label="providerLabel" @fork="forkResearch"
+          :industry-resolution-loading="industryResolutionLoading" :industry-resolution-error="industryResolutionError"
+          :industry-resolution-rejected="industryResolutionRejected"
+          :industry-suggestion="industrySuggestion" :agent-ready="agentReady" :provider-label="providerLabel"
+          @confirm-industry="confirmSuggestedIndustry" @reject-industry="rejectSuggestedIndustry" @fork="forkResearch"
         />
 
         <section v-if="!agentReady" class="desk-notice" role="status"><BrainCircuit :size="22" /><div><strong>智能体运行时尚未启用</strong><p>管理员需要启用模型 Provider 与 Agent Runtime；本页不会回退到虚假回答。</p></div></section>
 
         <AssistantConversation
           ref="conversation" :messages="messages" :run="currentRun" :has-more="hasMoreMessages"
+          :evidence-run-id="currentRun?.runId" :evidence-items="evidenceItems"
+          :evidence-loading="evidenceLoading" :evidence-error="evidenceError"
           :loading-older="loadingOlder" :draft-mode="!currentSession" :network-status="networkStatus" :cancelling="cancelling"
           @load-older="loadOlderMessages" @prefill="prefillQuestion" @citations="openCitations" @process="openProcess"
           @cancel="cancelRun" @retry="retryLast" @resume="resumePolling"
@@ -39,12 +44,12 @@
         <p v-if="composerError" class="composer-error" role="alert">{{ composerError }}</p>
         <AssistantComposer
           ref="composerControl" v-model="composer" :disabled="Boolean(composerDisabledReason)" :disabled-reason="composerDisabledReason"
-          :sending="submitting" :running="runActive" :usage="usage" @send="sendMessage" @cancel="cancelRun"
+          :sending="submitting" :running="runActive" :new-research="!currentSession" :usage="usage" @send="sendMessage" @cancel="cancelRun"
         />
       </main>
     </div>
 
-    <AssistantCitationDrawer :open="drawerOpen" :mode="drawerMode" :citations="drawerCitations" :run="drawerRun" :loading="drawerLoading" :error="drawerError" @close="closeDrawer" />
+    <AssistantCitationDrawer :open="drawerOpen" :restore-focus="drawerRestoreFocus" :mode="drawerMode" :citations="drawerCitations" :run="drawerRun" :loading="drawerLoading" :error="drawerError" @close="closeDrawer" />
     <p v-if="toast" class="assistant-toast" role="status">{{ toast }}</p>
   </div>
 </template>
@@ -58,24 +63,36 @@ import AssistantConversation from '@/components/assistant/AssistantConversation.
 import AssistantHistorySidebar from '@/components/assistant/AssistantHistorySidebar.vue'
 import AssistantResearchProfile from '@/components/assistant/AssistantResearchProfile.vue'
 import {
-  archiveResearchSessionExplicit, cancelResearchRun, checkEntrepreneurshipReadiness, createResearchSession,
-  getAiCapabilities, getResearchHistory, getResearchMessages, getResearchRun, getResearchSession, getResearchUsage,
-  permanentlyDeleteResearchSession, restoreResearchSession, sendResearchMessage, trashResearchSession,
+  archiveResearchSessionExplicit, cancelResearchRun, checkEntrepreneurshipReadiness,
+  getAiCapabilities, getResearchHistory, getResearchMessages, getResearchRun, getResearchRunEvidence, getResearchSession, getResearchUsage,
+  permanentlyDeleteResearchSession, resolveIndustryWithAi, restoreResearchSession, sendResearchMessage, startResearchSession, trashResearchSession,
   unarchiveResearchSession, updateResearchSession,
 } from '@/api/ai'
 import { getRegions } from '@/api/region'
 import { getIndustryTags } from '@/api/tag'
+import { getUserProfile } from '@/api/auth'
 import { createAssistantDraftStore } from '@/composables/useAssistantDrafts'
-import { createLatestRequestGate } from '@/utils/assistantWorkflow'
+import {
+  confirmIndustrySuggestion, createCanonicalFingerprint, createLatestRequestGate, decideIndustryResolution,
+  industrySuggestionKey, isDeterministicRequestFailure, readinessPresentation,
+} from '@/utils/assistantWorkflow'
 import { mergeMessagePages } from '@/utils/assistantWorkspace'
 
-const SESSION_KEY = 'opc_agent_session_id'
+const USER_NAMESPACE = `user:${getUserProfile()?.userId || 'anonymous'}`
+const STORAGE_PREFIX = `opc_assistant:${USER_NAMESPACE}:`
+const SESSION_KEY = `${STORAGE_PREFIX}selected-session`
 const SIDEBAR_KEY = 'opc_assistant_history_collapsed'
-const PROFILE_KEY = 'opc_assistant_new_profile_v3'
+const PROFILE_KEY = `${STORAGE_PREFIX}new-profile-v3`
 const TERMINAL = new Set(['completed', 'clarification_needed', 'evidence_insufficient', 'failed', 'cancelled', 'expired'])
 const defaultProfile = () => ({ ventureType: 'solo_company', regionId: '', industryTagId: '', industry: '', stage: 'validation', budgetRange: 'under_100k', goal: '', existingResources: '' })
-const drafts = createAssistantDraftStore()
+const drafts = createAssistantDraftStore(globalThis.localStorage, USER_NAMESPACE)
 const historyGate = createLatestRequestGate()
+const sessionGate = createLatestRequestGate()
+const messagePageGate = createLatestRequestGate()
+const industryGate = createLatestRequestGate()
+const readinessGate = createLatestRequestGate()
+const processGate = createLatestRequestGate()
+const evidenceGate = createLatestRequestGate()
 
 const pageLoading = ref(true)
 const pageError = ref('')
@@ -96,8 +113,11 @@ const messages = ref([])
 const nextBeforeSequence = ref(null)
 const hasMoreMessages = ref(false)
 const loadingOlder = ref(false)
-const currentRun = ref(null)
-const lastQuestion = ref('')
+const activeRun = ref(null)
+const latestRun = ref(null)
+const evidenceItems = ref([])
+const evidenceLoading = ref(false)
+const evidenceError = ref('')
 const composer = ref(drafts.load(null))
 const composerError = ref('')
 const submitting = ref(false)
@@ -109,11 +129,23 @@ const industries = ref([])
 const capabilities = ref(null)
 const usage = ref(null)
 const profile = ref(restoreNewProfile())
+const evidenceDependencyKey = computed(() => JSON.stringify([
+  String(profile.value.regionId || ''),
+  String(profile.value.industryTagId || ''),
+  normalizeEvidenceIndustry(profile.value.industry),
+]))
 const readiness = ref(null)
 const readinessLoading = ref(false)
 const readinessError = ref('')
+const industryResolutionLoading = ref(false)
+const industryResolutionError = ref('')
+const industryResolutionRejected = ref('')
+const industrySuggestion = ref(null)
+const rejectedIndustryKey = ref('')
+const rejectedIndustryQuery = ref('')
 const networkStatus = ref('connected')
 const drawerOpen = ref(false)
+const drawerRestoreFocus = ref(true)
 const drawerMode = ref('citations')
 const drawerCitations = ref([])
 const drawerRun = ref(null)
@@ -122,6 +154,7 @@ const drawerError = ref('')
 const toast = ref('')
 let historyTimer
 let readinessTimer
+let industryTimer
 let pollingTimer
 let pollingGeneration = 0
 let pollingFailures = 0
@@ -129,19 +162,46 @@ let toastTimer
 
 const agentReady = computed(() => Boolean(capabilities.value?.provider?.available && capabilities.value?.capabilities?.some((item) => item.id === 'agent-runtime' && item.available)))
 const providerLabel = computed(() => capabilities.value?.provider ? `${capabilities.value.provider.provider} / ${capabilities.value.provider.model}` : '等待管理员配置')
-const runActive = computed(() => Boolean(currentRun.value && !TERMINAL.has(currentRun.value.status)))
+const quotaExhausted = computed(() => Boolean(usage.value && !usage.value.unlimited && Number(usage.value.remainingTokens) <= 0))
+const currentRun = computed(() => activeRun.value || latestRun.value)
+const evidenceRefreshKey = computed(() => currentRun.value?.runId
+  ? `${currentRun.value.runId}:${currentRun.value.toolCallCount || 0}:${currentRun.value.status || ''}`
+  : '')
+const runActive = computed(() => Boolean(activeRun.value && !TERMINAL.has(activeRun.value.status)))
 const sessionStatusLabel = computed(() => currentSession.value?.deletedAt ? '回收站' : currentSession.value?.status === 'archived' ? '已归档' : runActive.value ? '研究进行中' : '当前会话')
 const composerDisabledReason = computed(() => {
   if (!agentReady.value) return '智能体暂不可用'
   if (currentSession.value?.deletedAt) return '回收站会话不能发送消息'
   if (currentSession.value?.status === 'archived') return '归档会话仅供查阅'
   if (runActive.value) return ''
+  if (quotaExhausted.value) return '今日研究额度已用尽'
+  if (!currentSession.value) {
+    if (!profile.value.regionId) return '请先选择所在地区'
+    if (!profile.value.industryTagId && !profile.value.industry) return '请先设置目标行业'
+    if (industryResolutionLoading.value) return '正在匹配目标行业'
+    if (industrySuggestion.value) return '请先确认目标行业'
+    if (industryResolutionError.value) return industryResolutionError.value
+    const presentation = readinessPresentation(readiness.value?.readinessStatus, {
+      loading: readinessLoading.value,
+      error: Boolean(readinessError.value),
+    })
+    if (!presentation.canSubmit) {
+      if (readinessLoading.value) return '正在核验证据'
+      if (readinessError.value) return readinessError.value
+      if (readiness.value?.readinessStatus === 'insufficient') return '当前证据不足，请调整地区或行业'
+      return '等待证据预检'
+    }
+  }
   return ''
 })
 
 onMounted(loadPage)
-onBeforeUnmount(() => { clearTimeout(historyTimer); clearTimeout(readinessTimer); clearTimeout(pollingTimer); clearTimeout(toastTimer); pollingGeneration += 1 })
-watch(profile, (value) => { if (!currentSession.value) localStorage.setItem(PROFILE_KEY, JSON.stringify(value)); scheduleReadiness() }, { deep: true })
+onBeforeUnmount(() => { clearTimeout(historyTimer); clearTimeout(industryTimer); clearTimeout(readinessTimer); clearTimeout(pollingTimer); clearTimeout(toastTimer); pollingGeneration += 1 })
+watch(profile, (value) => {
+  if (!currentSession.value) localStorage.setItem(PROFILE_KEY, JSON.stringify(value))
+}, { deep: true })
+watch(evidenceDependencyKey, scheduleIndustryResolution)
+watch(evidenceRefreshKey, loadCurrentEvidence)
 watch(composer, (value) => drafts.save(currentSession.value?.sessionId ?? null, value))
 
 async function loadPage() {
@@ -164,11 +224,11 @@ async function loadPage() {
     pageError.value = error.message || '研究工作台暂时无法读取'
   } finally {
     pageLoading.value = false
-    scheduleReadiness()
+    scheduleIndustryResolution()
   }
 }
 
-async function loadHistory(reset = true) {
+async function loadHistory(reset = true, staleRefresh = false) {
   const requestId = historyGate.begin()
   historyLoading.value = true
   historyError.value = ''
@@ -179,8 +239,16 @@ async function loadHistory(reset = true) {
     historyCursor.value = page.nextCursor || null
     historyHasMore.value = Boolean(page.hasMore)
   } catch (error) {
-    if (historyGate.isCurrent(requestId)) historyError.value = error.message || '历史记录读取失败'
-    throw error
+    if (!historyGate.isCurrent(requestId)) return
+    if (!reset && !staleRefresh && error?.diagnosticCode === 'HISTORY_CURSOR_STALE') {
+      historyItems.value = []
+      historyCursor.value = null
+      historyHasMore.value = false
+      showToast('历史记录已更新')
+      try { return await loadHistory(true, true) } catch { return }
+    }
+    historyError.value = error.message || '历史记录读取失败'
+    if (reset) throw error
   } finally {
     if (historyGate.isCurrent(requestId)) { historyLoading.value = false; historySearching.value = false }
   }
@@ -201,12 +269,20 @@ async function closeMobileHistory() { mobileHistoryOpen.value = false; await nex
 async function selectHistorySession(session) { await loadSession(session.sessionId); closeMobileHistory() }
 
 function startNewResearch(profileSeed = null) {
+  sessionGate.begin()
+  evidenceGate.begin()
+  messagePageGate.begin()
+  closeDrawer(false)
   saveCurrentDraft()
   stopPolling()
   currentSession.value = null
   selectedSessionId.value = ''
   messages.value = []
-  currentRun.value = null
+  activeRun.value = null
+  latestRun.value = null
+  evidenceItems.value = []
+  evidenceLoading.value = false
+  evidenceError.value = ''
   nextBeforeSequence.value = null
   hasMoreMessages.value = false
   composerError.value = ''
@@ -220,68 +296,166 @@ function startNewResearch(profileSeed = null) {
 function forkResearch() { startNewResearch({ ...profile.value }) }
 
 async function loadSession(sessionId) {
+  const requestId = sessionGate.begin()
+  messagePageGate.begin()
+  evidenceGate.begin()
+  evidenceItems.value = []
+  evidenceLoading.value = false
+  evidenceError.value = ''
+  closeDrawer(false)
+  loadingOlder.value = false
   saveCurrentDraft()
   stopPolling()
   composerError.value = ''
   const detail = await getResearchSession(sessionId)
+  if (!sessionGate.isCurrent(requestId)) return false
   currentSession.value = detail.session
   selectedSessionId.value = String(sessionId)
   messages.value = detail.messages || []
   nextBeforeSequence.value = detail.nextBeforeSequence ?? null
   hasMoreMessages.value = Boolean(detail.hasMoreMessages)
-  currentRun.value = detail.activeRun || detail.latestRun || null
+  activeRun.value = detail.activeRun || null
+  latestRun.value = detail.latestRun || null
   profile.value = normalizeProfile(detail.session?.profile)
   composer.value = drafts.load(sessionId)
   localStorage.setItem(SESSION_KEY, String(sessionId))
   if (detail.activeRun?.runId) startPolling(detail.activeRun.runId)
   await conversation.value?.scrollToEnd('auto')
-  scheduleReadiness()
+  scheduleIndustryResolution()
+  return true
+}
+
+async function loadCurrentEvidence() {
+  const runId = currentRun.value?.runId
+  const requestId = evidenceGate.begin()
+  if (!runId) {
+    evidenceItems.value = []
+    evidenceLoading.value = false
+    evidenceError.value = ''
+    return
+  }
+  evidenceLoading.value = true
+  evidenceError.value = ''
+  try {
+    const evidence = await getResearchRunEvidence(runId)
+    if (!evidenceGate.isCurrent(requestId) || String(currentRun.value?.runId) !== String(runId)) return
+    const runMessage = [...messages.value].reverse().find((message) => (
+      message.role === 'assistant' && String(message.runId || '') === String(runId)
+    ))
+    const citationBySource = new Map((runMessage?.citations || []).map((citation, index) => [
+      String(citation.sourceId),
+      {
+        citationId: citation.citationId || `${runId}:${citation.sourceId}:${index + 1}`,
+        citationIndex: index + 1,
+      },
+    ]))
+    evidenceItems.value = (evidence?.items || []).map((item) => ({
+      ...item,
+      runId,
+      ...(citationBySource.get(String(item.sourceId)) || {}),
+    }))
+  } catch (error) {
+    if (!evidenceGate.isCurrent(requestId) || String(currentRun.value?.runId) !== String(runId)) return
+    evidenceItems.value = []
+    evidenceError.value = error.message || '研究资料读取失败'
+  } finally {
+    if (evidenceGate.isCurrent(requestId)) evidenceLoading.value = false
+  }
 }
 
 async function loadOlderMessages() {
   if (!currentSession.value || !hasMoreMessages.value || loadingOlder.value) return
+  const requestId = messagePageGate.begin()
+  const sessionId = currentSession.value.sessionId
   loadingOlder.value = true
   const snapshot = conversation.value?.scrollSnapshot()
   try {
-    const page = await getResearchMessages(currentSession.value.sessionId, { beforeSequence: nextBeforeSequence.value, limit: 50 })
+    const page = await getResearchMessages(sessionId, { beforeSequence: nextBeforeSequence.value, limit: 50 })
+    if (!messagePageGate.isCurrent(requestId) || String(currentSession.value?.sessionId) !== String(sessionId)) return
     messages.value = mergeMessagePages(messages.value, page.items || [])
     nextBeforeSequence.value = page.nextBeforeSequence ?? null
     hasMoreMessages.value = Boolean(page.hasMore)
     if (snapshot) await conversation.value?.restoreSnapshot(snapshot)
-  } catch (error) { showToast(error.message || '更早消息读取失败') } finally { loadingOlder.value = false }
+  } catch (error) {
+    if (messagePageGate.isCurrent(requestId)) showToast(error.message || '更早消息读取失败')
+  } finally {
+    if (messagePageGate.isCurrent(requestId)) loadingOlder.value = false
+  }
 }
 
 async function sendMessage() {
   const content = composer.value.trim()
-  if (!content || submitting.value || runActive.value || !agentReady.value) return
+  if (!content || submitting.value || runActive.value || !agentReady.value || composerDisabledReason.value) return
   submitting.value = true
   composerError.value = ''
-  lastQuestion.value = content
   let sessionId = currentSession.value?.sessionId
+  const draftSessionId = sessionId ?? null
+  const selectionRequestId = sessionGate.begin()
   try {
+    let receipt
+    let startedSession = null
     if (!sessionId) {
-      const created = await createResearchSession({ profile: serializeProfile(profile.value) })
-      currentSession.value = created
-      sessionId = created.sessionId
+      const startProfile = serializeProfile(profile.value)
+      const fingerprint = createCanonicalFingerprint({ profile: startProfile, content })
+      const pending = drafts.loadPendingStart()
+      const idempotencyKey = pending?.fingerprint === fingerprint ? pending.idempotencyKey : newIdempotencyKey()
+      drafts.savePendingStart({ idempotencyKey, fingerprint })
+      try {
+        receipt = await startResearchSession({ profile: startProfile, content, idempotencyKey })
+        drafts.clearPendingStart()
+      } catch (error) {
+        if (isDeterministicRequestFailure(error)) drafts.clearPendingStart()
+        throw error
+      }
+      startedSession = receipt.session
+      sessionId = receipt.session.sessionId
+    } else {
+      const fingerprint = createCanonicalFingerprint({ sessionId, content })
+      const pending = drafts.loadPendingMessage(sessionId)
+      const idempotencyKey = pending?.fingerprint === fingerprint ? pending.idempotencyKey : newIdempotencyKey()
+      drafts.savePendingMessage(sessionId, { idempotencyKey, fingerprint })
+      try {
+        receipt = await sendResearchMessage(sessionId, { content, idempotencyKey })
+        drafts.clearPendingMessage(sessionId)
+      } catch (error) {
+        if (isDeterministicRequestFailure(error)) drafts.clearPendingMessage(sessionId)
+        throw error
+      }
+    }
+    if (!sessionGate.isCurrent(selectionRequestId)) {
+      drafts.clear(draftSessionId)
+      await loadHistory(true).catch(() => {})
+      return
+    }
+    if (startedSession) {
+      currentSession.value = startedSession
       selectedSessionId.value = String(sessionId)
       localStorage.setItem(SESSION_KEY, String(sessionId))
       drafts.save(sessionId, content)
     }
-    const receipt = await sendResearchMessage(sessionId, { content, idempotencyKey: newIdempotencyKey() })
     composer.value = ''
     drafts.clear(sessionId)
     drafts.clear(null)
-    currentRun.value = { runId: receipt.runId, sessionId: receipt.sessionId, status: receipt.status, currentStage: receipt.status, tools: [] }
+    const receivedRun = { runId: receipt.runId, sessionId, status: receipt.status, currentStage: receipt.status, tools: [] }
+    if (TERMINAL.has(receipt.status)) latestRun.value = receivedRun
+    else activeRun.value = receivedRun
     await loadSession(sessionId)
     if (!runActive.value && receipt.runId) startPolling(receipt.runId)
     await loadHistory(true).catch(() => {})
   } catch (error) {
-    composerError.value = error.message || '研究请求提交失败；当前会话已保留，可以重试。'
-    if (sessionId) drafts.save(sessionId, content)
+    if (sessionGate.isCurrent(selectionRequestId)) composerError.value = error.message || '研究请求提交失败；当前会话已保留，可以重试。'
+    drafts.save(draftSessionId, content)
   } finally { submitting.value = false }
 }
 function prefillQuestion(value) { composer.value = value; nextTick(() => composerControl.value?.focus()) }
-function retryLast() { if (lastQuestion.value) { composer.value = lastQuestion.value; currentRun.value = null; nextTick(sendMessage) } }
+function retryLast() {
+  const content = String(currentRun.value?.retryContent || '').trim()
+  if (!content) return
+  composer.value = content
+  activeRun.value = null
+  latestRun.value = null
+  nextTick(sendMessage)
+}
 
 function startPolling(runId, initialDelay = 300) {
   stopPolling()
@@ -292,20 +466,25 @@ function startPolling(runId, initialDelay = 300) {
     try {
       const run = await getResearchRun(runId)
       if (generation !== pollingGeneration) return
-      currentRun.value = run
+      if (TERMINAL.has(run.status)) {
+        activeRun.value = null
+        latestRun.value = run
+      } else activeRun.value = run
       pollingFailures = 0
       networkStatus.value = 'connected'
       if (TERMINAL.has(run.status)) {
+        const followIncoming = conversation.value?.isNearBottom() ?? true
         const latest = await getResearchSession(run.sessionId)
         if (generation !== pollingGeneration) return
         messages.value = latest.messages || messages.value
         nextBeforeSequence.value = latest.nextBeforeSequence ?? null
         hasMoreMessages.value = Boolean(latest.hasMoreMessages)
         currentSession.value = latest.session
-        currentRun.value = run
+        activeRun.value = null
+        latestRun.value = run
         usage.value = await getResearchUsage().catch(() => usage.value)
         await loadHistory(true).catch(() => {})
-        await conversation.value?.scrollToEnd('smooth')
+        await conversation.value?.applyIncoming(followIncoming, 'smooth')
         return
       }
       pollingTimer = window.setTimeout(poll, 1200)
@@ -320,15 +499,31 @@ function startPolling(runId, initialDelay = 300) {
   }
   pollingTimer = window.setTimeout(poll, initialDelay)
 }
-function resumePolling() { if (currentRun.value?.runId) startPolling(currentRun.value.runId, 0) }
+function resumePolling() { if (activeRun.value?.runId) startPolling(activeRun.value.runId, 0) }
 function stopPolling() { clearTimeout(pollingTimer); pollingGeneration += 1; networkStatus.value = 'connected' }
 async function cancelRun() {
-  if (!currentRun.value?.runId || cancelling.value) return
+  if (!activeRun.value?.runId || cancelling.value) return
+  const requestId = sessionGate.begin()
+  const sessionId = currentSession.value?.sessionId
+  const runId = activeRun.value.runId
   cancelling.value = true
-  try { stopPolling(); currentRun.value = await cancelResearchRun(currentRun.value.runId); if (currentSession.value) await refreshSessionMessages() } catch (error) { showToast(error.message || '取消失败') } finally { cancelling.value = false }
+  try {
+    stopPolling()
+    const cancelledRun = await cancelResearchRun(runId)
+    if (!sessionGate.isCurrent(requestId) || String(currentSession.value?.sessionId) !== String(sessionId)) return
+    latestRun.value = cancelledRun
+    activeRun.value = null
+    if (sessionId) await refreshSessionMessages(sessionId, requestId)
+  } catch (error) {
+    if (sessionGate.isCurrent(requestId) && String(currentSession.value?.sessionId) === String(sessionId)) {
+      showToast(error.message || '取消失败')
+      if (String(activeRun.value?.runId) === String(runId)) startPolling(runId, 0)
+    }
+  } finally { cancelling.value = false }
 }
-async function refreshSessionMessages() {
-  const detail = await getResearchSession(currentSession.value.sessionId)
+async function refreshSessionMessages(sessionId, requestId) {
+  const detail = await getResearchSession(sessionId)
+  if (!sessionGate.isCurrent(requestId) || String(currentSession.value?.sessionId) !== String(sessionId)) return
   messages.value = detail.messages || []
   nextBeforeSequence.value = detail.nextBeforeSequence ?? null
   hasMoreMessages.value = Boolean(detail.hasMoreMessages)
@@ -351,24 +546,145 @@ async function mutateSession(action, message, affected = null) {
   } catch (error) { showToast(error.message || '会话操作失败') }
 }
 
-function scheduleReadiness() {
+function scheduleIndustryResolution() {
+  clearTimeout(industryTimer)
+  const requestId = industryGate.begin()
+  const query = profile.value.industry.trim()
+  const rejectedQueryMatches = Boolean(rejectedIndustryQuery.value && rejectedIndustryQuery.value === query)
+  industryResolutionLoading.value = false
+  industryResolutionError.value = ''
+  industrySuggestion.value = null
+  if (!rejectedQueryMatches) {
+    rejectedIndustryKey.value = ''
+    rejectedIndustryQuery.value = ''
+    industryResolutionRejected.value = ''
+  }
+  if (currentSession.value || profile.value.industryTagId || !profile.value.industry) {
+    scheduleReadiness()
+    return
+  }
+  if (rejectedQueryMatches) {
+    scheduleReadiness()
+    return
+  }
   clearTimeout(readinessTimer)
+  readinessGate.begin()
   readiness.value = null
   readinessError.value = ''
-  if (!profile.value.regionId || (!profile.value.industryTagId && !profile.value.industry)) return
-  readinessTimer = window.setTimeout(checkReadiness, 420)
+  industryResolutionLoading.value = true
+  industryTimer = window.setTimeout(() => resolveIndustry(query, requestId), 320)
 }
-async function checkReadiness() {
+function normalizeEvidenceIndustry(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ')
+}
+async function resolveIndustry(query, requestId) {
+  try {
+    const resolution = await resolveIndustryWithAi(query)
+    if (!industryGate.isCurrent(requestId)) return
+    const decision = decideIndustryResolution(resolution, query, profile.value.industryTagId, rejectedIndustryKey.value)
+    if (decision.action === 'accept') {
+      const selection = decision.selection
+      profile.value = { ...profile.value, industryTagId: selection.industryTagId, industry: selection.industry }
+      return
+    }
+    if (decision.action === 'confirm') industrySuggestion.value = decision.suggestion
+    else if (decision.action === 'rejected') scheduleReadiness()
+    else industryResolutionError.value = '暂时无法匹配标准行业，请调整输入后重试'
+  } catch (error) {
+    if (industryGate.isCurrent(requestId)) industryResolutionError.value = error.message || '目标行业匹配失败'
+  } finally {
+    if (industryGate.isCurrent(requestId)) industryResolutionLoading.value = false
+  }
+}
+function confirmSuggestedIndustry() {
+  if (!industrySuggestion.value) return
+  const selection = confirmIndustrySuggestion(industrySuggestion.value)
+  rejectedIndustryKey.value = ''
+  rejectedIndustryQuery.value = ''
+  industryResolutionRejected.value = ''
+  industrySuggestion.value = null
+  profile.value = { ...profile.value, industryTagId: selection.industryTagId, industry: selection.industry }
+}
+function rejectSuggestedIndustry() {
+  if (!industrySuggestion.value) return
+  rejectedIndustryKey.value = industrySuggestionKey(industrySuggestion.value)
+  rejectedIndustryQuery.value = profile.value.industry.trim()
+  industryResolutionRejected.value = `已保留“${industrySuggestion.value.originalText || profile.value.industry}”，未采用建议匹配`
+  industrySuggestion.value = null
+  scheduleReadiness()
+}
+function scheduleReadiness() {
+  clearTimeout(readinessTimer)
+  const requestId = readinessGate.begin()
+  readiness.value = null
+  readinessError.value = ''
+  readinessLoading.value = false
+  if (!profile.value.regionId || (!profile.value.industryTagId && !profile.value.industry) || industryResolutionLoading.value || industrySuggestion.value) return
+  const payload = { regionId: Number(profile.value.regionId), industryTagId: profile.value.industryTagId ? Number(profile.value.industryTagId) : undefined, industry: profile.value.industry || undefined }
   readinessLoading.value = true
-  try { readiness.value = await checkEntrepreneurshipReadiness({ regionId: Number(profile.value.regionId), industryTagId: profile.value.industryTagId ? Number(profile.value.industryTagId) : undefined, industry: profile.value.industry || undefined }) } catch (error) { readinessError.value = error.message || '证据预检失败' } finally { readinessLoading.value = false }
+  readinessTimer = window.setTimeout(() => checkReadiness(payload, requestId), 420)
+}
+async function checkReadiness(payload, requestId) {
+  try {
+    const result = await checkEntrepreneurshipReadiness(payload)
+    if (readinessGate.isCurrent(requestId)) readiness.value = result
+  } catch (error) {
+    if (readinessGate.isCurrent(requestId)) readinessError.value = error.message || '证据预检失败'
+  } finally {
+    if (readinessGate.isCurrent(requestId)) readinessLoading.value = false
+  }
 }
 
-function openCitations(message) { drawerMode.value = 'citations'; drawerCitations.value = message.citations || []; drawerRun.value = null; drawerError.value = ''; drawerOpen.value = true }
-async function openProcess(message) {
-  drawerMode.value = 'process'; drawerCitations.value = []; drawerRun.value = null; drawerError.value = ''; drawerLoading.value = true; drawerOpen.value = true
-  try { drawerRun.value = await getResearchRun(message.runId) } catch (error) { drawerError.value = error.message || '研究过程读取失败' } finally { drawerLoading.value = false }
+async function openCitations(message) {
+  const requestId = processGate.begin()
+  const runId = message.runId
+  const baseCitations = (message.citations || []).map((citation, index) => ({
+    ...citation,
+    runId,
+    citationId: citation.citationId || `${runId || 'legacy'}:${citation.sourceId}:${index + 1}`,
+  }))
+  drawerRestoreFocus.value = true
+  drawerMode.value = 'citations'
+  drawerCitations.value = baseCitations
+  drawerRun.value = null
+  drawerError.value = ''
+  drawerLoading.value = Boolean(runId)
+  drawerOpen.value = true
+  if (!runId) return
+  try {
+    const evidence = await getResearchRunEvidence(runId)
+    if (!processGate.isCurrent(requestId)) return
+    const bySource = new Map((evidence?.items || []).map((item) => [String(item.sourceId), item]))
+    drawerCitations.value = baseCitations.map((citation) => {
+      const item = bySource.get(String(citation.sourceId))
+      return {
+        ...citation,
+        title: item?.title || citation.title || `来源 #${citation.sourceId}`,
+        publisher: item?.publisher || citation.publisher || '',
+        url: item?.originalUrl || citation.url || '',
+        verificationStatus: item?.available ? '已核验且本次运行已授权' : '本次运行资料当前不可用',
+        authorized: Boolean(item?.available),
+      }
+    })
+  } catch (error) {
+    if (processGate.isCurrent(requestId)) drawerError.value = error.message || '引用依据读取失败'
+  } finally {
+    if (processGate.isCurrent(requestId)) drawerLoading.value = false
+  }
 }
-function closeDrawer() { drawerOpen.value = false; drawerRun.value = null; drawerError.value = '' }
+async function openProcess(message) {
+  const requestId = processGate.begin()
+  drawerRestoreFocus.value = true; drawerMode.value = 'process'; drawerCitations.value = []; drawerRun.value = null; drawerError.value = ''; drawerLoading.value = true; drawerOpen.value = true
+  try {
+    const run = await getResearchRun(message.runId)
+    if (processGate.isCurrent(requestId)) drawerRun.value = run
+  } catch (error) {
+    if (processGate.isCurrent(requestId)) drawerError.value = error.message || '研究过程读取失败'
+  } finally {
+    if (processGate.isCurrent(requestId)) drawerLoading.value = false
+  }
+}
+function closeDrawer(restoreFocus = true) { processGate.begin(); drawerRestoreFocus.value = restoreFocus; drawerOpen.value = false; drawerRun.value = null; drawerError.value = ''; drawerLoading.value = false }
 function saveCurrentDraft() { drafts.save(currentSession.value?.sessionId ?? null, composer.value) }
 function serializeProfile(value) { return { ventureType: value.ventureType, regionId: value.regionId ? Number(value.regionId) : undefined, industryTagId: value.industryTagId ? Number(value.industryTagId) : undefined, industry: value.industry || undefined, stage: value.stage, budgetRange: value.budgetRange, goal: value.goal || undefined, resources: value.existingResources || undefined } }
 function normalizeProfile(value = {}) { return { ...defaultProfile(), ...value, regionId: value.regionId == null ? '' : String(value.regionId), industryTagId: value.industryTagId == null ? '' : String(value.industryTagId), existingResources: value.resources || value.existingResources || '' } }
@@ -380,5 +696,6 @@ function showToast(message) { toast.value = message; clearTimeout(toastTimer); t
 </script>
 
 <style scoped>
-.assistant-page{width:100%;min-width:0;color:#20251f}.assistant-workspace{display:grid;grid-template-columns:276px minmax(0,1fr);height:calc(100dvh - 118px);min-height:640px;border:1px solid #c7ccc5;background:#fbfbf7;overflow:hidden}.assistant-workspace.history-collapsed{grid-template-columns:64px minmax(0,1fr)}.research-desk{display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto auto;min-width:0;min-height:0;background:#fbfbf7}.desk-header{display:flex;align-items:center;gap:14px;min-height:70px;padding:12px 24px;border-bottom:1px solid #cdd1cb}.desk-header>div:nth-child(2){min-width:0;flex:1}.desk-header h1{overflow:hidden;margin:4px 0 0;font-family:'Noto Serif SC',STSong,SimSun,serif;font-size:1.15rem;font-weight:500;text-overflow:ellipsis;white-space:nowrap}.caption{color:#727972;font-family:'Bookman Old Style',Georgia,serif;font-size:.63rem;font-weight:700;letter-spacing:0}.desk-status{display:flex;align-items:center;gap:8px}.desk-status>span{width:8px;height:8px;border-radius:50%;background:#80734f}.desk-status>span.ready{background:#3e684a}.desk-status>div{display:grid;gap:2px}.desk-status strong{font-size:.69rem}.desk-status small{color:#7b817a;font-size:.61rem}.mobile-history-command{display:none}.desk-notice{display:flex;align-items:flex-start;gap:10px;padding:11px 24px;border-bottom:1px solid #d7c7c2;background:#f7efec;color:#6f3b35}.desk-notice strong{font-size:.78rem}.desk-notice p{margin:2px 0 0;font-size:.7rem}.composer-error{margin:0;padding:8px max(24px,calc((100% - 880px)/2));border-top:1px solid #d9c0ba;background:#f8efec;color:#703731;font-size:.72rem}.page-state{display:flex;align-items:center;justify-content:center;gap:16px;min-height:440px;padding:35px;color:#687068}.page-state p{margin:4px 0 0}.page-state.is-error{color:#7b3f36}.spinner{width:22px;height:22px;border:2px solid #c5cac3;border-top-color:#304e38;border-radius:50%;animation:spin .8s linear infinite}.secondary-command{display:flex;align-items:center;gap:7px;min-height:42px;padding:0 13px;border:1px solid #bfc5bd;border-radius:3px;background:#fff;color:#303630}.assistant-toast{position:fixed;z-index:120;right:22px;bottom:22px;max-width:min(360px,calc(100vw - 28px));margin:0;padding:11px 14px;border:1px solid #afb5ae;border-radius:3px;background:#282d28;color:#fff;font-size:.75rem}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:840px){.assistant-workspace,.assistant-workspace.history-collapsed{grid-template-columns:1fr;height:calc(100dvh - 86px);min-height:560px}.mobile-history-command{display:grid;place-items:center;width:44px;height:44px;flex:0 0 44px;border:0;background:transparent}.desk-header{padding:10px 14px}.desk-status small{display:none}}@media(max-width:600px){.assistant-workspace,.assistant-workspace.history-collapsed{height:calc(100dvh - 74px);border-right:0;border-left:0}.desk-header{min-height:62px}.desk-header h1{font-size:1rem}.desk-status>div{display:none}.desk-notice{padding:10px 14px}.composer-error{padding:8px 14px}.assistant-toast{right:14px;bottom:14px}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
+.assistant-page{width:100%;height:100%;min-width:0;min-height:0;color:#20251f;overflow:hidden}.assistant-workspace{display:grid;grid-template-columns:276px minmax(0,1fr);width:100%;height:100%;min-width:0;min-height:0;border:1px solid #c7ccc5;background:#fbfbf7;overflow:hidden}.assistant-workspace.history-collapsed{grid-template-columns:64px minmax(0,1fr)}.research-desk{display:flex;flex-direction:column;width:100%;height:100%;min-width:0;min-height:0;background:#fbfbf7;overflow:hidden}.desk-header{display:flex;align-items:center;gap:14px;min-height:70px;padding:12px 24px;border-bottom:1px solid #cdd1cb;flex:0 0 auto}.desk-header>div:nth-child(2){min-width:0;flex:1}.desk-header h1{overflow:hidden;margin:4px 0 0;font-family:'Noto Serif SC',STSong,SimSun,serif;font-size:1.15rem;font-weight:500;text-overflow:ellipsis;white-space:nowrap}.caption{color:#727972;font-family:'Bookman Old Style',Georgia,serif;font-size:.63rem;font-weight:700;letter-spacing:0}.desk-status{display:flex;align-items:center;gap:8px}.desk-status>span{width:8px;height:8px;border-radius:50%;background:#80734f}.desk-status>span.ready{background:#3e684a}.desk-status>div{display:grid;gap:2px}.desk-status strong{font-size:.69rem}.desk-status small{color:#7b817a;font-size:.61rem}.mobile-history-command{display:none}.desk-notice{display:flex;align-items:flex-start;gap:10px;padding:11px 24px;border-bottom:1px solid #d7c7c2;background:#f7efec;color:#6f3b35;flex:0 0 auto}.desk-notice strong{font-size:.78rem}.desk-notice p{margin:2px 0 0;font-size:.7rem}.composer-error{margin:0;padding:8px max(24px,calc((100% - 880px)/2));border-top:1px solid #d9c0ba;background:#f8efec;color:#703731;font-size:.72rem;flex:0 0 auto}.page-state{display:flex;align-items:center;justify-content:center;gap:16px;min-height:100%;padding:35px;color:#687068}.page-state p{margin:4px 0 0}.page-state.is-error{color:#7b3f36}.spinner{width:22px;height:22px;border:2px solid #c5cac3;border-top-color:#304e38;border-radius:50%;animation:spin .8s linear infinite}.secondary-command{display:flex;align-items:center;gap:7px;min-height:42px;padding:0 13px;border:1px solid #bfc5bd;border-radius:3px;background:#fff;color:#303630}.secondary-command:is(:hover,:focus-visible){border-color:#747b74;background:#f0f1ec}.secondary-command:focus-visible{outline:2px solid rgba(74,82,74,.34);outline-offset:2px}.secondary-command:active{background:#e5e7e1}.assistant-toast{position:fixed;z-index:120;right:22px;bottom:22px;max-width:min(360px,calc(100vw - 28px));margin:0;padding:11px 14px;border:1px solid #afb5ae;border-radius:3px;background:#282d28;color:#fff;font-size:.75rem}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:840px){.assistant-workspace,.assistant-workspace.history-collapsed{grid-template-columns:1fr;height:100%;min-height:0}.mobile-history-command{display:grid;place-items:center;width:44px;height:44px;flex:0 0 44px;border:1px solid transparent;background:transparent}.mobile-history-command:is(:hover,:focus-visible){border-color:#bfc5bd;background:#f0f1ec}.desk-header{padding:10px 14px}.desk-status small{display:none}}@media(max-width:600px){.assistant-workspace,.assistant-workspace.history-collapsed{height:100%;border-right:0;border-left:0}.desk-header{min-height:62px}.desk-header h1{font-size:1rem}.desk-status>div{display:none}.desk-notice{padding:10px 14px}.composer-error{padding:8px 14px}.assistant-toast{right:14px;bottom:14px}}@media(max-height:680px){.desk-header{min-height:58px;padding-top:8px;padding-bottom:8px}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
+@media(max-width:840px){.desk-header{padding-left:72px}}
 </style>

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.entity.AiAgentToolCall;
+import com.opc.platform.ai.contract.AgentResearchContract;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
 import com.opc.platform.ai.provider.AiToolDefinition;
 import com.opc.platform.common.enums.ErrorCode;
@@ -89,6 +90,99 @@ public class AgentToolRegistry {
         }
     }
 
+    public String jsonResearchSchemaV2() {
+        var root = objectMapper.createObjectNode();
+        var branches = root.putArray("oneOf");
+        addResearchPlanBranch(branches);
+        addResearchFinalBranch(branches, "final");
+        addResearchFinalBranch(branches, "evidence_insufficient");
+        return serializeSchema(root);
+    }
+
+    public String jsonResearchPlanSchemaV2() {
+        var root = objectMapper.createObjectNode();
+        addResearchPlanBranch(root.putArray("oneOf"));
+        return serializeSchema(root);
+    }
+
+    public String jsonCompactResearchPlanSchemaV2() {
+        var root = objectMapper.createObjectNode();
+        root.put("type", "object").put("additionalProperties", false);
+        root.putArray("required").add("action").add("intent").add("researchQuestions")
+                .add("toolRequests").add("comparisonDimensions").add("outputSections");
+        var properties = root.putObject("properties");
+        properties.putObject("action").put("const", "plan");
+        addIntentSchema(properties.putObject("intent"));
+        addStringArray(properties.putObject("researchQuestions"), 1,
+                AgentResearchContract.MAX_RESEARCH_QUESTIONS,
+                AgentResearchContract.MAX_RESEARCH_QUESTION_LENGTH);
+
+        var requests = properties.putObject("toolRequests");
+        requests.put("type", "array").put("minItems", 1)
+                .put("maxItems", AgentResearchContract.MAX_PLANNED_TOOLS);
+        var request = requests.putObject("items");
+        request.put("type", "object").put("additionalProperties", false);
+        request.putArray("required").add("requestId").add("toolName").add("arguments").add("dependsOn");
+        var requestProperties = request.putObject("properties");
+        requestProperties.putObject("requestId").put("type", "string")
+                .put("pattern", "^[A-Za-z][A-Za-z0-9_-]{0,31}$");
+        var toolNames = requestProperties.putObject("toolName");
+        toolNames.put("type", "string");
+        tools.keySet().forEach(toolNames.putArray("enum")::add);
+        var arguments = requestProperties.putObject("arguments");
+        arguments.put("type", "object").put("additionalProperties", false).put("maxProperties", 8);
+        var argumentProperties = arguments.putObject("properties");
+        for (AgentTool<?> tool : tools.values()) {
+            parseSchema(tool).path("properties").fields().forEachRemaining(field -> {
+                if (!argumentProperties.has(field.getKey())) {
+                    argumentProperties.set(field.getKey(), field.getValue().deepCopy());
+                }
+            });
+        }
+        addStringArray(requestProperties.putObject("dependsOn"), 0,
+                AgentResearchContract.MAX_DEPENDENCIES,
+                AgentResearchContract.MAX_DEPENDENCY_LENGTH);
+        addStringArray(properties.putObject("comparisonDimensions"), 0,
+                AgentResearchContract.MAX_COMPARISON_DIMENSIONS,
+                AgentResearchContract.MAX_COMPARISON_DIMENSION_LENGTH);
+        var outputSections = properties.putObject("outputSections");
+        outputSections.put("type", "array").put("minItems", 2)
+                .put("maxItems", AgentResearchContract.OUTPUT_SECTIONS.size()).put("uniqueItems", true);
+        var section = outputSections.putObject("items");
+        section.put("type", "string");
+        var sections = section.putArray("enum");
+        AgentResearchContract.OUTPUT_SECTIONS.forEach(sections::add);
+        return serializeSchema(root);
+    }
+
+    public String jsonCompactResearchFinalSchemaV2() {
+        var root = objectMapper.createObjectNode();
+        var branches = root.putArray("oneOf");
+        addResearchFinalBranch(branches, "final");
+        addResearchFinalBranch(branches, "evidence_insufficient");
+        return serializeSchema(root);
+    }
+
+    public String jsonResearchFinalSchemaV2() {
+        var root = objectMapper.createObjectNode();
+        var branches = root.putArray("oneOf");
+        addResearchFinalBranch(branches, "final");
+        addResearchFinalBranch(branches, "evidence_insufficient");
+        return serializeSchema(root);
+    }
+
+    private String serializeSchema(JsonNode root) {
+        try {
+            return objectMapper.writeValueAsString(root);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Cannot serialize Agent research schema", exception);
+        }
+    }
+
+    public boolean contains(String toolName) {
+        return tools.containsKey(toolName);
+    }
+
     public void verifyEvidence(
             AgentToolContext context,
             String toolName,
@@ -106,7 +200,7 @@ public class AgentToolRegistry {
                 throw new AgentToolException(ErrorCode.CONFLICT,
                         "EVIDENCE_CHANGED", "研究期间证据已变化，请重新提交");
             }
-            context.accept(current);
+            context.accept(toolName, current);
         } catch (JsonProcessingException exception) {
             throw new AgentToolException("INVALID_TOOL_ARGUMENTS", "运行记录中的工具参数无效");
         }
@@ -127,12 +221,15 @@ public class AgentToolRegistry {
         audit.setStatus("pending");
         audit.setEvidenceCount(0);
         audit.setLatencyMs(0L);
-        callMapper.insert(audit);
+        if (callMapper.insertGuarded(audit, context.leaseOwner()) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Agent tool write was rejected because the run lease or session content changed");
+        }
 
         AgentTool<?> tool = tools.get(toolName);
         if (tool == null) {
             AgentToolException exception = new AgentToolException("UNKNOWN_TOOL", "模型请求了未授权工具");
-            fail(audit, exception.getDiagnosticCode(), startedNanos);
+            fail(context, audit, exception.getDiagnosticCode(), startedNanos);
             throw exception;
         }
 
@@ -141,7 +238,7 @@ public class AgentToolRegistry {
             audit.setArgumentsJson(objectMapper.writeValueAsString(arguments));
             audit.setStatus("running");
             audit.setStartedAt(LocalDateTime.now());
-            callMapper.updateById(audit);
+            requireGuardedUpdate(context, audit);
             AgentToolResult result = executeTyped(tool, context, arguments);
             String resultJson = objectMapper.writeValueAsString(result.output());
             if (resultJson.length() > MAX_RESULT_JSON_LENGTH) {
@@ -153,20 +250,20 @@ public class AgentToolRegistry {
             audit.setStatus("completed");
             audit.setCompletedAt(LocalDateTime.now());
             audit.setLatencyMs(elapsedMillis(startedNanos));
-            callMapper.updateById(audit);
-            context.accept(result);
+            requireGuardedUpdate(context, audit);
+            context.accept(toolName, result);
             return new AgentToolExecution(audit.getId(), tool.name(), result);
         } catch (AgentToolException exception) {
-            fail(audit, exception.getDiagnosticCode(), startedNanos);
+            fail(context, audit, exception.getDiagnosticCode(), startedNanos);
             throw exception;
         } catch (JsonProcessingException exception) {
-            fail(audit, "INVALID_TOOL_ARGUMENTS", startedNanos);
+            fail(context, audit, "INVALID_TOOL_ARGUMENTS", startedNanos);
             throw new AgentToolException("INVALID_TOOL_ARGUMENTS", "工具参数格式无效");
         } catch (BusinessException exception) {
-            fail(audit, exception.getErrorCode().name(), startedNanos);
+            fail(context, audit, exception.getErrorCode().name(), startedNanos);
             throw exception;
         } catch (RuntimeException exception) {
-            fail(audit, "TOOL_EXECUTION_FAILED", startedNanos);
+            fail(context, audit, "TOOL_EXECUTION_FAILED", startedNanos);
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "工具执行失败");
         }
     }
@@ -224,17 +321,184 @@ public class AgentToolRegistry {
         properties.putObject("confidence").put("type", "number").put("minimum", 0).put("maximum", 1);
     }
 
+    private void addResearchPlanBranch(com.fasterxml.jackson.databind.node.ArrayNode branches) {
+        var branch = branches.addObject();
+        branch.put("type", "object");
+        branch.put("additionalProperties", false);
+        branch.putArray("required").add("action").add("intent").add("researchQuestions")
+                .add("toolRequests").add("comparisonDimensions").add("outputSections");
+        var properties = branch.putObject("properties");
+        properties.putObject("action").put("const", "plan");
+        addIntentSchema(properties.putObject("intent"));
+        addStringArray(properties.putObject("researchQuestions"), 1,
+                AgentResearchContract.MAX_RESEARCH_QUESTIONS,
+                AgentResearchContract.MAX_RESEARCH_QUESTION_LENGTH);
+        var requests = properties.putObject("toolRequests");
+        requests.put("type", "array").put("minItems", 1)
+                .put("maxItems", AgentResearchContract.MAX_PLANNED_TOOLS);
+        var requestBranches = requests.putObject("items").putArray("oneOf");
+        for (AgentTool<?> tool : tools.values()) {
+            var request = requestBranches.addObject();
+            request.put("type", "object").put("additionalProperties", false);
+            request.putArray("required").add("requestId").add("toolName").add("arguments").add("dependsOn");
+            var requestProperties = request.putObject("properties");
+            requestProperties.putObject("requestId").put("type", "string")
+                    .put("pattern", "^[A-Za-z][A-Za-z0-9_-]{0,31}$");
+            requestProperties.putObject("toolName").put("const", tool.name());
+            requestProperties.set("arguments", parseSchema(tool));
+            addStringArray(requestProperties.putObject("dependsOn"), 0,
+                    AgentResearchContract.MAX_DEPENDENCIES,
+                    AgentResearchContract.MAX_DEPENDENCY_LENGTH);
+        }
+        addStringArray(properties.putObject("comparisonDimensions"), 0,
+                AgentResearchContract.MAX_COMPARISON_DIMENSIONS,
+                AgentResearchContract.MAX_COMPARISON_DIMENSION_LENGTH);
+        var outputSections = properties.putObject("outputSections");
+        outputSections.put("type", "array").put("minItems", 2)
+                .put("maxItems", AgentResearchContract.OUTPUT_SECTIONS.size()).put("uniqueItems", true);
+        var sectionEnum = outputSections.putObject("items").putArray("enum");
+        for (String section : AgentResearchContract.OUTPUT_SECTIONS) sectionEnum.add(section);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) outputSections.get("items")).put("type", "string");
+    }
+
+    private void addResearchFinalBranch(
+            com.fasterxml.jackson.databind.node.ArrayNode branches,
+            String action
+    ) {
+        var branch = branches.addObject();
+        branch.put("type", "object").put("additionalProperties", false);
+        var required = branch.putArray("required");
+        for (String field : List.of(
+                "action", "intent", "directAnswer", "keyFindings", "caseInsights", "policyInsights",
+                "comparison", "recommendations", "risks", "assumptions", "uncertainties",
+                "nextQuestions", "citations", "confidence", "evidenceCoverage"
+        )) required.add(field);
+        var properties = branch.putObject("properties");
+        properties.putObject("action").put("const", action);
+        addIntentSchema(properties.putObject("intent"));
+        properties.putObject("directAnswer").put("type", "string").put("minLength", 1)
+                .put("maxLength", AgentResearchContract.MAX_DIRECT_ANSWER_LENGTH);
+        addEvidenceStatementArray(properties.putObject("keyFindings"), AgentResearchContract.MAX_KEY_FINDINGS);
+        addEvidenceStatementArray(properties.putObject("caseInsights"), AgentResearchContract.MAX_CASE_INSIGHTS);
+        addEvidenceStatementArray(properties.putObject("policyInsights"), AgentResearchContract.MAX_POLICY_INSIGHTS);
+        addEvidenceStatementArray(properties.putObject("comparison"), AgentResearchContract.MAX_COMPARISON_ITEMS);
+        var recommendations = properties.putObject("recommendations");
+        recommendations.put("type", "array").put("maxItems", AgentResearchContract.MAX_RECOMMENDATIONS);
+        var recommendation = recommendations.putObject("items");
+        recommendation.put("type", "object").put("additionalProperties", false);
+        recommendation.putArray("required").add("priority").add("reason").add("nextAction").add("sourceIds");
+        var recommendationProperties = recommendation.putObject("properties");
+        recommendationProperties.putObject("priority").put("type", "string")
+                .putArray("enum").add("high").add("medium").add("low");
+        recommendationProperties.putObject("reason").put("type", "string").put("minLength", 1)
+                .put("maxLength", AgentResearchContract.MAX_RECOMMENDATION_FIELD_LENGTH);
+        recommendationProperties.putObject("nextAction").put("type", "string").put("minLength", 1)
+                .put("maxLength", AgentResearchContract.MAX_RECOMMENDATION_FIELD_LENGTH);
+        addIdArray(recommendationProperties.putObject("sourceIds"), 1,
+                AgentResearchContract.MAX_SOURCE_IDS_PER_ITEM);
+        addStringArray(properties.putObject("risks"), 0, AgentResearchContract.MAX_RISKS,
+                AgentResearchContract.MAX_SUPPLEMENTAL_ITEM_LENGTH);
+        addStringArray(properties.putObject("assumptions"), 0, AgentResearchContract.MAX_ASSUMPTIONS,
+                AgentResearchContract.MAX_SUPPLEMENTAL_ITEM_LENGTH);
+        addStringArray(properties.putObject("uncertainties"), 0, AgentResearchContract.MAX_UNCERTAINTIES,
+                AgentResearchContract.MAX_SUPPLEMENTAL_ITEM_LENGTH);
+        addStringArray(properties.putObject("nextQuestions"), 0, AgentResearchContract.MAX_NEXT_QUESTIONS,
+                AgentResearchContract.MAX_SUPPLEMENTAL_ITEM_LENGTH);
+        var citations = properties.putObject("citations");
+        boolean requiresCitations = "final".equals(action);
+        citations.put("type", "array").put("minItems", requiresCitations ? 1 : 0)
+                .put("maxItems", requiresCitations ? AgentResearchContract.MAX_CITATIONS : 0);
+        var citation = citations.putObject("items");
+        citation.put("type", "object").put("additionalProperties", false);
+        citation.putArray("required").add("sourceId").add("claim");
+        var citationProperties = citation.putObject("properties");
+        citationProperties.putObject("sourceId").put("type", "integer");
+        citationProperties.putObject("claim").put("type", "string").put("minLength", 1)
+                .put("maxLength", AgentResearchContract.MAX_CITATION_CLAIM_LENGTH);
+        properties.putObject("confidence").put("type", "number").put("minimum", 0).put("maximum", 1);
+        var coverage = properties.putObject("evidenceCoverage");
+        coverage.put("type", "object").put("additionalProperties", false);
+        coverage.putArray("required").add("status").add("caseCount").add("policyCount")
+                .add("sourceCount").add("limitations");
+        var coverageProperties = coverage.putObject("properties");
+        coverageProperties.putObject("status").put("type", "string")
+                .putArray("enum").add("sufficient").add("partial").add("insufficient");
+        for (String count : List.of("caseCount", "policyCount", "sourceCount")) {
+            coverageProperties.putObject(count).put("type", "integer").put("minimum", 0);
+        }
+        addStringArray(coverageProperties.putObject("limitations"), 0,
+                AgentResearchContract.MAX_COVERAGE_LIMITATIONS,
+                AgentResearchContract.MAX_COVERAGE_LIMITATION_LENGTH);
+    }
+
+    private void addIntentSchema(com.fasterxml.jackson.databind.node.ObjectNode node) {
+        node.put("type", "string");
+        var values = node.putArray("enum");
+        for (String value : AgentResearchContract.INTENTS) values.add(value);
+    }
+
+    private void addEvidenceStatementArray(
+            com.fasterxml.jackson.databind.node.ObjectNode array,
+            int maxItems
+    ) {
+        array.put("type", "array").put("maxItems", maxItems);
+        var branches = array.putObject("items").putArray("oneOf");
+        addEvidenceStatementBranch(branches, "fact", 1);
+        addEvidenceStatementBranch(branches, "inference", 0);
+        addEvidenceStatementBranch(branches, "methodology", 0);
+    }
+
+    private void addEvidenceStatementBranch(
+            com.fasterxml.jackson.databind.node.ArrayNode branches,
+            String evidenceType,
+            int minimumSourceIds
+    ) {
+        var item = branches.addObject();
+        item.put("type", "object").put("additionalProperties", false);
+        item.putArray("required").add("text").add("evidenceType").add("sourceIds");
+        var properties = item.putObject("properties");
+        properties.putObject("text").put("type", "string").put("minLength", 1)
+                .put("maxLength", AgentResearchContract.MAX_STATEMENT_LENGTH);
+        properties.putObject("evidenceType").put("const", evidenceType);
+        addIdArray(properties.putObject("sourceIds"), minimumSourceIds,
+                AgentResearchContract.MAX_SOURCE_IDS_PER_ITEM);
+    }
+
+    private void addStringArray(
+            com.fasterxml.jackson.databind.node.ObjectNode array,
+            int minItems,
+            int maxItems,
+            int maxLength
+    ) {
+        array.put("type", "array").put("minItems", minItems).put("maxItems", maxItems);
+        array.putObject("items").put("type", "string").put("minLength", 1).put("maxLength", maxLength);
+    }
+
+    private void addIdArray(com.fasterxml.jackson.databind.node.ObjectNode array, int minItems, int maxItems) {
+        array.put("type", "array").put("minItems", minItems).put("maxItems", maxItems).put("uniqueItems", true);
+        array.putObject("items").put("type", "integer");
+    }
+
     @SuppressWarnings("unchecked")
     private <T> AgentToolResult executeTyped(AgentTool<?> rawTool, AgentToolContext context, Object arguments) {
         return ((AgentTool<T>) rawTool).execute(context, (T) arguments);
     }
 
-    private void fail(AiAgentToolCall audit, String diagnosticCode, long startedNanos) {
+    private void requireGuardedUpdate(AgentToolContext context, AiAgentToolCall audit) {
+        if (callMapper.updateGuarded(audit, context.leaseOwner()) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Agent tool write was rejected because the run lease or session content changed");
+        }
+    }
+
+    private void fail(
+            AgentToolContext context, AiAgentToolCall audit, String diagnosticCode, long startedNanos
+    ) {
         audit.setStatus("failed");
         audit.setDiagnosticCode(diagnosticCode);
         audit.setCompletedAt(LocalDateTime.now());
         audit.setLatencyMs(elapsedMillis(startedNanos));
-        callMapper.updateById(audit);
+        callMapper.updateGuarded(audit, context.leaseOwner());
     }
 
     private String safeRawArguments(JsonNode arguments) {

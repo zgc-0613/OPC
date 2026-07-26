@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import { nextTick } from 'vue'
 
 import AssistantHistorySidebar from '@/components/assistant/AssistantHistorySidebar.vue'
 
@@ -46,5 +47,49 @@ describe('AssistantHistorySidebar', () => {
     expect(wrapper.find('.history-search').exists()).toBe(false)
     expect(wrapper.get('.new-research').attributes('type')).toBe('button')
     expect(wrapper.get('.sidebar-toggle').attributes('aria-label')).toBe('展开历史栏')
+    expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('renders the full drawer and marks the current session when mobile is open', () => {
+    const wrapper = mount(AssistantHistorySidebar, {
+      props: { items: [row], selectedId: row.sessionId, collapsed: true, mobileOpen: true },
+    })
+
+    expect(wrapper.get('.history-sidebar-head strong').text()).toBe('研究历史')
+    expect(wrapper.get('.new-research span').text()).toBe('新建研究')
+    expect(wrapper.find('.history-search').exists()).toBe(true)
+    expect(wrapper.get('.history-row-main').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('traps focus inside the mobile history dialog', async () => {
+    const outside = document.createElement('button')
+    document.body.append(outside)
+    const wrapper = mount(AssistantHistorySidebar, {
+      attachTo: document.body,
+      props: { items: [row], mobileOpen: false },
+    })
+    await wrapper.setProps({ mobileOpen: true })
+    await nextTick()
+
+    const drawer = wrapper.get('.history-sidebar')
+    const first = drawer.get('.sidebar-toggle').element
+    const focusable = drawer.element.querySelectorAll('button, input, summary')
+    const last = focusable[focusable.length - 1]
+    expect(drawer.attributes('role')).toBe('dialog')
+    expect(document.activeElement).toBe(drawer.get('.sidebar-close').element)
+    expect(outside.hasAttribute('inert')).toBe(true)
+    expect(wrapper.get('.history-backdrop').attributes('inert')).toBeUndefined()
+
+    last.focus()
+    await drawer.trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement).toBe(first)
+    first.focus()
+    await drawer.trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(last)
+    await wrapper.setProps({ mobileOpen: false })
+    expect(outside.hasAttribute('inert')).toBe(false)
+    wrapper.unmount()
+    outside.remove()
   })
 })

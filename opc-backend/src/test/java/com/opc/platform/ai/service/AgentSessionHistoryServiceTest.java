@@ -3,6 +3,7 @@ package com.opc.platform.ai.service;
 import com.opc.platform.ai.dto.AgentSessionUpdateDTO;
 import com.opc.platform.ai.entity.AiAgentMessage;
 import com.opc.platform.ai.entity.AiAgentSession;
+import com.opc.platform.ai.exception.AgentHistoryCursorStaleException;
 import com.opc.platform.ai.mapper.AiAgentMessageMapper;
 import com.opc.platform.ai.mapper.AiAgentSessionMapper;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
@@ -14,12 +15,14 @@ import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.userauth.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,7 +49,43 @@ class AgentSessionHistoryServiceTest {
         runs = mock(AiAnalysisRunMapper.class);
         tools = mock(AiAgentToolCallMapper.class);
         settings = mock(AiRuntimeSettingsProvider.class);
-        service = new AgentSessionHistoryService(sessions, messages, runs, tools, settings, new ObjectMapper());
+        when(sessions.incrementHistoryRevision(any())).thenReturn(1);
+        service = new AgentSessionHistoryService(
+                sessions, messages, runs, tools, settings, new ObjectMapper(),
+                "unit-test-history-cursor-secret-1234567890",
+                mock(AgentContentPurgeAuditService.class));
+    }
+
+    @Test
+    void environmentCursorSecretWorksWithoutExternalYamlMapping() {
+        AiAgentSessionMapper contextSessions = mock(AiAgentSessionMapper.class);
+        LocalDateTime now = LocalDateTime.of(2026, 7, 26, 1, 55);
+        AiAgentSession first = activeSession();
+        first.setCreatedAt(now.minusMinutes(1));
+        AiAgentSession second = activeSession();
+        second.setId(9L);
+        second.setCreatedAt(now.minusMinutes(2));
+        when(contextSessions.selectCurrentTimestamp()).thenReturn(now);
+        when(contextSessions.selectHistory(eq(42L), eq("active"), eq(null), eq(now),
+                eq(null), eq(null), eq(null), eq(2))).thenReturn(List.of(first, second));
+
+        new ApplicationContextRunner()
+                .withPropertyValues(
+                        "OPC_ASSISTANT_CURSOR_HMAC_SECRET=environment-cursor-secret-1234567890")
+                .withBean(AiAgentSessionMapper.class, () -> contextSessions)
+                .withBean(AiAgentMessageMapper.class, () -> mock(AiAgentMessageMapper.class))
+                .withBean(AiAnalysisRunMapper.class, () -> mock(AiAnalysisRunMapper.class))
+                .withBean(AiAgentToolCallMapper.class, () -> mock(AiAgentToolCallMapper.class))
+                .withBean(AiRuntimeSettingsProvider.class, () -> mock(AiRuntimeSettingsProvider.class))
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(AgentContentPurgeAuditService.class,
+                        () -> mock(AgentContentPurgeAuditService.class))
+                .withBean(AgentSessionHistoryService.class)
+                .run(context -> {
+                    AgentSessionHistoryPageVO page = context.getBean(AgentSessionHistoryService.class)
+                            .history(user, "active", "", null, 1);
+                    assertNotNull(page.nextCursor());
+                });
     }
 
     @Test
@@ -130,7 +169,8 @@ class AgentSessionHistoryServiceTest {
         AiAgentSession extra = activeSession();
         extra.setId(11L);
         extra.setLastMessageAt(LocalDateTime.of(2026, 7, 25, 10, 0));
-        when(sessions.selectHistory(42L, "active", null, null, null, null, 3))
+        when(sessions.selectHistory(eq(42L), eq("active"), eq(null), any(LocalDateTime.class),
+                eq(null), eq(null), eq(null), eq(3)))
                 .thenReturn(List.of(newest, second, extra));
 
         AgentSessionHistoryPageVO page = service.history(user, "active", "", null, 2);
@@ -141,14 +181,56 @@ class AgentSessionHistoryServiceTest {
     }
 
     @Test
+    void historyCursorExpiresWhenTheOwnersMetadataRevisionChanges() {
+        LocalDateTime snapshot = LocalDateTime.of(2026, 7, 26, 3, 0);
+        AiAgentSession first = activeSession();
+        first.setHistoryActivity(snapshot.minusMinutes(1));
+        AiAgentSession extra = activeSession();
+        extra.setId(9L);
+        extra.setHistoryActivity(snapshot.minusMinutes(2));
+        when(sessions.selectCurrentTimestamp()).thenReturn(snapshot);
+        when(sessions.selectHistoryRevision(42L)).thenReturn(7L, 8L);
+        when(sessions.selectHistory(eq(42L), eq("active"), eq(null), eq(snapshot),
+                eq(null), eq(null), eq(null), eq(2))).thenReturn(List.of(first, extra));
+
+        String cursor = service.history(user, "active", "", null, 1).nextCursor();
+        AgentHistoryCursorStaleException exception = assertThrows(
+                AgentHistoryCursorStaleException.class,
+                () -> service.history(user, "active", "", cursor, 1));
+
+        assertEquals("HISTORY_CURSOR_STALE", exception.getDiagnosticCode());
+        verify(sessions, org.mockito.Mockito.times(2)).selectHistoryRevision(42L);
+        verify(sessions, org.mockito.Mockito.times(1)).selectHistory(
+                eq(42L), eq("active"), eq(null), eq(snapshot),
+                eq(null), eq(null), eq(null), eq(2));
+    }
+
+    @Test
+    void metadataMutationsAdvanceOnlyTheOwningUsersHistoryRevision() {
+        AiAgentSession session = activeSession();
+        when(sessions.selectOwnedForUpdate(10L, 42L)).thenReturn(session);
+        when(sessions.updateById(any(AiAgentSession.class))).thenReturn(1);
+        when(sessions.incrementHistoryRevision(42L)).thenReturn(1);
+        AgentSessionUpdateDTO request = new AgentSessionUpdateDTO();
+        request.setPinned(true);
+
+        service.update(user, 10L, request);
+
+        verify(sessions).incrementHistoryRevision(42L);
+        verify(sessions, never()).incrementHistoryRevision(99L);
+    }
+
+    @Test
     void historySearchEscapesWildcardsBackslashAndTheExplicitEscapeCharacter() {
-        when(sessions.selectHistory(42L, "active", "%100!%!_\\done!!%", null, null, null, 31))
+        when(sessions.selectHistory(eq(42L), eq("active"), eq("%100!%!_\\done!!%"), any(LocalDateTime.class),
+                eq(null), eq(null), eq(null), eq(31)))
                 .thenReturn(List.of());
 
         AgentSessionHistoryPageVO page = service.history(user, "active", "100%_\\done!", null, 30);
 
         assertEquals(List.of(), page.items());
-        verify(sessions).selectHistory(42L, "active", "%100!%!_\\done!!%", null, null, null, 31);
+        verify(sessions).selectHistory(eq(42L), eq("active"), eq("%100!%!_\\done!!%"), any(LocalDateTime.class),
+                eq(null), eq(null), eq(null), eq(31));
     }
 
     @Test
@@ -156,7 +238,7 @@ class AgentSessionHistoryServiceTest {
         assertThrows(BusinessException.class, () -> service.history(user, "other-user", "", null, 30));
         assertThrows(BusinessException.class, () -> service.history(user, "active", "研".repeat(101), null, 30));
         assertThrows(BusinessException.class, () -> service.history(user, "active", "", "not-a-cursor", 30));
-        verify(sessions, never()).selectHistory(any(), any(), any(), any(), any(), any(), any(Integer.class));
+        verify(sessions, never()).selectHistory(any(), any(), any(), any(), any(), any(), any(), any(Integer.class));
     }
 
     @Test

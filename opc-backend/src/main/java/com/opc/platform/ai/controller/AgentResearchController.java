@@ -2,17 +2,21 @@ package com.opc.platform.ai.controller;
 
 import com.opc.platform.ai.dto.AgentMessageCreateDTO;
 import com.opc.platform.ai.dto.AgentSessionCreateDTO;
+import com.opc.platform.ai.dto.AgentSessionStartDTO;
 import com.opc.platform.ai.dto.AgentSessionUpdateDTO;
 import com.opc.platform.ai.service.AgentResearchReceipt;
 import com.opc.platform.ai.service.AgentResearchQueryService;
 import com.opc.platform.ai.service.AgentResearchService;
+import com.opc.platform.ai.service.AgentResearchStartReceipt;
 import com.opc.platform.ai.service.AgentSessionHistoryService;
+import com.opc.platform.ai.service.AgentRunEvidenceService;
 import com.opc.platform.ai.vo.AgentRunStatusVO;
 import com.opc.platform.ai.vo.AgentSessionDetailVO;
 import com.opc.platform.ai.vo.AgentSessionVO;
 import com.opc.platform.ai.vo.AgentSessionHistoryPageVO;
 import com.opc.platform.ai.vo.AgentMessagePageVO;
 import com.opc.platform.ai.vo.AgentUsageVO;
+import com.opc.platform.ai.vo.AgentRunEvidenceVO;
 import com.opc.platform.common.result.Result;
 import com.opc.platform.userauth.AuthenticatedUser;
 import jakarta.validation.Valid;
@@ -41,6 +45,7 @@ public class AgentResearchController {
     private final AgentResearchService researchService;
     private final AgentResearchQueryService queryService;
     private final AgentSessionHistoryService historyService;
+    private final AgentRunEvidenceService evidenceService;
 
     @PostMapping("/sessions")
     public Result<AgentSessionVO> createSession(
@@ -48,6 +53,14 @@ public class AgentResearchController {
             @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user
     ) {
         return Result.success(queryService.createSession(user, request));
+    }
+
+    @PostMapping("/sessions/start")
+    public ResponseEntity<Result<AgentResearchStartReceipt>> startSession(
+            @Valid @RequestBody AgentSessionStartDTO request,
+            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user
+    ) {
+        return ResponseEntity.accepted().body(Result.success(researchService.start(user, request)));
     }
 
     @GetMapping("/sessions")
@@ -81,7 +94,7 @@ public class AgentResearchController {
             @PathVariable Long sessionId,
             @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user
     ) {
-        queryService.archiveSession(user, sessionId);
+        historyService.archive(user, sessionId);
         return Result.success();
     }
 
@@ -167,6 +180,14 @@ public class AgentResearchController {
             @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user
     ) {
         return Result.success(queryService.run(user, runId));
+    }
+
+    @GetMapping("/runs/{runId}/evidence")
+    public Result<AgentRunEvidenceVO> evidence(
+            @PathVariable Long runId,
+            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user
+    ) {
+        return Result.success(evidenceService.read(user, runId));
     }
 
     @PostMapping("/runs/{runId}/cancel")

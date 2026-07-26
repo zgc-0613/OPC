@@ -11,9 +11,21 @@ public record AgentOrchestratorInput(
         String profileJson,
         String userMessage,
         List<AiProviderMessage> history,
+        String leaseOwner,
         AgentRuntimeConfig config
 ) {
     public AgentOrchestratorInput {
         history = history == null ? List.of() : List.copyOf(history);
+    }
+
+    public AgentOrchestratorInput(
+            Long runId,
+            Long userId,
+            String profileJson,
+            String userMessage,
+            List<AiProviderMessage> history,
+            AgentRuntimeConfig config
+    ) {
+        this(runId, userId, profileJson, userMessage, history, null, config);
     }
 }

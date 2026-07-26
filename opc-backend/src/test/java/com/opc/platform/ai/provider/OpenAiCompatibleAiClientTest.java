@@ -67,6 +67,28 @@ class OpenAiCompatibleAiClientTest {
     }
 
     @Test
+    void usesABoundedRequestSpecificOutputBudgetWithoutChangingTheSharedSetting() throws Exception {
+        CapturingTransport transport = new CapturingTransport(new AiHttpResponse(
+                200,
+                "{\"id\":\"req-agent\",\"choices\":[{\"finish_reason\":\"stop\"," +
+                        "\"message\":{\"content\":\"{}\"}}],\"usage\":{\"total_tokens\":1}}",
+                HttpHeaders.of(Map.of(), (a, b) -> true)
+        ));
+        OpenAiCompatibleAiClient client = new OpenAiCompatibleAiClient(settings(), transport, objectMapper);
+        AiProviderRequest request = new AiProviderRequest(
+                "agent-research", "agent-research-v2", "system", "question", "{}",
+                List.of(), List.of(), true, 2000
+        );
+
+        client.generate(request);
+
+        assertEquals(2000, objectMapper.readTree(transport.request.body()).path("max_tokens").asInt());
+        CapturingTransport ordinaryTransport = new CapturingTransport(transport.response);
+        new OpenAiCompatibleAiClient(settings(), ordinaryTransport, objectMapper).generate(request());
+        assertEquals(1200, objectMapper.readTree(ordinaryTransport.request.body()).path("max_tokens").asInt());
+    }
+
+    @Test
     void mapsProviderNeutralToolsAndParsesNativeToolCalls() throws Exception {
         CapturingTransport transport = new CapturingTransport(new AiHttpResponse(
                 200,

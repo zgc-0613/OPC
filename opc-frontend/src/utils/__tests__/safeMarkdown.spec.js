@@ -30,4 +30,14 @@ describe('safe assistant Markdown', () => {
     expect(html).toContain('target="_blank"')
     expect(html).toContain('rel="noopener noreferrer"')
   })
+
+  it('links only authorized evidence references within the current run', () => {
+    const html = renderSafeMarkdown(
+      '事实结论 [来源 2、9]',
+      { runId: 301, sourceIds: [2] },
+    )
+
+    expect(html).toContain('href="#evidence-301-2"')
+    expect(html).not.toContain('href="#evidence-301-9"')
+  })
 })

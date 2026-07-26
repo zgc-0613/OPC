@@ -42,9 +42,10 @@ public class AgentResearchQueryService {
     private final AiAgentToolCallMapper toolCallMapper;
     private final AiAnalysisRunMapper runMapper;
     private final ObjectMapper objectMapper;
+    private final AgentProfilePolicy profilePolicy;
 
     public AgentSessionVO createSession(AuthenticatedUser user, AgentSessionCreateDTO request) {
-        String profileJson = validateAndWriteProfile(request == null ? null : request.getProfile());
+        String profileJson = profilePolicy.canonicalJson(request == null ? null : request.getProfile());
         return toSession(sessionService.create(user, request == null ? null : request.getTitle(), profileJson));
     }
 
@@ -59,9 +60,10 @@ public class AgentResearchQueryService {
         boolean hasMore = safe.size() > 50;
         List<AiAgentMessage> messages = new java.util.ArrayList<>(safe.subList(0, Math.min(50, safe.size())));
         java.util.Collections.reverse(messages);
+        AiAnalysisRun activeRun = runMapper.selectActiveAgentRunForSession(sessionId);
         AiAnalysisRun latest = runMapper.selectLatestAgentRunForSession(sessionId);
-        AgentRunStatusVO active = latest != null && Set.of("received", "running").contains(latest.getStatus())
-                ? toRun(latest) : null;
+        AgentRunStatusVO active = activeRun == null ? null : toRun(activeRun);
+        session.setActiveRunStatus(activeRun == null ? null : activeRun.getStatus());
         return new AgentSessionDetailVO(
                 toSession(session),
                 (messages == null ? List.<AiAgentMessage>of() : messages).stream().map(this::toMessage).toList(),
@@ -92,10 +94,16 @@ public class AgentResearchQueryService {
     }
 
     private AgentRunStatusVO toRun(AiAnalysisRun run) {
+        AiAgentMessage userMessage = run.getUserMessageId() == null
+                ? null : messageMapper.selectById(run.getUserMessageId());
         AiAgentMessage finalMessage = messageMapper.selectFinalByRun(run.getId());
         List<AiAgentToolCall> calls = toolCallMapper.selectByRunId(run.getId());
+        JsonNode result = parseJson(run.getResultJson(), true);
+        JsonNode structuredResult = result.path("structuredResult").isObject()
+                ? result.path("structuredResult") : null;
         return new AgentRunStatusVO(
                 run.getId(), run.getSessionId(), run.getStatus(),
+                retryContent(run, userMessage),
                 run.getCurrentStage() == null ? run.getStatus() : run.getCurrentStage(),
                 safe(run.getStepCount()), safe(run.getToolCallCount()), run.getVisibleProgress(),
                 finalMessage == null ? null : toMessage(finalMessage),
@@ -105,8 +113,17 @@ public class AgentResearchQueryService {
                 new AiTokenUsageVO(safe(run.getPromptTokens()), safe(run.getCompletionTokens()), safe(run.getTotalTokens())),
                 run.getProvider(), run.getModelId(), run.getPromptVersion(), run.getDiagnosticCode(),
                 run.getFinishReason(), run.getProviderRequestId(), run.getLatencyMs(),
+                structuredResult,
                 run.getCreatedAt(), run.getCompletedAt()
         );
+    }
+
+    private String retryContent(AiAnalysisRun run, AiAgentMessage userMessage) {
+        if (userMessage == null || !Set.of(
+                "failed", "expired", "cancelled", "evidence_insufficient").contains(run.getStatus())) {
+            return null;
+        }
+        return userMessage.getContent();
     }
 
     private AgentToolCallSummaryVO toTool(AiAgentToolCall call) {

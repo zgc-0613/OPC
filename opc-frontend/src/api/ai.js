@@ -28,6 +28,10 @@ export function createResearchSession(payload) {
   return request.post('/ai/research/sessions', payload)
 }
 
+export function startResearchSession(payload) {
+  return request.post('/ai/research/sessions/start', payload, { timeout: 30000 })
+}
+
 export function getResearchSessions() {
   return request.get('/ai/research/sessions')
 }
@@ -86,6 +90,10 @@ export function sendResearchMessage(sessionId, payload) {
 
 export function getResearchRun(runId) {
   return request.get(`/ai/research/runs/${runId}`)
+}
+
+export function getResearchRunEvidence(runId) {
+  return request.get(`/ai/research/runs/${runId}/evidence`)
 }
 
 export function cancelResearchRun(runId) {

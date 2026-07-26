@@ -9,6 +9,8 @@ public class AgentCaseSearchRow {
     private Long caseId;
     private String title;
     private String region;
+    private Long regionId;
+    private String geographicLevel;
     private String category;
     private String summary;
     private String businessModel;

@@ -25,6 +25,7 @@ public class AiAgentSession {
     private LocalDateTime deletedAt;
     private LocalDateTime purgeAfter;
     private LocalDateTime purgedAt;
+    private Long contentGeneration;
     private Long version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -32,4 +33,10 @@ public class AiAgentSession {
 
     @TableField(exist = false)
     private String activeRunStatus;
+
+    @TableField(exist = false)
+    private LocalDateTime historyActivity;
+
+    @TableField(exist = false)
+    private Integer historyPinned;
 }

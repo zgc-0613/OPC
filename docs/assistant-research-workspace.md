@@ -64,7 +64,7 @@ History accepts `scope=active|archived|trash`, a maximum 100-code-point `q`, a s
 
 The repository deployment script uploads and checksums the Assistant precheck/migration/postcheck files, executes them after the Agent Runtime postcheck, and fails into the existing rollback path on any mismatch. The temporary production Agent probe additionally checks automatic title, `latestRun`, messages, usage, history search, rename/pin, archive/unarchive, trash/restore, authorization, semantic evidence, and cleanup.
 
-Production deployment is not implied by local completion. Release, backup, rollback, and real DeepSeek probe fields remain unset until the deployment workflow actually succeeds with secure environment credentials.
+Production deployment is recorded only after the repository workflow succeeds with secure environment credentials; the successful release details are recorded below.
 
 ## Verification
 
@@ -83,4 +83,50 @@ One dependency audit residual is explicit: six high-severity advisories are conf
 
 ## Production status
 
-Local implementation and verification are complete. Production deployment was not attempted because `OPC_SSH_PASSWORD`, `OPC_INITIAL_ADMIN_USERNAME`, and `OPC_INITIAL_ADMIN_PASSWORD` are absent from the current process environment. No release, backup, rollback directory, migration execution, or real DeepSeek production probe is claimed for this pass.
+Release `/opt/opc/releases/20260725-215634` is live through `/opt/opc/current`. The timestamped database/configuration backup is `/opt/opc/backups/20260725-215634`, the backend rollback artifact is `/opt/opc-backend.rollback.20260725-215634`, and the previous release remains `/opt/opc/releases/20260725-080213`.
+
+The Assistant probe completed with a visible partial-evidence result and 2,987 total tokens. The real Agent probe completed with DeepSeek `deepseek-v4-flash`: 3 model rounds, 2 completed tool calls, 1 legal citation, 0 unknown citations, 6,897 total tokens, and 7,916 ms latency. Both public hosts and health returned HTTP 200; anonymous user/admin API requests returned the project's HTTP-200 envelope with business code 401 and null data.
+
+## Stabilization addendum (2026-07-26)
+
+The next local iteration replaces split first submission with atomic `/sessions/start`, freezes history traversal with signed snapshot cursors, separates active and latest terminal runs, restores retry text from owned persisted messages, and revokes late content writes through a purge generation barrier. The Assistant route now owns the available viewport without the public title band, the profile responds to its container, and the searchable industry combobox shares the select field system while retaining explicit AI suggestion confirmation and full keyboard semantics.
+
+All local tests and builds passed; exact results and migration/index definitions are in `docs/assistant-workspace-stabilization.md`. The stabilization iteration is deployed in `/opt/opc/releases/20260726-015858`, with backup `/opt/opc/backups/20260726-015858` and previous release `/opt/opc/releases/20260725-215634`. Its real `deepseek-v4-flash` probe completed with 2 model rounds, 1 completed tool call, 1 legal citation, 0 unknown citations, 4,421 total tokens and 7,842 ms latency.
+
+## Acceptance closure addendum (2026-07-26)
+
+History pagination now combines its fixed activity snapshot with `platform_users.assistant_history_revision`. Signed cursor v2 remains bound to user, scope and search; rename, pin, archive, trash, restore and purge increment only that user's revision. A later page with an obsolete revision receives business conflict `409` and diagnostic `HISTORY_CURSOR_STALE`. The Vue history client discards obsolete pages and reloads page one once without clearing the selected session or search input. Appending messages does not increment the revision and therefore does not turn normal activity into a stale-cursor loop.
+
+The research profile retains its wide six-track layout, uses explicit two-column semantic grouping from 521 through 680 px, and becomes one column at 520 px and below. Industry spans the tablet row; stage pairs with budget and goal pairs with resources. The searchable industry Combobox, AI confirmation, keyboard contract, aligned panel width and mobile 44px targets are preserved.
+
+Permanent-deletion verification now includes two deterministic MySQL concurrency timelines using latches rather than sleeps. One proves an active run follows the product's purge rejection rule without corrupting the still-authorized callback. The other completes terminal purge while a callback is paused, releases the callback, and proves its generation/lease guard cannot restore messages, citations, arguments, results, evidence hashes or run content, cannot settle usage twice, and cannot create a second successful purge audit.
+
+Local acceptance passed with Spring `306` executed (`305` passed and `1` opt-in provider smoke skipped), MySQL 8.4 `62/62`, Vitest `60/60` across 12 files, all 8 frontend scripts, Python default `73` executed (`66` passed and `7` opt-in MySQL skipped), explicit MySQL migration `7/7`, deployment hardening `52/52`, combined deployment/migration `65/65`, frontend production build, executable JAR and repository gates. Playwright was intentionally not used, so desktop, tablet and phone visual combinations still require manual inspection.
+
+Release `/opt/opc/releases/20260726-080227` is live, with backup `/opt/opc/backups/20260726-080227`, database dump `/opt/opc/backups/20260726-080227/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260726-080227`, and previous release `/opt/opc/releases/20260726-015858`. Both domains, health, authorization, stale-cursor behavior, remote hashes, single-process ownership and temporary-account cleanup passed. The real `deepseek-v4-flash` probe completed with finish reason `stop`, 3 rounds, 2 completed tools, 1 legal citation, 0 unknown citations, 7,016 total tokens and 9,943 ms latency.
+
+## Readiness and first-question closure (2026-07-26)
+
+The editable research profile now has two independent reactions. The deep draft watcher only persists the current user's local profile. Evidence validation observes a normalized key made from region ID, canonical industry tag ID and industry text. Venture type, stage, budget, goal and existing resources therefore cannot clear a valid readiness result, display a false verification state, issue a readiness request or disable the first question. Region and industry changes keep the debounce and latest-response guards, and accepting an AI suggestion schedules one readiness request.
+
+New research exposes `提出第一个问题`, a research-specific placeholder and `开始本次研究`; persisted sessions retain `继续研究` and the ordinary message action. Both states use the same single Composer at the bottom of the viewport-owned grid. The profile owns bounded internal scrolling, while the outer Assistant route remains `100vh`/`100dvh` with no second page scroll chain. Coarse-pointer tablet controls use scoped 44 px targets, and Arrow navigation scrolls only the active industry option into its listbox with `block: nearest`.
+
+Local acceptance passed with Spring `307` (`306` passed and `1` opt-in Provider smoke skipped), MySQL 8.4 `63/63`, Vitest `65/65` across 13 files, all 8 frontend scripts, Python `74/74`, Vite/JAR builds and repository gates. Playwright was intentionally not used; desktop, tablet, phone and low-height visual combinations remain manual acceptance.
+
+Release `/opt/opc/releases/20260726-092000` is live, with backup `/opt/opc/backups/20260726-092000`, database dump `/opt/opc/backups/20260726-092000/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260726-092000`, and previous release `/opt/opc/releases/20260726-080227`. Dual-domain, health, anonymous authorization, readiness, atomic start, subsequent message/history/title, cleanup, hashes and single-process probes passed. The real `deepseek-v4-flash` run completed with 6,956 total tokens, 2 completed tools, 1 legal citation, 0 unknown citations and 8,593 ms latency.
+
+## Evidence workspace and bounded-height closure (2026-07-26)
+
+The Assistant route, content shell, workspace and research desk now form one explicit height chain. The research desk is a vertical flex container: Header, research conditions, notices and Composer are non-shrinking rows, while `AssistantConversation` owns the remaining height and its vertical scroll. This prevents the low-height case where the user reached the end of page scroll but the Composer remained below the viewport. Safe-area and coarse-pointer rules remain scoped to mobile/tablet controls.
+
+Command affordances follow the local Prisma Light hierarchy. Primary send/new actions remain ink-filled; fork/retry/recover/load/copy/evidence/process/return commands use paper backgrounds and neutral 1 px borders; cancellation uses a restrained deep-red border and text. Focus-visible, active, disabled and 44 px coarse-pointer behavior are explicit, and icon commands retain accessible names.
+
+`AssistantEvidencePanel` presents current Run research material separately from process telemetry. It groups cases, policies and sources, shows the bounded brief, region, industry or type, match reason, publisher and current evidence state, and exposes only controlled internal detail links and safe HTTP(S) originals with `noopener noreferrer`. Citation numbers are carried from the validated Run references. Loading, empty, unavailable and error states remain user-visible without exposing raw tool arguments/results.
+
+Local verification is recorded in `docs/assistant-research-quality-closure.md`. Playwright was not used; manual viewport acceptance remains required at `1366x768`, `1280x600`, `1024x768` and `390x844`.
+
+The strengthened real research gate rejected invalid candidates and restored `/opt/opc/releases/20260726-092000` until every contract held. Synthesis now receives the exact legal source allowlist; server normalization excludes every unowned number from user-visible and persisted source fields while retaining a mandatory legal citation. Planning validation exposes fixed content-free diagnostic branches without logging raw model content. Hubei exact-tag retrieval also gained a controlled canonical-name and alias fallback for legacy Wuhan/Hubei cases with AI text evidence but no direct canonical relation.
+
+The final local run executed 322 Spring tests (`321` passed and one opt-in Provider smoke was skipped), including MySQL 8.4 `67/67`; Vitest remained `73/73`, all 8 frontend scripts passed, both production builds passed and repository gates stayed green. The last rejected candidate reproduced a 2,000-token compact-synthesis truncation; a red-to-green request contract corrected synthesis to 3,200 under the configured aggregate Run limit.
+
+Release `/opt/opc/releases/20260726-162930` is live, with backup `/opt/opc/backups/20260726-162930`, database dump `/opt/opc/backups/20260726-162930/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260726-162930`, and previous release `/opt/opc/releases/20260726-092000`. The real `deepseek-v4-flash` probe completed with 3 rounds, 2 tools, 5 case items, 2 policy items, 4 legal citations, 0 unknown citations, 11,039 tokens and 46,160 ms latency. Independent preflight confirmed the artifact hashes, three active services, one backend process, loopback-only listening and restored temporary-account counts.

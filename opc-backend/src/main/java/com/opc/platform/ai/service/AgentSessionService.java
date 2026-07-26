@@ -1,6 +1,5 @@
 package com.opc.platform.ai.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.opc.platform.ai.entity.AiAgentMessage;
 import com.opc.platform.ai.entity.AiAgentSession;
 import com.opc.platform.ai.mapper.AiAgentMessageMapper;
@@ -49,17 +48,12 @@ public class AgentSessionService {
         session.setProfileJson(profileJson);
         session.setVersion(0L);
         sessionMapper.insert(session);
+        session.setContentGeneration(0L);
         return session;
     }
 
     public List<AiAgentSession> list(AuthenticatedUser user) {
-        List<AiAgentSession> sessions = sessionMapper.selectList(new LambdaQueryWrapper<AiAgentSession>()
-                .eq(AiAgentSession::getUserId, user.userId())
-                .isNull(AiAgentSession::getDeletedAt)
-                .isNull(AiAgentSession::getPurgedAt)
-                .orderByDesc(AiAgentSession::getLastMessageAt)
-                .orderByDesc(AiAgentSession::getId)
-                .last("LIMIT 100"));
+        List<AiAgentSession> sessions = sessionMapper.selectOwnedCompatibilityList(user.userId());
         return sessions == null ? List.of() : sessions;
     }
 
@@ -69,6 +63,12 @@ public class AgentSessionService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "研究会话不存在");
         }
         return session;
+    }
+
+    public void lockHistoryRevision(AuthenticatedUser user) {
+        if (sessionMapper.lockHistoryRevision(user.userId()) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "用户不存在");
+        }
     }
 
     public AiAgentSession lockOwned(AuthenticatedUser user, Long sessionId) {
@@ -134,8 +134,11 @@ public class AgentSessionService {
         message.setCitationsJson(citationsJson);
         messageMapper.insert(message);
         if ("user".equals(role)) {
-            sessionMapper.applyAutomaticTitle(
+            int titleUpdated = sessionMapper.applyAutomaticTitle(
                     sessionId, user.userId(), titlePolicy.fromFirstQuestion(content));
+            if (titleUpdated == 1 && sessionMapper.incrementHistoryRevision(user.userId()) != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "研究历史状态已变化");
+            }
         }
         if (sessionMapper.touchActive(sessionId, user.userId()) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "研究会话状态已改变");

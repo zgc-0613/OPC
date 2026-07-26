@@ -15,6 +15,7 @@ import java.util.Set;
 public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
 
     private final AgentEvidenceToolMapper mapper;
+    private final AgentRegionResolver regionResolver;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -36,7 +37,8 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
     public String argumentSchema() {
         return """
                 {"type":"object","additionalProperties":false,"properties":{
-                  "regionId":{"type":"integer"},"industryTagId":{"type":"integer"},
+                  "regionId":{"type":"integer"},"regionName":{"type":"string","maxLength":50},
+                  "industryTagId":{"type":"integer"},
                   "industry":{"type":"string","maxLength":100},
                   "query":{"type":"string","maxLength":120},
                   "category":{"type":"string","maxLength":50},
@@ -48,16 +50,19 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
     @Override
     public AgentToolResult execute(AgentToolContext context, SearchCasesArguments arguments) {
         int limit = arguments.getLimit() == null ? 5 : Math.max(1, Math.min(10, arguments.getLimit()));
+        Long regionId = resolveRegion(context, arguments.getRegionId(), arguments.getRegionName());
+        List<Long> regionIds = descendantRegionIds(regionId);
         List<AgentCaseSearchRow> rows = mapper.searchCases(
-                arguments.getRegionId(), arguments.getIndustryTagId(), trim(arguments.getIndustry()),
+                regionIds, arguments.getIndustryTagId(), trim(arguments.getIndustry()),
                 trim(arguments.getQuery()), trim(arguments.getCategory()), limit
         );
         List<CaseItem> items = (rows == null ? List.<AgentCaseSearchRow>of() : rows).stream()
                 .map(row -> new CaseItem(
                         row.getCaseId(), bounded(row.getTitle(), 240), bounded(row.getRegion(), 100),
+                        row.getRegionId(), bounded(row.getGeographicLevel(), 30),
                         bounded(row.getCategory(), 50), bounded(row.getSummary(), 500),
                         bounded(row.getBusinessModel(), 500), bounded(row.getOutcome(), 500),
-                        row.getSourceId(), "verified", matchReason(arguments)
+                        row.getSourceId(), "verified", geographicScope(context, regionId), matchReason(arguments)
                 )).toList();
         Set<Long> sources = new LinkedHashSet<>();
         Set<Long> cases = new LinkedHashSet<>();
@@ -76,11 +81,39 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
         );
     }
 
+    private Long resolveRegion(AgentToolContext context, Long regionId, String regionName) {
+        if (StringUtils.hasText(regionName)) {
+            AgentRegionMatch match = regionResolver.resolve(regionName);
+            if (regionId != null && !regionId.equals(match.regionId())) {
+                throw new AgentToolException("REGION_ARGUMENT_CONFLICT", "地区名称与编号不一致");
+            }
+            context.authorizeRegion(match.regionId());
+            regionId = match.regionId();
+        }
+        if (regionId == null) regionId = context.primaryRegionId();
+        context.requireRegionAuthorized(regionId);
+        return regionId;
+    }
+
+    private List<Long> descendantRegionIds(Long regionId) {
+        if (regionId == null) return List.of();
+        List<Long> ids = mapper.selectDescendantRegionIds(regionId);
+        if (ids == null || ids.isEmpty()) {
+            throw new AgentToolException("INVALID_TOOL_ARGUMENTS", "所选地区不存在");
+        }
+        return ids.stream().filter(java.util.Objects::nonNull).distinct().limit(500).toList();
+    }
+
     private String matchReason(SearchCasesArguments arguments) {
         if (arguments.getIndustryTagId() != null) return "匹配已核验行业标签";
         if (arguments.getRegionId() != null) return "匹配所选地区";
         if (StringUtils.hasText(arguments.getQuery())) return "匹配研究关键词";
         return "符合已发布和已核验证据条件";
+    }
+
+    private String geographicScope(AgentToolContext context, Long requestedRegionId) {
+        return context.primaryRegionId() != null && !context.primaryRegionId().equals(requestedRegionId)
+                ? "cross_region" : "exact";
     }
 
     private String trim(String value) {
@@ -97,12 +130,15 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
             Long caseId,
             String title,
             String region,
+            Long regionId,
+            String geographicLevel,
             String category,
             String summary,
             String businessModel,
             String outcome,
             Long sourceId,
             String evidenceStatus,
+            String geographicScope,
             String matchReason
     ) {
     }

@@ -25,6 +25,7 @@ public class AgentRunDispatcher {
     private final AgentRunQueueService queueService;
     private final AgentRunLifecycleService lifecycle;
     private final AgentResearchWorker worker;
+    private final AgentClarificationPolicy clarificationPolicy;
     private final AgentRuntimeConfigProvider configProvider;
     private final AiAgentSessionMapper sessionMapper;
     private final AiAgentMessageMapper messageMapper;
@@ -68,8 +69,8 @@ public class AgentRunDispatcher {
         }
         AuthenticatedUser user = new AuthenticatedUser(
                 storedUser.getId(), storedUser.getUsername(), storedUser.getEmail());
-        String profileJson = session.getResearchContextJson() == null
-                ? session.getProfileJson() : session.getResearchContextJson();
+        String profileJson = clarificationPolicy.runtimeProfile(
+                session.getProfileJson(), session.getResearchContextJson());
         worker.execute(lease, user, profileJson, message.getContent());
     }
 }
