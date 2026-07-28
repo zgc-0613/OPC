@@ -565,3 +565,18 @@ Update this file after every two repository or browser inspection operations.
 - Independent production probes passed policy `search_policies, search_policies` (3 rounds, 10,141 Tokens, 29,238 ms), comparison `search_cases, compare_cases` (3 rounds, 11,992 Tokens, 44,254 ms), and source `search_policies, get_source` (3 rounds, 11,783 Tokens, 47,655 ms). Each had 2 legal citations, actual settlement and zero reservation.
 - Backup `/opt/opc/backups/20260728-130142`, dump `/opt/opc/backups/20260728-130142/opc_platform.sql.gz`, rollback backend `/opt/opc-backend.rollback.20260728-130142` and previous release `/opt/opc/releases/20260726-213258` exist. All candidate and temporary-probe counts are zero.
 - Historic failed release `/opt/opc/releases/20260727-070820` remains intentionally undeleted. It is the only old failed release explicitly identified by retained delivery records; the large unclassified historic release set requires separate authorization and provenance review before cleanup.
+
+## Phase Three Readiness Decisions (2026-07-29)
+
+- Production read-only audit succeeded against MySQL 8.0.46 and live release `/opt/opc/releases/20260728-130142`; only aggregate business-table SELECT/SHOW queries were used.
+- Current production has 106 case rows (106 published, 105 item-verified and full-chain eligible), 68 policies (59 published, 57 eligible), and 131 sources (122 published, 121 eligible).
+- The 105 eligible case rows are not a formal unique-business-case count: 23 exact title + original URL + source groups contain 42 excess rows, and all 23 groups vary in content fields. The interim compound key has 63 values, but canonical count remains unknown until review.
+- Case industry relations cover 105/105 rows across 19 industry tags; 7 cases have two industry tags. Policy industry relations cover 0/57, all 57 eligible policies are unclassified.
+- Structured technology coverage is 0/105. `ai_tools` is present on 100/105 and untyped non-industry tags on 100/105, but neither may be presented as a reviewed technology taxonomy.
+- Case and policy region fields are complete (105/105 and 57/57), covering 23 and 21 regions, union 26; case geography does not state registration versus operation semantics.
+- Policy business time is complete (57/57 publish_date). Case business time is 0/105; accessed_at is collection/access time and cannot be a silent substitute.
+- Structured revenue coverage is 0/105 because no revenue fields exist. All revenue charts are Red until amount range, currency, period, type, estimated/disclosure/as-of/source semantics and manual review exist.
+- Formal statistics retain the requested 20 principles. Backend owns eligibility, aggregation, canonical de-duplication, dataVersion, missing values and snapshot rehydration; the frontend never aggregates current pages or supplies trusted totals/citations/SQL/URLs/IDs to AI.
+- Green: verified policy count, policy publish trend, verification/source-chain rates and field-completeness quality metrics. Yellow: industry/region distributions, covered industry/region, source count and composite completeness. Red: canonical case total, case trend, policy-industry, all technology business metrics and all revenue business metrics.
+- Information architecture is one Assistant workspace plus one Data Insights route with tabs, existing history, and a saved-report view only after persistence exists. No empty route farm or second chat shell.
+- Phase order is A case/technology research, B analytics, C safe analytics-to-AI/report/export closure. This round added documentation only and did not authorize migrations or deployment.

@@ -4,7 +4,7 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 32 (deterministic research tool chains deployed; Agent Phase Two closed)
+Phase 33 (Phase Three readiness, metrics, product and API specification complete)
 
 ## Phases
 
@@ -456,3 +456,16 @@ Phase 32 (deterministic research tool chains deployed; Agent Phase Two closed)
 - [x] Deploy `/opt/opc/releases/20260728-130142` once, retain `/opt/opc/releases/20260726-213258` as previous, and verify backup, dump and backend rollback assets.
 - [x] Pass three independent production research probes, migration postchecks, domain/health/auth checks, one-process/loopback checks and complete candidate/temporary-data cleanup.
 - **Status:** complete. `/opt/opc/current` resolves to `/opt/opc/releases/20260728-130142`; Agent Phase Two exit criteria are satisfied. Manual responsive visual review remains a non-blocking user check.
+
+### Phase 33: User Decision Workbench Readiness And Contract Freeze
+- [x] Read all mandatory skills, product/design register, prior phase closure documents, dependencies and work records.
+- [x] Audit the current Assistant, public user routes, frontend clients, backend controllers/services/mappers/entities/DTOs, all migrations and MySQL Testcontainers fixtures.
+- [x] Use the existing protected read-only SSH/database path to audit production MySQL without reading account/session data or mutating production.
+- [x] Quantify eligible cases, policies, sources, industry/technology/region/time/revenue coverage, source chains and exact duplicate candidates.
+- [x] Freeze the 20 statistical principles and publish the sole metric dictionary with Green/Yellow/Red readiness.
+- [x] Define the user decision workbench IA, case/comparison/technology outputs, dashboard visuals, safe analytics-to-Agent flow and report lifecycle.
+- [x] Define analytics/report API contracts, backend ownership, contract fixtures, evaluation gates and Phase Three A/B/C sequence.
+- [x] Add seven formal specifications and update the four project readiness records.
+- [ ] Implement Phase Three A, B or C business features; intentionally outside this preparation round.
+- [ ] Run any production migration or deployment; intentionally outside this preparation round.
+- **Status:** specification preparation complete. Production audit at `2026-07-29 01:08–01:10 CST` found 105 eligible case rows (canonical business-case count unknown because 42 exact duplicate candidates), 57 eligible policies and 121 eligible sources. No application code or production state was changed.

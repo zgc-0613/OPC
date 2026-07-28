@@ -536,3 +536,12 @@
 - Candidate metrics: policy 2 rounds/1 tool/7,503 Tokens/19,955 ms/2 citations; comparison 2 rounds/2 tools/10,281 Tokens/34,003 ms/2 citations; source 4 rounds/2 tools/18,544 Tokens/65,468 ms/2 citations. All settled actual usage and zero reservation.
 - Production postchecks passed both domains, health, anonymous auth rejection, user/admin boundaries, history/latestRun, evidence/citations, migrations, Nginx, one `opc` process and loopback 8082. Three independent production chains passed and their temporary user/session counts returned to zero.
 - Current, hashes, backup, database dump, rollback backend and previous release were independently verified. Candidate service/database/user/env/18082 counts are zero. Agent Phase Two is closed; only manual desktop/tablet/phone visual review remains.
+
+## 2026-07-29 Phase Three Specification Preparation
+- Loaded all eleven required skills and the Impeccable product register after reading PRODUCT.md and DESIGN.md.
+- Synchronized the ignored CodeGraph index, then audited current Assistant/public frontend, AI/domain backend, 27 deployment SQL files, production schemas and the MySQL 8.4 integration fixture path.
+- Reused `.codex_deploy_opc.py` secret loading, pinned SSH fingerprint and remote database credentials without printing secrets. Ran only SELECT/SHOW against production business tables; no user/admin/session content was queried.
+- Recorded the production audit window `2026-07-29 01:08–01:10 CST`, MySQL `8.0.46`, UTC+08:00 and release `/opt/opc/releases/20260728-130142`.
+- Quantified 105 eligible case rows, 57 eligible policies and 121 eligible sources; measured coverage, policy time distribution, evidence rates, policy applicability, multi-industry cardinality and duplicate candidates.
+- Froze metric definitions, revenue prohibition, taxonomy forward plan, product IA, analytics API, backend handoff, evaluation gates and A/B/C roadmap in seven new documents under `docs/`.
+- No application source, database migration, production data, service, symlink or deployment was changed. Scoped documentation/repository checks are the only verification required for this round.

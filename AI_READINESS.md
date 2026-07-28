@@ -162,3 +162,15 @@ The remaining zero-result branch is fixed and the runtime now owns completion of
 Tool audit diagnostics are safe and operationally useful: they retain request/dependency identity, scope, field-presence flags, limits, returned counts and distinct authorized counts without query/category text. Comparison dimensions use the shared supported enum and deterministic fallback, closing the real `INVALID_TOOL_ARGUMENTS` candidate shape.
 
 All local gates passed, the final candidate proved policy, dynamic comparison and dynamic source verification in one batch, and production switched once to `/opt/opc/releases/20260728-130142`. Production migration, health, authorization, history, evidence, citations, settlement and cleanup checks passed. `/opt/opc/current`, local/remote hashes, backup, database dump, rollback backend and previous release were independently verified. Agent Phase Two is complete; manual responsive visual review is the only remaining non-engineering check.
+
+## Phase Three Decision Workbench Readiness (2026-07-29)
+
+The preparation audit is complete and is specified by seven linked documents: `docs/phase-three-readiness-audit.md`, `docs/analytics-metric-dictionary.md`, `docs/phase-three-product-spec.md`, `docs/phase-three-api-contract.md`, `docs/phase-three-backend-handoff.md`, `docs/phase-three-evaluation-plan.md`, and `docs/phase-three-roadmap.md`.
+
+Production was accessed through the existing protected read-only path. At `2026-07-29 01:08–01:10 CST`, 105 case rows, 57 policies and 121 sources satisfied the published/verified evidence chain. Policy publish dates and all eligible source chains are complete. Case business dates, explicit technology taxonomy and normalized revenue do not exist. The case dataset also has 42 exact duplicate candidates across 23 groups, so the unique business-case total remains unknown until canonical identity review.
+
+AI readiness is asymmetric. The session/message/run/tool/citation/evidence/history foundation is ready; single-case analysis and comparison are partial extensions; technology assessment lacks a dedicated evidence/taxonomy contract; analytics APIs, dataVersion, snapshot rehydration, saved reports and report export are not implemented. Existing `/analysis` client-side aggregation is not an approved formal statistic.
+
+Third-stage statistics keep the double published + verified rule, explicit missing values, business-time-only trends, canonical de-duplication, server-owned aggregation and server-rehydrated AI snapshots. Revenue charts are prohibited until normalized, reviewed comparable groups reach the metric-dictionary threshold. Pending tags and AI-inferred values never enter formal dashboards.
+
+Implementation is ordered as Phase Three A (case analysis and technology evaluation), B (analytics APIs and accessible dashboards), then C (analytics-to-Agent snapshots, reports, export, performance and final evaluation). This readiness round changed documentation only; it did not implement Phase Three features, migrate data, call the model for a bulk evaluation or deploy production.
