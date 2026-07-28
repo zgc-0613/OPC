@@ -1,6 +1,7 @@
 package com.opc.platform.ai.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.opc.platform.ai.contract.AgentResearchContract;
 import com.opc.platform.ai.mapper.AgentEvidenceToolMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -14,10 +15,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class CompareCasesTool implements AgentTool<CompareCasesArguments> {
 
-    private static final List<String> DEFAULT_DIMENSIONS = List.of(
-            "businessModel", "technicalPath", "targetCustomer", "outcome", "regionalContext", "evidenceStrength"
-    );
-    private static final Set<String> ALLOWED_DIMENSIONS = Set.copyOf(DEFAULT_DIMENSIONS);
+    private static final List<String> DEFAULT_DIMENSIONS = AgentResearchContract.COMPARISON_DIMENSIONS;
+    private static final Set<String> ALLOWED_DIMENSIONS = Set.copyOf(
+            AgentResearchContract.COMPARISON_DIMENSIONS);
 
     private final AgentEvidenceToolMapper mapper;
     private final ObjectMapper objectMapper;

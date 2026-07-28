@@ -365,9 +365,25 @@ class AgentGoldenEvaluationTest {
         for (int index = 0; index < expected.size(); index++) {
             assertEquals(expected.get(index).path("name").asText(), actual.get(index).name(),
                     fixture.path("id").asText() + " tool name " + index);
-            assertEquals(expected.get(index).path("arguments"), actual.get(index).arguments(),
+            assertEquals(expectedAuditedArguments(expected.get(index).path("arguments")),
+                    actual.get(index).arguments(),
                     fixture.path("id").asText() + " tool arguments " + index);
         }
+    }
+
+    private JsonNode expectedAuditedArguments(JsonNode arguments) {
+        var safe = objectMapper.createObjectNode();
+        for (String field : List.of(
+                "scope", "limit", "regionId", "industryTagId", "sourceId", "caseIds", "dimensions")) {
+            if (arguments.has(field)) safe.set(field, arguments.path(field).deepCopy());
+        }
+        safe.put("queryPresent", arguments.path("query").isTextual()
+                && !arguments.path("query").asText().isBlank());
+        safe.put("categoryPresent", arguments.path("category").isTextual()
+                && !arguments.path("category").asText().isBlank());
+        safe.put("industryPresent", arguments.path("industry").isTextual()
+                && !arguments.path("industry").asText().isBlank());
+        return safe;
     }
 
     private void verifyCitations(JsonNode fixture, List<AgentCitation> citations) {

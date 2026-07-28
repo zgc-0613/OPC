@@ -276,9 +276,9 @@ public class AiSettingsService implements AiRuntimeSettingsProvider, AgentRuntim
                 Boolean.TRUE.equals(stored.getEnabled())
                         && Boolean.TRUE.equals(stored.getAgentEnabled())
                         && "explicitly_enabled".equals(stored.getAgentRolloutState()),
-                value(stored.getAgentMaxModelRounds(), 4),
+                value(stored.getAgentMaxModelRounds(), 5),
                 value(stored.getAgentMaxToolCalls(), 6),
-                value(stored.getAgentMaxTokens(), 8000),
+                value(stored.getAgentMaxTokens(), 28000),
                 value(stored.getAgentHistoryWindow(), 12),
                 Duration.ofSeconds(value(stored.getAgentTimeoutSeconds(), 120)),
                 Set.of("native", "json_plan").contains(stored.getAgentToolMode())
@@ -380,9 +380,9 @@ public class AiSettingsService implements AiRuntimeSettingsProvider, AgentRuntim
         settings.setEnabled(false);
         settings.setAgentEnabled(false);
         settings.setAgentRolloutState("explicitly_disabled");
-        settings.setAgentMaxModelRounds(4);
+        settings.setAgentMaxModelRounds(5);
         settings.setAgentMaxToolCalls(6);
-        settings.setAgentMaxTokens(8000);
+        settings.setAgentMaxTokens(28000);
         settings.setAgentHistoryWindow(12);
         settings.setAgentTimeoutSeconds(120);
         settings.setAgentToolMode("json_plan");
@@ -410,9 +410,9 @@ public class AiSettingsService implements AiRuntimeSettingsProvider, AgentRuntim
                 ? "explicitly_disabled" : settings.getAgentRolloutState());
         vo.setAgentRolloutChangedAt(settings.getAgentRolloutChangedAt());
         vo.setAgentRolloutChangedByAdminId(settings.getAgentRolloutChangedByAdminId());
-        vo.setAgentMaxModelRounds(value(settings.getAgentMaxModelRounds(), 4));
+        vo.setAgentMaxModelRounds(value(settings.getAgentMaxModelRounds(), 5));
         vo.setAgentMaxToolCalls(value(settings.getAgentMaxToolCalls(), 6));
-        vo.setAgentMaxTokens(value(settings.getAgentMaxTokens(), 8000));
+        vo.setAgentMaxTokens(value(settings.getAgentMaxTokens(), 28000));
         vo.setAgentHistoryWindow(value(settings.getAgentHistoryWindow(), 12));
         vo.setAgentTimeoutSeconds(value(settings.getAgentTimeoutSeconds(), 120));
         vo.setAgentToolMode(Set.of("native", "json_plan").contains(settings.getAgentToolMode())

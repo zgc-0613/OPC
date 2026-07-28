@@ -84,6 +84,33 @@ public class AgentClarificationPolicy {
         return evaluate(profileJson, null, content).question();
     }
 
+    public boolean changesResearchBoundary(String profileJson, String content) {
+        if (!StringUtils.hasText(content)) return false;
+        try {
+            ObjectNode profile = object(profileJson);
+            String normalized = normalize(content);
+            if (!containsChangeVerb(normalized)) return false;
+            if (positiveId(profile, "regionId") && regionMapper != null) {
+                long selectedRegionId = profile.path("regionId").asLong();
+                List<Region> regions = regionMapper.selectList(new LambdaQueryWrapper<Region>()
+                        .orderByAsc(Region::getId));
+                boolean differentRegion = (regions == null ? List.<Region>of() : regions).stream()
+                        .filter(region -> region.getId() != null && region.getId() != selectedRegionId)
+                        .map(Region::getName).filter(StringUtils::hasText).map(this::normalize)
+                        .anyMatch(name -> !name.isEmpty() && normalized.contains(name));
+                if (differentRegion) return true;
+            }
+            if (positiveId(profile, "industryTagId") && industryTagService != null) {
+                IndustryResolution industry = industryTagService.resolve(null, content, false);
+                return industry.tagId() != null && !industry.requiresConfirmation()
+                        && industry.tagId() != profile.path("industryTagId").asLong();
+            }
+            return false;
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "研究画像格式无效");
+        }
+    }
+
     public String runtimeProfile(String profileJson, String contextJson) {
         try {
             ObjectNode merged = object(profileJson).deepCopy();
@@ -91,10 +118,16 @@ public class AgentClarificationPolicy {
             JsonNode resolved = context.path("resolvedFields");
             if (!resolved.isObject()) return merged.toString();
 
-            copyPositiveId(resolved, merged, "regionId");
-            copyPositiveId(resolved, merged, "industryTagId");
-            copyText(resolved, merged, "regionName", 100);
-            copyText(resolved, merged, "industry", 100);
+            boolean regionLocked = positiveId(merged, "regionId");
+            boolean industryLocked = positiveId(merged, "industryTagId");
+            if (!regionLocked) {
+                copyPositiveId(resolved, merged, "regionId");
+                copyText(resolved, merged, "regionName", 100);
+            }
+            if (!industryLocked) {
+                copyPositiveId(resolved, merged, "industryTagId");
+                copyText(resolved, merged, "industry", 100);
+            }
             String researchGoal = resolved.path("researchGoal").asText("").trim();
             if (StringUtils.hasText(researchGoal)) merged.put("goal", bounded(researchGoal, 200));
             return objectMapper.writeValueAsString(merged);
@@ -106,6 +139,11 @@ public class AgentClarificationPolicy {
     private void copyPositiveId(JsonNode source, ObjectNode target, String field) {
         JsonNode value = source.path(field);
         if (value.isIntegralNumber() && value.asLong() > 0) target.put(field, value.asLong());
+    }
+
+    private boolean positiveId(JsonNode value, String field) {
+        JsonNode candidate = value.path(field);
+        return candidate.isIntegralNumber() && candidate.asLong() > 0;
     }
 
     private void copyText(JsonNode source, ObjectNode target, String field, int maxLength) {
@@ -207,6 +245,12 @@ public class AgentClarificationPolicy {
                 .toLowerCase()
                 .replaceAll("[\\s\\p{P}\\p{S}]", "")
                 .replaceAll("(壮族自治区|回族自治区|维吾尔自治区|自治区|特别行政区|省|市|地区)$", "");
+    }
+
+    private boolean containsChangeVerb(String content) {
+        return java.util.stream.Stream.of(
+                "更换", "改为", "换成", "切换", "改到", "调整为", "变更"
+        ).anyMatch(content::contains);
     }
 
     private String bounded(String value, int maxLength) {

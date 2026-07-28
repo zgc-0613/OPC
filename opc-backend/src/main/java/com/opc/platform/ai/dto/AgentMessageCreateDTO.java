@@ -1,5 +1,6 @@
 package com.opc.platform.ai.dto;
 
+import com.opc.platform.ai.contract.AgentResearchContract;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -16,4 +17,7 @@ public class AgentMessageCreateDTO {
     @Size(min = 8, max = 64)
     @Pattern(regexp = "[A-Za-z0-9_-]+")
     private String idempotencyKey;
+
+    @Pattern(regexp = AgentResearchContract.REQUESTED_INTENT_PATTERN)
+    private String requestedIntent;
 }

@@ -99,3 +99,35 @@ The complete Phase 27 backend result is Spring `341` (`340` passed and one opt-i
 The isolated candidate completed on `deepseek-v4-flash` with `agent-research-v2` before production switching: 2 model/Provider rounds, 3 completed tools, 4 legal citations, zero unknown citations, 5 case, 2 policy and 4 unique-source evidence items, `sufficient` server-derived coverage, 11,723 total Tokens and 27,586 ms latency. Usage settled as actual, reservation reached zero and the audit recorded `release_switched=false`.
 
 Release `/opt/opc/releases/20260726-213258` is live through `/opt/opc/current`. Backup `/opt/opc/backups/20260726-213258`, database dump `/opt/opc/backups/20260726-213258/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260726-213258`, and previous release `/opt/opc/releases/20260726-162930` are retained. Remote frontend hash `ccc5886f1517799da838b4955eecd8e2d26e07957631e24a30a0758c032bf1fb` and backend hash `f998c99c56c31bb4fd130d60aa27ce0193f8eeac8ef739813ffe39cc74bb3eea` match the deployed artifacts. Independent preflight confirmed three active services, valid nginx configuration, one `opc` backend process and loopback-only port 8082.
+
+## Phase 28 multi-round quality closure
+
+The previous one-shot plan could describe dependent tools but could not know the real IDs they required. The runtime now separates initial independent search from a bounded continuation. The continuation sees only actual same-Run `_authorized` items, and `compare_cases`/`get_source` must bind to a completed dependency and use IDs retained by that dependency. Tests cover guessed IDs, cross-Run reuse and dynamic case/source flow.
+
+Profile industry and database-resolved region scope are server-owned. Model suggestions can refine keywords but cannot replace the research boundary. An established conversation that explicitly changes region or industry returns a controlled new-research requirement before Token reservation. Cross-region comparison remains available as clearly marked reference evidence.
+
+Legitimate ten-item Chinese results are no longer rejected by a Java-character proxy. The complete typed tool audit is bounded at 128 KiB UTF-8; the deterministic 12 KiB model projection truncates fields and then items without producing partial JSON. `totalCount`, `returnedCount` and `truncated` describe projection loss, and only returned `_authorized` IDs contribute to coverage or citations.
+
+Evidence display uses compatible available/total/unavailable counts. A historical but unavailable record remains inspectable as a status marker, never as current proof. The same message Run binds inline citations, evidence panel items and the drawer, preventing old messages from resolving against the latest Run.
+
+The deterministic contract suite contains 15 sanitized fixtures. Orchestrator tests assert diagnostic, Provider calls and tool calls. Service and MySQL lifecycle tests separately assert Run/Provider Call state, actual-versus-reserved Token settlement, result/message absence, citation/evidence cleanliness and replay idempotency.
+
+The first real Phase 28 candidate stopped at `INVALID_DEPENDENCIES` after 2 rounds, 2 tools, 8,440 Tokens and 19,697 ms. The second stopped at `UNCITED_FACT` after 2 rounds, 2 tools, 8,557 Tokens and 17,596 ms. Both had `release_switched=false`; each shape received a red-to-green bounded recovery test without relaxing authorization or citation rules.
+
+The third and final candidate attempt passed policy lookup, then returned controlled `evidence_insufficient` for case comparison. Because it did not execute a provable dynamic comparison and did not reach source verification, the mandatory gate failed. The final local suite passed Spring `357` (`356` passed, one opt-in smoke skipped), MySQL `70/70`, Vitest `83/83`, eight frontend scripts, Python `77/77 + 14/14 + 7/7`, Vite/JAR builds and repository checks. Production stayed on `20260726-213258`; Phase 28 quality closure and Phase Two completion remain open.
+
+## Phase 29 real-model compatibility result
+
+The final code adds bounded recovery for invalid planning, current-run source allowlists and a terminal-only continuation Schema. Five rounds, 28,000 aggregate Tokens and 3,200 planning output Tokens are now the measured defaults; the data-only migration preserves higher administrator settings. These changes do not relax publication, verification, request-level authorization or citation rules.
+
+Real candidates proved policy lookup and dynamic source verification in separate batches, but no batch passed policy, dynamic comparison and source verification together. The latest candidate stopped at `PROVIDER_CONNECTION_FAILED` before scenario execution. Local verification passed Spring `368`, MySQL `70/70`, Vitest `85/85`, eight frontend scripts, Python discovery `101` with seven explicit-MySQL skips, migration `14/14` and both builds. Production was not changed, so Phase Two remains open.
+
+## Phase 32 deterministic evidence closure
+
+Required research operations are no longer a terminal-only assertion. The orchestrator reserves capacity and completes the minimum tool chain itself through the audited registry. Zero-case comparison gets one broader search before insufficiency; distinct current-Run IDs and real providing request IDs drive comparison. Policy and source verification receive equivalent deterministic completion.
+
+Safe diagnostics distinguish an empty database result from restrictive arguments or failed authorization flow without retaining query/category text. The user evidence contract remains unchanged: only available, published and verified items count or satisfy citations.
+
+The final candidate passed policy `search_policies`, comparison `search_cases -> compare_cases` and source verification `search_policies -> get_source` in one batch. Production then switched once to `/opt/opc/releases/20260728-130142` and repeated all three chains independently. Every production probe returned 2 legal citations, `settled_actual` usage and zero reservation; temporary data was deleted.
+
+Production migration postchecks, both domains, health, anonymous authorization, ordinary-user/admin boundaries, history/latestRun, hashes, single loopback backend, backup/dump/rollback assets and candidate cleanup passed. The evidence-quality and Agent Phase Two exit criteria are complete. Manual responsive visual review remains the only user-operated check.

@@ -4,6 +4,7 @@ import hmac
 import contextlib
 import importlib.util
 import io
+import json
 import subprocess
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from pathlib import Path
 
 import scripts.deployment_hardening as deployment_hardening
 from scripts.deployment_hardening import (
+    CandidateReleaseGate,
     is_loopback_listener,
     ensure_stable_cursor_hmac_secret,
     load_local_deploy_secrets,
@@ -38,6 +40,41 @@ DEPLOY_SCRIPT = ROOT / ".codex_deploy_opc.py"
 
 
 class DeploymentHardeningTest(unittest.TestCase):
+    def test_candidate_failure_leaves_all_production_mutation_counts_at_zero(self):
+        gate = CandidateReleaseGate()
+        migration_hash = "a" * 64
+
+        with self.assertRaisesRegex(RuntimeError, "before the candidate gate"):
+            gate.record_production_migration(migration_hash)
+        with self.assertRaisesRegex(RuntimeError, "before the candidate gate"):
+            gate.record_release_switch()
+        with self.assertRaisesRegex(RuntimeError, "before the candidate gate"):
+            gate.record_service_restart()
+
+        self.assertEqual(0, gate.production_migration_calls)
+        self.assertEqual(0, gate.release_switch_calls)
+        self.assertEqual(0, gate.service_restart_calls)
+
+    def test_candidate_success_allows_one_matching_production_migration_and_switch(self):
+        gate = CandidateReleaseGate()
+        migration_hash = "b" * 64
+        gate.mark_candidate_passed(migration_hash)
+
+        gate.record_production_migration(migration_hash)
+        gate.record_release_switch()
+        gate.record_service_restart()
+
+        self.assertEqual(1, gate.production_migration_calls)
+        self.assertEqual(1, gate.release_switch_calls)
+        self.assertEqual(1, gate.service_restart_calls)
+        with self.assertRaisesRegex(RuntimeError, "only once"):
+            gate.record_production_migration(migration_hash)
+        with self.assertRaisesRegex(RuntimeError, "hashes differ"):
+            CandidateReleaseGate(
+                candidate_passed=True,
+                candidate_migration_hash=migration_hash,
+            ).record_production_migration("c" * 64)
+
     def test_candidate_probe_contract_requires_full_runtime_and_coverage_audit(self):
         record = {
             "status": "completed",
@@ -110,6 +147,28 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertIn("latency_ms=987", message)
         self.assertIn("release_switched=false", message)
         self.assertNotIn("raw-model-output", message)
+
+    def test_candidate_evidence_insufficient_failure_keeps_sanitized_metrics(self):
+        message = deployment_hardening.candidate_probe_failure_message(
+            "CANDIDATE_CASE_COMPARISON_EVIDENCE_INSUFFICIENT",
+            {
+                "provider": "deepseek",
+                "model_rounds": 3,
+                "provider_call_count": 3,
+                "tool_call_count": 2,
+                "total_tokens": 9000,
+                "finish_reason": "stop",
+                "latency_ms": 21000,
+                "release_switched": False,
+            },
+        )
+
+        self.assertTrue(message.startswith("CANDIDATE_CASE_COMPARISON_EVIDENCE_INSUFFICIENT:"))
+        self.assertIn("model_rounds=3", message)
+        self.assertIn("tool_call_count=2", message)
+        self.assertIn("total_tokens=9000", message)
+        self.assertIn("latency_ms=21000", message)
+        self.assertIn("release_switched=false", message)
 
     def test_explicit_environment_wins_over_local_deploy_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -951,12 +1010,331 @@ class DeploymentHardeningTest(unittest.TestCase):
 
         candidate_start = body.index("start_candidate_runtime(")
         provider_connection = body.index("test_candidate_provider_connection(")
-        agent_probe = body.index("run_candidate_agent_v2_probe(")
+        agent_probe = body.index("run_candidate_agent_v2_scenarios(")
         release_switch = body.index("ln -sfn '{release}' '{current_link}.next.{stamp}'")
 
         self.assertLess(candidate_start, provider_connection)
         self.assertLess(provider_connection, agent_probe)
         self.assertLess(agent_probe, release_switch)
+
+    def test_candidate_migrations_and_probe_finish_before_production_backup_or_mutation(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
+
+        candidate_migration = body.index("apply_candidate_release_migrations(")
+        candidate_probe = body.index("run_candidate_agent_v2_scenarios(")
+        candidate_passed = body.index("release_gate.mark_candidate_passed(")
+        production_backup = body.index("run(client, backup_command")
+        production_migration = body.index("release_gate.record_production_migration(")
+        release_switch = body.index("release_gate.record_release_switch()")
+
+        self.assertLess(candidate_migration, candidate_probe)
+        self.assertLess(candidate_probe, candidate_passed)
+        self.assertLess(candidate_passed, production_backup)
+        self.assertLess(production_backup, production_migration)
+        self.assertLess(production_migration, release_switch)
+
+    def test_candidate_evidence_insufficient_path_uses_sanitized_failure_record(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        probe = deploy[
+            deploy.index("def run_candidate_agent_v2_probe"):
+            deploy.index("def ai_settings_update_payload")
+        ]
+
+        self.assertIn(
+            'diagnostic = f"CANDIDATE_{scenario.upper()}_EVIDENCE_INSUFFICIENT"',
+            probe,
+        )
+        self.assertIn("CandidateProbeFailure(diagnostic, probe_record)", probe)
+        self.assertNotIn(
+            'raise RuntimeError(f"CANDIDATE_{scenario.upper()}_EVIDENCE_INSUFFICIENT")',
+            probe,
+        )
+
+    def test_candidate_scenarios_continue_after_one_failure_and_aggregate_diagnostics(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_script", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        attempted = []
+
+        def run_probe(client, stamp, settings, candidate_database, scenario):
+            attempted.append(scenario)
+            if scenario == "case_comparison":
+                raise RuntimeError("CANDIDATE_CASE_COMPARISON_REQUIRED_TOOL_MISSING")
+            return {"scenario": scenario, "status": "completed", "diagnostic_code": "OK"}
+
+        with mock.patch.object(deploy_module, "run_candidate_agent_v2_probe", side_effect=run_probe):
+            with self.assertRaisesRegex(RuntimeError, "CANDIDATE_SCENARIOS_FAILED") as raised:
+                deploy_module.run_candidate_agent_v2_scenarios(
+                    object(), "20260727-010000", {"provider": "deepseek"}, object()
+                )
+
+        self.assertEqual(
+            ["policy", "case_comparison", "source_verification"], attempted
+        )
+        self.assertIn("case_comparison", str(raised.exception))
+        self.assertNotIn("provider", str(raised.exception).lower())
+
+    def test_candidate_tool_sequence_failure_preserves_complete_sanitized_record(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_script_sequence", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        record = {
+            "model_rounds": 4,
+            "tool_call_count": 1,
+            "completed_tool_count": 1,
+            "total_tokens": 20747,
+            "finish_reason": "stop",
+            "settlement_status": "settled_actual",
+            "reserved_tokens": 0,
+            "resolved_intent": "case_comparison",
+            "model_intent": "case_analysis",
+            "terminal_status": "completed",
+            "release_switched": False,
+        }
+
+        with self.assertRaises(deploy_module.CandidateProbeFailure) as raised:
+            deploy_module.validate_candidate_tool_sequence(
+                record,
+                "case_comparison",
+                ("search_cases", "compare_cases"),
+                ["search_cases"],
+            )
+
+        failure_record = raised.exception.record
+        self.assertEqual(["search_cases", "compare_cases"], failure_record["expected_tools"])
+        self.assertEqual(["search_cases"], failure_record["actual_tool_sequence"])
+        self.assertEqual(["compare_cases"], failure_record["missing_tools"])
+        self.assertEqual(["CASE_SEARCH", "CASE_COMPARISON"], failure_record["execution_requirements"])
+        self.assertEqual("CANDIDATE_CASE_COMPARISON_TOOL_SEQUENCE_INVALID",
+                         failure_record["diagnostic_code"])
+        self.assertEqual(20747, failure_record["total_tokens"])
+        self.assertFalse(failure_record["release_switched"])
+
+    def test_candidate_collects_tool_sequence_before_terminal_status_gate(self):
+        source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        probe = source[
+            source.index("def run_candidate_agent_v2_probe("):
+            source.index("def ai_settings_update_payload(")
+        ]
+
+        self.assertLess(
+            probe.index("tool_sequence_output"),
+            probe.index('if run_data.get("status") not in'),
+        )
+
+    def test_candidate_parses_safe_tool_diagnostics_before_terminal_status_gate(self):
+        spec = importlib.util.spec_from_file_location(
+            "opc_deploy_tool_diagnostics", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        output = (
+            "step_no\ttool_name\trequest_id\tscope\tquery_present\tcategory_present\trequested_limit\t"
+            "returned_count\tdistinct_authorized_case_count\tdistinct_authorized_source_count\t"
+            "depends_on\tstatus\n"
+            "1\tsearch_cases\trequiredCaseSearch\tselected\t0\t0\t5\t0\t0\t0\t[]\tcompleted\n"
+            "2\tsearch_cases\trequiredCaseBroad\tcross_region_reference\t0\t0\t5\t2\t2\t2\t[]\tcompleted\n"
+            "3\tcompare_cases\trequiredCaseCompare\t\t0\t0\t\t2\t2\t2\t"
+            "[\"requiredCaseBroad\"]\tcompleted\n"
+        )
+
+        diagnostics = deploy_module.parse_candidate_tool_diagnostics(output)
+
+        self.assertEqual(3, len(diagnostics))
+        self.assertEqual("selected", diagnostics[0]["scope"])
+        self.assertFalse(diagnostics[0]["query_present"])
+        self.assertEqual(0, diagnostics[0]["returned_count"])
+        self.assertEqual(2, diagnostics[1]["distinct_authorized_case_count"])
+        self.assertEqual(["requiredCaseBroad"], diagnostics[2]["depends_on"])
+        serialized = json.dumps(diagnostics, ensure_ascii=False)
+        self.assertNotIn("query text", serialized)
+        self.assertNotIn("category text", serialized)
+
+        probe = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        probe = probe[
+            probe.index("def run_candidate_agent_v2_probe("):
+            probe.index("def ai_settings_update_payload(")
+        ]
+        self.assertIn('probe_record["tool_diagnostics"]', probe)
+        self.assertLess(
+            probe.index('probe_record["tool_diagnostics"]'),
+            probe.index('if run_data.get("status") not in'),
+        )
+
+    def test_failed_candidate_report_keeps_completed_tool_sequence_and_primary_diagnostic(self):
+        spec = importlib.util.spec_from_file_location(
+            "opc_deploy_failed_probe_record", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        record = {
+            "status": "failed",
+            "terminal_status": "failed",
+            "diagnostic_code": "REQUIRED_TOOL_CHAIN_UNSATISFIED",
+            "completed_tool_count": 2,
+            "model_rounds": 3,
+            "total_tokens": 15679,
+            "latency_ms": 41041,
+            "release_switched": False,
+        }
+
+        deploy_module.record_candidate_tool_sequence(
+            record,
+            "policy",
+            ("search_policies",),
+            ("search_policies", "search_cases"),
+        )
+        record["diagnostic_code"] = "REQUIRED_TOOL_CHAIN_UNSATISFIED"
+        failure = deploy_module.CandidateProbeFailure(
+            "REQUIRED_TOOL_CHAIN_UNSATISFIED", record)
+
+        self.assertEqual(
+            ["search_policies", "search_cases"],
+            failure.record["actual_tool_sequence"],
+        )
+        self.assertEqual(2, failure.record["completed_tool_count"])
+        self.assertEqual(
+            "REQUIRED_TOOL_CHAIN_UNSATISFIED",
+            failure.record["diagnostic_code"],
+        )
+        self.assertFalse(failure.record["release_switched"])
+
+    def test_candidate_tool_sequence_parser_treats_sql_null_as_empty(self):
+        spec = importlib.util.spec_from_file_location(
+            "opc_deploy_tool_sequence_parser", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+
+        self.assertEqual([], deploy_module.parse_candidate_tool_sequence("NULL\n"))
+        self.assertEqual(
+            ["search_cases", "compare_cases"],
+            deploy_module.parse_candidate_tool_sequence(
+                "GROUP_CONCAT(tool_name)\nsearch_cases,compare_cases\n"
+            ),
+        )
+
+    def test_candidate_starts_each_scenario_with_an_explicit_requested_intent(self):
+        source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        probe = source[
+            source.index("def run_candidate_agent_v2_probe("):
+            source.index("def ai_settings_update_payload(")
+        ]
+
+        self.assertIn('"requested_intent": "policy_lookup"', probe)
+        self.assertIn('"requested_intent": "case_comparison"', probe)
+        self.assertIn('"requested_intent": "source_verification"', probe)
+        self.assertIn('"requestedIntent": scenario_contract["requested_intent"]', probe)
+
+    def test_failed_candidate_release_cleanup_is_exact_and_protects_current(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_script_release_cleanup", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+
+        with mock.patch.object(deploy_module, "run", return_value=(0, "", "")) as remote_run:
+            deploy_module.cleanup_failed_candidate_release(
+                object(),
+                "/opt/opc/releases/20260727-191500",
+                "20260727-191500",
+                "/opt/opc/releases/20260726-213258",
+            )
+
+        command = remote_run.call_args.args[1]
+        self.assertIn("/opt/opc/releases/20260727-191500", command)
+        self.assertIn("readlink -f '/opt/opc/current'", command)
+        self.assertIn("rm -rf -- '/opt/opc/releases/20260727-191500'", command)
+        self.assertNotIn("/opt/opc/releases/20260727-*", command)
+
+        with self.assertRaises(ValueError):
+            deploy_module.cleanup_failed_candidate_release(
+                object(),
+                "/opt/opc/releases/20260726-213258",
+                "20260726-213258",
+                "/opt/opc/releases/20260726-213258",
+            )
+        with self.assertRaises(ValueError):
+            deploy_module.cleanup_failed_candidate_release(
+                object(),
+                "/opt/opc/releases/20260727-191500/child",
+                "20260727-191500",
+                "/opt/opc/releases/20260726-213258",
+            )
+
+    def test_candidate_failure_finally_removes_only_this_unswitched_release(self):
+        source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        candidate = source[
+            source.index("candidate_database = None"):
+            source.index("if candidate_only:")
+        ]
+
+        self.assertIn("cleanup_failed_candidate_release(", candidate)
+        self.assertIn("if candidate_error is not None and not release_switched:", candidate)
+        self.assertIn("Candidate release cleanup also failed", candidate)
+
+    def test_candidate_case_comparison_context_requires_two_eligible_cases_without_hardcoded_ids(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_script_context", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        outputs = iter([
+            (None, "310\t19\t武汉市\t人工智能\t2\n", None),
+            (None, "420\t23\t湖北省\t软件服务\t1\n", None),
+        ])
+
+        with mock.patch.object(deploy_module, "candidate_database_command", side_effect=outputs) as command:
+            comparison = deploy_module.candidate_research_context(
+                object(), "opc_candidate_20260727023000", "case_comparison")
+            policy = deploy_module.candidate_research_context(
+                object(), "opc_candidate_20260727023000", "policy")
+
+        self.assertEqual(310, comparison["region_id"])
+        self.assertEqual(19, comparison["industry_tag_id"])
+        self.assertEqual("武汉市", comparison["region_name"])
+        self.assertEqual("人工智能", comparison["industry"])
+        self.assertEqual(420, policy["region_id"])
+        comparison_sql = command.call_args_list[0].args[2]
+        self.assertIn("HAVING COUNT(DISTINCT c.id) >= 2", comparison_sql)
+        self.assertIn("c.status='published'", comparison_sql)
+        self.assertIn("c.ai_evidence_status='verified'", comparison_sql)
+        self.assertNotRegex(comparison_sql, r"c\.id\s+IN\s*\([0-9]")
+
+    def test_multiround_token_budget_migration_runs_on_candidate_before_production(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        candidate_migrations = deploy[
+            deploy.index("def apply_candidate_release_migrations"):
+            deploy.index("def candidate_runtime_unit")
+        ]
+        production = deploy[
+            deploy.index("def deploy(client):"):
+            deploy.index("def deploy_frontend(client):")
+        ]
+
+        self.assertIn('source("agent-multiround-budget.sql")', candidate_migrations)
+        self.assertIn("agent-multiround-budget.sql", production)
+        budget_sql = (ROOT / "deploy" / "sql" / "20260727_agent_multiround_budget.sql").read_text(
+            encoding="utf-8")
+        self.assertIn("SET agent_max_tokens=28000", budget_sql)
+        self.assertIn("agent_max_tokens < 28000", budget_sql)
+        self.assertIn("agent_max_model_rounds=5", budget_sql)
+        self.assertLess(
+            production.index("run_candidate_agent_v2_scenarios("),
+            production.index("opc_platform < '{release}/agent-multiround-budget.sql'"),
+        )
+
+    def test_multiround_migration_adds_and_verifies_requested_intent(self):
+        schema = (ROOT / "opc-backend" / "src" / "main" / "resources" / "db" / "schema.sql").read_text(
+            encoding="utf-8")
+        precheck = (ROOT / "deploy" / "sql" / "20260727_agent_multiround_budget_precheck.sql").read_text(
+            encoding="utf-8")
+        migration = (ROOT / "deploy" / "sql" / "20260727_agent_multiround_budget.sql").read_text(
+            encoding="utf-8")
+        postcheck = (ROOT / "deploy" / "sql" / "20260727_agent_multiround_budget_postcheck.sql").read_text(
+            encoding="utf-8")
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("requested_intent VARCHAR(40) NOT NULL DEFAULT 'auto'", schema)
+        self.assertIn("column_name='requested_intent'", precheck)
+        self.assertIn("ADD COLUMN requested_intent VARCHAR(40) NOT NULL DEFAULT ''auto''", migration)
+        self.assertIn("column_name='requested_intent'", postcheck)
+        self.assertIn('["1\\t1\\t0"]', deploy)
+        self.assertIn('["1\\t1"]', deploy)
 
     def test_candidate_failure_does_not_roll_back_or_restart_the_current_release(self):
         deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
@@ -966,7 +1344,7 @@ class DeploymentHardeningTest(unittest.TestCase):
 
         self.assertIn("if release_switched:", recovery)
         self.assertNotIn("if mutated:\n", recovery)
-        self.assertLess(body.index("run_candidate_agent_v2_probe("), body.index("release_switched = True"))
+        self.assertLess(body.index("run_candidate_agent_v2_scenarios("), body.index("release_switched = True"))
 
     def test_provider_connection_is_not_repeated_after_release_switch(self):
         deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
@@ -1122,6 +1500,49 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertIn("--property=WorkingDirectory=/opt/opc", command)
         self.assertNotIn("--working-directory", command)
         self.assertNotIn(candidate.password, command)
+
+    def test_candidate_runtime_stop_failure_is_reported(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_script", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+
+        with mock.patch.object(deploy_module, "run", return_value=(1, "", "stop failed")):
+            with self.assertRaisesRegex(RuntimeError, "Candidate runtime cleanup failed"):
+                deploy_module.stop_candidate_runtime(
+                    object(), "opc-backend-candidate-20260726200000"
+                )
+
+        with mock.patch.object(deploy_module, "run", return_value=(0, "", "")) as remote_run:
+            deploy_module.stop_candidate_runtime(
+                object(), "opc-backend-candidate-20260726200000"
+            )
+        command = remote_run.call_args.args[1]
+        self.assertIn('exit "$stop_code"', command)
+        self.assertNotRegex(command, r"systemctl stop[^\n]+\|\| true")
+
+    def test_candidate_unit_identity_exists_before_runtime_health_check(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
+
+        identity = body.index("candidate_unit = candidate_runtime_unit(stamp)")
+        start = body.index("start_candidate_runtime(")
+        cleanup = body.index("stop_candidate_runtime(client, candidate_unit)")
+
+        self.assertLess(identity, start)
+        self.assertLess(start, cleanup)
+
+    def test_candidate_citation_audit_uses_only_the_authorized_projection(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        probe = deploy[
+            deploy.index("def run_candidate_agent_v2_probe"):
+            deploy.index("def ai_settings_update_payload")
+        ]
+
+        self.assertIn("$._authorized.items", probe)
+        self.assertIn("$._authorized.cases", probe)
+        self.assertIn("$._authorized.sourceId", probe)
+        self.assertNotIn("'$.items[*]'", probe)
+        self.assertNotIn("'$.conclusions[*]'", probe)
 
     def test_candidate_database_cleanup_is_idempotent_and_exact(self):
         spec = importlib.util.spec_from_file_location("opc_deploy_script", DEPLOY_SCRIPT)

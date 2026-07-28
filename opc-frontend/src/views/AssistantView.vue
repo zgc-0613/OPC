@@ -14,13 +14,7 @@
         @trash="trashSession" @restore="restoreSession" @purge="purgeSession"
       />
 
-      <main class="research-desk" data-layout="bounded-workspace" aria-labelledby="assistant-title">
-        <header class="desk-header">
-          <button ref="mobileHistoryButton" class="mobile-history-command" type="button" aria-label="打开研究历史" @click="mobileHistoryOpen = true"><Menu :size="20" /></button>
-          <div><span class="caption">SOLOFIRM RESEARCH DESK</span><h1 id="assistant-title">{{ currentSession?.title || '新研究' }}</h1></div>
-          <div class="desk-status"><span :class="{ ready: agentReady }"></span><div><strong>{{ currentSession ? sessionStatusLabel : '本地草稿' }}</strong><small>{{ currentSession ? formatDate(currentSession.lastMessageAt || currentSession.updatedAt) : '首条问题发送后保存' }}</small></div></div>
-        </header>
-
+      <main class="research-desk" data-layout="bounded-workspace" aria-label="Assistant 研究对话">
         <AssistantResearchProfile
           v-model="profile" :editable="!currentSession" :regions="regions" :industries="industries"
           :readiness="readiness" :readiness-loading="readinessLoading" :readiness-error="readinessError"
@@ -35,9 +29,11 @@
         <AssistantConversation
           ref="conversation" :messages="messages" :run="currentRun" :has-more="hasMoreMessages"
           :evidence-run-id="currentRun?.runId" :evidence-items="evidenceItems"
+          :evidence-summary="evidenceSummary"
           :evidence-loading="evidenceLoading" :evidence-error="evidenceError"
           :loading-older="loadingOlder" :draft-mode="!currentSession" :network-status="networkStatus" :cancelling="cancelling"
-          @load-older="loadOlderMessages" @prefill="prefillQuestion" @citations="openCitations" @process="openProcess"
+          @load-older="loadOlderMessages" @prefill="prefillQuestion($event)" @citations="openCitations" @process="openProcess"
+          @evidence="openEvidenceDrawer"
           @cancel="cancelRun" @retry="retryLast" @resume="resumePolling"
         />
 
@@ -49,14 +45,14 @@
       </main>
     </div>
 
-    <AssistantCitationDrawer :open="drawerOpen" :restore-focus="drawerRestoreFocus" :mode="drawerMode" :citations="drawerCitations" :run="drawerRun" :loading="drawerLoading" :error="drawerError" @close="closeDrawer" />
+    <AssistantCitationDrawer :open="drawerOpen" :restore-focus="drawerRestoreFocus" :mode="drawerMode" :citations="drawerCitations" :run="drawerRun" :evidence-run-id="currentRun?.runId" :evidence-items="evidenceItems" :evidence-summary="evidenceSummary" :loading="drawerMode === 'evidence' ? evidenceLoading : drawerLoading" :error="drawerMode === 'evidence' ? evidenceError : drawerError" @close="closeDrawer" />
     <p v-if="toast" class="assistant-toast" role="status">{{ toast }}</p>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { AlertTriangle, BrainCircuit, Menu, RefreshCw } from 'lucide-vue-next'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { AlertTriangle, BrainCircuit, RefreshCw } from 'lucide-vue-next'
 import AssistantCitationDrawer from '@/components/assistant/AssistantCitationDrawer.vue'
 import AssistantComposer from '@/components/assistant/AssistantComposer.vue'
 import AssistantConversation from '@/components/assistant/AssistantConversation.vue'
@@ -93,6 +89,12 @@ const industryGate = createLatestRequestGate()
 const readinessGate = createLatestRequestGate()
 const processGate = createLatestRequestGate()
 const evidenceGate = createLatestRequestGate()
+const emit = defineEmits(['workspace-title', 'workspace-status'])
+const evidenceOpenRequest = inject('assistant-evidence-request', ref(0))
+const historyControl = inject('assistant-history-control', {
+  request: ref(0),
+  restoreFocus: () => {},
+})
 
 const pageLoading = ref(true)
 const pageError = ref('')
@@ -106,7 +108,6 @@ const historySearching = ref(false)
 const historyError = ref('')
 const historyCollapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1')
 const mobileHistoryOpen = ref(false)
-const mobileHistoryButton = ref(null)
 const selectedSessionId = ref('')
 const currentSession = ref(null)
 const messages = ref([])
@@ -116,9 +117,12 @@ const loadingOlder = ref(false)
 const activeRun = ref(null)
 const latestRun = ref(null)
 const evidenceItems = ref([])
+const evidenceSummary = ref(null)
 const evidenceLoading = ref(false)
 const evidenceError = ref('')
 const composer = ref(drafts.load(null))
+const requestedIntent = ref('auto')
+const starterPrompt = ref('')
 const composerError = ref('')
 const submitting = ref(false)
 const cancelling = ref(false)
@@ -164,6 +168,11 @@ const agentReady = computed(() => Boolean(capabilities.value?.provider?.availabl
 const providerLabel = computed(() => capabilities.value?.provider ? `${capabilities.value.provider.provider} / ${capabilities.value.provider.model}` : '等待管理员配置')
 const quotaExhausted = computed(() => Boolean(usage.value && !usage.value.unlimited && Number(usage.value.remainingTokens) <= 0))
 const currentRun = computed(() => activeRun.value || latestRun.value)
+const workspaceTitle = computed(() => currentSession.value?.title || '新研究')
+const workspaceStatus = computed(() => ({
+  label: currentSession.value ? sessionStatusLabel.value : '本地草稿',
+  ready: Boolean(agentReady.value),
+}))
 const evidenceRefreshKey = computed(() => currentRun.value?.runId
   ? `${currentRun.value.runId}:${currentRun.value.toolCallCount || 0}:${currentRun.value.status || ''}`
   : '')
@@ -195,6 +204,11 @@ const composerDisabledReason = computed(() => {
   return ''
 })
 
+watch(workspaceTitle, (title) => emit('workspace-title', title), { immediate: true })
+watch(workspaceStatus, (status) => emit('workspace-status', status), { immediate: true })
+watch(evidenceOpenRequest, openEvidenceDrawer)
+watch(historyControl.request, openMobileHistory)
+
 onMounted(loadPage)
 onBeforeUnmount(() => { clearTimeout(historyTimer); clearTimeout(industryTimer); clearTimeout(readinessTimer); clearTimeout(pollingTimer); clearTimeout(toastTimer); pollingGeneration += 1 })
 watch(profile, (value) => {
@@ -202,7 +216,13 @@ watch(profile, (value) => {
 }, { deep: true })
 watch(evidenceDependencyKey, scheduleIndustryResolution)
 watch(evidenceRefreshKey, loadCurrentEvidence)
-watch(composer, (value) => drafts.save(currentSession.value?.sessionId ?? null, value))
+watch(composer, (value) => {
+  drafts.save(currentSession.value?.sessionId ?? null, value)
+  if (requestedIntent.value !== 'auto' && value !== starterPrompt.value) {
+    requestedIntent.value = 'auto'
+    starterPrompt.value = ''
+  }
+})
 
 async function loadPage() {
   pageLoading.value = true
@@ -265,7 +285,8 @@ async function changeHistoryScope(scope) {
   await loadHistory(true).catch(() => {})
 }
 function toggleHistory() { historyCollapsed.value = !historyCollapsed.value; localStorage.setItem(SIDEBAR_KEY, historyCollapsed.value ? '1' : '0') }
-async function closeMobileHistory() { mobileHistoryOpen.value = false; await nextTick(); mobileHistoryButton.value?.focus() }
+function openMobileHistory() { closeDrawer(false); mobileHistoryOpen.value = true }
+async function closeMobileHistory() { mobileHistoryOpen.value = false; await nextTick(); historyControl.restoreFocus() }
 async function selectHistorySession(session) { await loadSession(session.sessionId); closeMobileHistory() }
 
 function startNewResearch(profileSeed = null) {
@@ -281,6 +302,7 @@ function startNewResearch(profileSeed = null) {
   activeRun.value = null
   latestRun.value = null
   evidenceItems.value = []
+  evidenceSummary.value = null
   evidenceLoading.value = false
   evidenceError.value = ''
   nextBeforeSequence.value = null
@@ -300,6 +322,7 @@ async function loadSession(sessionId) {
   messagePageGate.begin()
   evidenceGate.begin()
   evidenceItems.value = []
+  evidenceSummary.value = null
   evidenceLoading.value = false
   evidenceError.value = ''
   closeDrawer(false)
@@ -330,6 +353,7 @@ async function loadCurrentEvidence() {
   const requestId = evidenceGate.begin()
   if (!runId) {
     evidenceItems.value = []
+    evidenceSummary.value = null
     evidenceLoading.value = false
     evidenceError.value = ''
     return
@@ -354,9 +378,17 @@ async function loadCurrentEvidence() {
       runId,
       ...(citationBySource.get(String(item.sourceId)) || {}),
     }))
+    evidenceSummary.value = evidence ? {
+      availableCount: Number(evidence.availableCount || 0),
+      totalCount: Number(evidence.totalCount || 0),
+      unavailableCount: Number(evidence.unavailableCount || 0),
+      availableGroups: evidence.availableGroups || {},
+      totalGroups: evidence.totalGroups || evidence.groups || {},
+    } : null
   } catch (error) {
     if (!evidenceGate.isCurrent(requestId) || String(currentRun.value?.runId) !== String(runId)) return
     evidenceItems.value = []
+    evidenceSummary.value = null
     evidenceError.value = error.message || '研究资料读取失败'
   } finally {
     if (evidenceGate.isCurrent(requestId)) evidenceLoading.value = false
@@ -396,12 +428,12 @@ async function sendMessage() {
     let startedSession = null
     if (!sessionId) {
       const startProfile = serializeProfile(profile.value)
-      const fingerprint = createCanonicalFingerprint({ profile: startProfile, content })
+      const fingerprint = createCanonicalFingerprint({ profile: startProfile, content, requestedIntent: requestedIntent.value })
       const pending = drafts.loadPendingStart()
       const idempotencyKey = pending?.fingerprint === fingerprint ? pending.idempotencyKey : newIdempotencyKey()
       drafts.savePendingStart({ idempotencyKey, fingerprint })
       try {
-        receipt = await startResearchSession({ profile: startProfile, content, idempotencyKey })
+        receipt = await startResearchSession({ profile: startProfile, content, requestedIntent: requestedIntent.value, idempotencyKey })
         drafts.clearPendingStart()
       } catch (error) {
         if (isDeterministicRequestFailure(error)) drafts.clearPendingStart()
@@ -415,7 +447,7 @@ async function sendMessage() {
       const idempotencyKey = pending?.fingerprint === fingerprint ? pending.idempotencyKey : newIdempotencyKey()
       drafts.savePendingMessage(sessionId, { idempotencyKey, fingerprint })
       try {
-        receipt = await sendResearchMessage(sessionId, { content, idempotencyKey })
+        receipt = await sendResearchMessage(sessionId, { content, requestedIntent: 'auto', idempotencyKey })
         drafts.clearPendingMessage(sessionId)
       } catch (error) {
         if (isDeterministicRequestFailure(error)) drafts.clearPendingMessage(sessionId)
@@ -434,6 +466,8 @@ async function sendMessage() {
       drafts.save(sessionId, content)
     }
     composer.value = ''
+    requestedIntent.value = 'auto'
+    starterPrompt.value = ''
     drafts.clear(sessionId)
     drafts.clear(null)
     const receivedRun = { runId: receipt.runId, sessionId, status: receipt.status, currentStage: receipt.status, tools: [] }
@@ -447,7 +481,13 @@ async function sendMessage() {
     drafts.save(draftSessionId, content)
   } finally { submitting.value = false }
 }
-function prefillQuestion(value) { composer.value = value; nextTick(() => composerControl.value?.focus()) }
+function prefillQuestion(value) {
+  const payload = typeof value === 'string' ? { prompt: value, requestedIntent: 'auto' } : value
+  requestedIntent.value = payload?.requestedIntent || 'auto'
+  starterPrompt.value = payload?.prompt || ''
+  composer.value = starterPrompt.value
+  nextTick(() => composerControl.value?.focus())
+}
 function retryLast() {
   const content = String(currentRun.value?.retryContent || '').trim()
   if (!content) return
@@ -684,6 +724,16 @@ async function openProcess(message) {
     if (processGate.isCurrent(requestId)) drawerLoading.value = false
   }
 }
+function openEvidenceDrawer() {
+  mobileHistoryOpen.value = false
+  drawerRestoreFocus.value = true
+  drawerMode.value = 'evidence'
+  drawerCitations.value = []
+  drawerRun.value = null
+  drawerError.value = ''
+  drawerLoading.value = false
+  drawerOpen.value = true
+}
 function closeDrawer(restoreFocus = true) { processGate.begin(); drawerRestoreFocus.value = restoreFocus; drawerOpen.value = false; drawerRun.value = null; drawerError.value = ''; drawerLoading.value = false }
 function saveCurrentDraft() { drafts.save(currentSession.value?.sessionId ?? null, composer.value) }
 function serializeProfile(value) { return { ventureType: value.ventureType, regionId: value.regionId ? Number(value.regionId) : undefined, industryTagId: value.industryTagId ? Number(value.industryTagId) : undefined, industry: value.industry || undefined, stage: value.stage, budgetRange: value.budgetRange, goal: value.goal || undefined, resources: value.existingResources || undefined } }
@@ -691,11 +741,9 @@ function normalizeProfile(value = {}) { return { ...defaultProfile(), ...value, 
 function restoreNewProfile() { try { return normalizeProfile(JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}')) } catch { localStorage.removeItem(PROFILE_KEY); return defaultProfile() } }
 function mergeBySession(current, incoming) { const rows = new Map(current.map((item) => [String(item.sessionId), item])); incoming.forEach((item) => rows.set(String(item.sessionId), item)); return [...rows.values()] }
 function newIdempotencyKey() { return globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID().replaceAll('-', '') : `agent_${Date.now()}_${Math.random().toString(36).slice(2)}` }
-function formatDate(value) { return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '尚未发送问题' }
 function showToast(message) { toast.value = message; clearTimeout(toastTimer); toastTimer = window.setTimeout(() => { toast.value = '' }, 2200) }
 </script>
 
 <style scoped>
-.assistant-page{width:100%;height:100%;min-width:0;min-height:0;color:#20251f;overflow:hidden}.assistant-workspace{display:grid;grid-template-columns:276px minmax(0,1fr);width:100%;height:100%;min-width:0;min-height:0;border:1px solid #c7ccc5;background:#fbfbf7;overflow:hidden}.assistant-workspace.history-collapsed{grid-template-columns:64px minmax(0,1fr)}.research-desk{display:flex;flex-direction:column;width:100%;height:100%;min-width:0;min-height:0;background:#fbfbf7;overflow:hidden}.desk-header{display:flex;align-items:center;gap:14px;min-height:70px;padding:12px 24px;border-bottom:1px solid #cdd1cb;flex:0 0 auto}.desk-header>div:nth-child(2){min-width:0;flex:1}.desk-header h1{overflow:hidden;margin:4px 0 0;font-family:'Noto Serif SC',STSong,SimSun,serif;font-size:1.15rem;font-weight:500;text-overflow:ellipsis;white-space:nowrap}.caption{color:#727972;font-family:'Bookman Old Style',Georgia,serif;font-size:.63rem;font-weight:700;letter-spacing:0}.desk-status{display:flex;align-items:center;gap:8px}.desk-status>span{width:8px;height:8px;border-radius:50%;background:#80734f}.desk-status>span.ready{background:#3e684a}.desk-status>div{display:grid;gap:2px}.desk-status strong{font-size:.69rem}.desk-status small{color:#7b817a;font-size:.61rem}.mobile-history-command{display:none}.desk-notice{display:flex;align-items:flex-start;gap:10px;padding:11px 24px;border-bottom:1px solid #d7c7c2;background:#f7efec;color:#6f3b35;flex:0 0 auto}.desk-notice strong{font-size:.78rem}.desk-notice p{margin:2px 0 0;font-size:.7rem}.composer-error{margin:0;padding:8px max(24px,calc((100% - 880px)/2));border-top:1px solid #d9c0ba;background:#f8efec;color:#703731;font-size:.72rem;flex:0 0 auto}.page-state{display:flex;align-items:center;justify-content:center;gap:16px;min-height:100%;padding:35px;color:#687068}.page-state p{margin:4px 0 0}.page-state.is-error{color:#7b3f36}.spinner{width:22px;height:22px;border:2px solid #c5cac3;border-top-color:#304e38;border-radius:50%;animation:spin .8s linear infinite}.secondary-command{display:flex;align-items:center;gap:7px;min-height:42px;padding:0 13px;border:1px solid #bfc5bd;border-radius:3px;background:#fff;color:#303630}.secondary-command:is(:hover,:focus-visible){border-color:#747b74;background:#f0f1ec}.secondary-command:focus-visible{outline:2px solid rgba(74,82,74,.34);outline-offset:2px}.secondary-command:active{background:#e5e7e1}.assistant-toast{position:fixed;z-index:120;right:22px;bottom:22px;max-width:min(360px,calc(100vw - 28px));margin:0;padding:11px 14px;border:1px solid #afb5ae;border-radius:3px;background:#282d28;color:#fff;font-size:.75rem}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:840px){.assistant-workspace,.assistant-workspace.history-collapsed{grid-template-columns:1fr;height:100%;min-height:0}.mobile-history-command{display:grid;place-items:center;width:44px;height:44px;flex:0 0 44px;border:1px solid transparent;background:transparent}.mobile-history-command:is(:hover,:focus-visible){border-color:#bfc5bd;background:#f0f1ec}.desk-header{padding:10px 14px}.desk-status small{display:none}}@media(max-width:600px){.assistant-workspace,.assistant-workspace.history-collapsed{height:100%;border-right:0;border-left:0}.desk-header{min-height:62px}.desk-header h1{font-size:1rem}.desk-status>div{display:none}.desk-notice{padding:10px 14px}.composer-error{padding:8px 14px}.assistant-toast{right:14px;bottom:14px}}@media(max-height:680px){.desk-header{min-height:58px;padding-top:8px;padding-bottom:8px}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
-@media(max-width:840px){.desk-header{padding-left:72px}}
+.assistant-page{width:100%;height:100%;min-width:0;min-height:0;color:#20251f;overflow:hidden}.assistant-workspace{display:grid;grid-template-columns:276px minmax(0,1fr);width:100%;height:100%;min-width:0;min-height:0;background:#fbfbf7;overflow:hidden}.assistant-workspace.history-collapsed{grid-template-columns:64px minmax(0,1fr)}.research-desk{display:flex;flex-direction:column;width:100%;height:100%;min-width:0;min-height:0;background:#fbfbf7;overflow:hidden}.desk-notice{display:flex;align-items:flex-start;gap:10px;padding:11px 24px;border-bottom:1px solid #d7c7c2;background:#f7efec;color:#6f3b35;flex:0 0 auto}.desk-notice strong{font-size:.78rem}.desk-notice p{margin:2px 0 0;font-size:.7rem}.composer-error{margin:0;padding:8px max(24px,calc((100% - 880px)/2));border-top:1px solid #d9c0ba;background:#f8efec;color:#703731;font-size:.72rem;flex:0 0 auto}.page-state{display:flex;align-items:center;justify-content:center;gap:16px;min-height:100%;padding:35px;color:#687068}.page-state p{margin:4px 0 0}.page-state.is-error{color:#7b3f36}.spinner{width:22px;height:22px;border:2px solid #c5cac3;border-top-color:#304e38;border-radius:50%;animation:spin .8s linear infinite}.secondary-command{display:flex;align-items:center;gap:7px;min-height:42px;padding:0 13px;border:1px solid #bfc5bd;border-radius:3px;background:#fff;color:#303630}.secondary-command:is(:hover,:focus-visible){border-color:#747b74;background:#f0f1ec}.secondary-command:focus-visible{outline:2px solid rgba(74,82,74,.34);outline-offset:2px}.secondary-command:active{background:#e5e7e1}.assistant-toast{position:fixed;z-index:120;right:22px;bottom:22px;max-width:min(360px,calc(100vw - 28px));margin:0;padding:11px 14px;border:1px solid #afb5ae;border-radius:3px;background:#282d28;color:#fff;font-size:.75rem}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:840px){.assistant-workspace,.assistant-workspace.history-collapsed{grid-template-columns:1fr;height:100%;min-height:0}}@media(max-width:600px){.assistant-workspace,.assistant-workspace.history-collapsed{height:100%}.desk-notice{padding:10px 14px}.composer-error{padding:8px 14px}.assistant-toast{right:14px;bottom:14px}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
 </style>

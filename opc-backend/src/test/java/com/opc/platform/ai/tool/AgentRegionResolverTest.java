@@ -46,6 +46,50 @@ class AgentRegionResolverTest {
         assertEquals("AMBIGUOUS_REGION", exception.getDiagnosticCode());
     }
 
+    @Test
+    void derivesParentAndNationalScopesFromTheConfirmedRegionTree() {
+        RegionMapper mapper = mock(RegionMapper.class);
+        when(mapper.selectById(3L)).thenReturn(region(3L, "Wuhan", "city", 2L));
+        when(mapper.selectById(2L)).thenReturn(region(2L, "Hubei", "province", 1L));
+        when(mapper.selectById(1L)).thenReturn(region(1L, "China", "country", null));
+        AgentRegionResolver resolver = new AgentRegionResolver(mapper);
+
+        assertEquals(List.of(3L), resolver.resolveScope(3L, "selected").regionIds());
+        assertEquals(List.of(2L), resolver.resolveScope(3L, "parent").regionIds());
+        assertEquals(List.of(1L), resolver.resolveScope(3L, "national").regionIds());
+        assertEquals("cross_region_reference",
+                resolver.resolveScope(3L, "cross_region_reference").scope());
+    }
+
+    @Test
+    void provinceParentScopeFallsBackToTheNationalAncestorWithoutFailing() {
+        RegionMapper mapper = mock(RegionMapper.class);
+        when(mapper.selectById(2L)).thenReturn(region(2L, "Hubei", "province", 1L));
+        when(mapper.selectById(1L)).thenReturn(region(1L, "China", "country", null));
+        AgentRegionResolver resolver = new AgentRegionResolver(mapper);
+
+        AgentRegionResolver.RegionScope parent = resolver.resolveScope(2L, "parent");
+        AgentRegionResolver.RegionScope national = resolver.resolveScope(1L, "national");
+
+        assertEquals("national", parent.scope());
+        assertEquals(List.of(1L), parent.regionIds());
+        assertEquals("national", national.scope());
+        assertEquals(List.of(1L), national.regionIds());
+    }
+
+    @Test
+    void rejectsARegionScopeThatIsNotInTheClosedCatalog() {
+        RegionMapper mapper = mock(RegionMapper.class);
+        when(mapper.selectById(3L)).thenReturn(region(3L, "Wuhan", "city", 2L));
+
+        AgentToolException exception = assertThrows(
+                AgentToolException.class,
+                () -> new AgentRegionResolver(mapper).resolveScope(3L, "arbitrary_region")
+        );
+
+        assertEquals("INVALID_REGION_SCOPE", exception.getDiagnosticCode());
+    }
+
     private Region region(Long id, String name, String level, Long parentId) {
         Region region = new Region();
         region.setId(id);

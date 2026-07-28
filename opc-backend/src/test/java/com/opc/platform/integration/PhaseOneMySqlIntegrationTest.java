@@ -1267,6 +1267,69 @@ class PhaseOneMySqlIntegrationTest {
     }
 
     @Test
+    void contractFailureKeepsActualUsageAndLeavesNoResultOrEvidenceSideEffects() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeWorkspaceMigrations();
+        jdbc.update("INSERT INTO platform_users (id,username,email,status) VALUES (42,'owner','owner@example.com','active')");
+        AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
+        var session = agentSessionService.create(owner, "Contract replay", null);
+        var userMessage = agentSessionService.appendMessage(
+                owner, session.getId(), "user", "Sanitized contract replay", "completed", null, null);
+        AiClient invalidJsonClient = new AiClient() {
+            public AiProviderResponse generate(AiProviderRequest request) {
+                return new AiProviderResponse("{", 4, 3, 7, 12, "contract-replay-request", "stop");
+            }
+
+            public AiProviderDescriptor descriptor() {
+                return new AiProviderDescriptor("fake", "fake-agent", true);
+            }
+        };
+        AiRuntimeSettings runtime = new AiRuntimeSettings(
+                "fake", "openai_compatible", "https://api.example.com/v1", "fake-agent", "test-key",
+                0.2, 1200, java.time.Duration.ofSeconds(20), 0, true);
+        AiRuntimeSettingsProvider runtimeProvider = new AiRuntimeSettingsProvider() {
+            public AiRuntimeSettings current() { return runtime; }
+            public long dailyTokenQuota() { return 100_000L; }
+        };
+        AgentRunLifecycleService lifecycle = new AgentRunLifecycleService(
+                runMapper, invalidJsonClient, runtimeProvider, agentProviderCallMapper,
+                agentProviderSettlementService);
+        var lease = lifecycle.begin(
+                owner, session.getId(), userMessage.getId(), "idem-contract-replay",
+                new AgentRuntimeConfig(true, 4, 6, 8000, 12,
+                        java.time.Duration.ofSeconds(120), "json_plan"));
+
+        AiProviderResponse response = lifecycle.invoke(lease, null);
+        assertEquals(7, response.totalTokens());
+        lifecycle.updateStage(lease, "waiting_for_model", 1, 0);
+        lifecycle.fail(lease, "failed", ErrorCode.UPSTREAM_ERROR, "INVALID_JSON");
+        lifecycle.fail(lease, "failed", ErrorCode.UPSTREAM_ERROR, "INVALID_JSON");
+
+        Map<String, Object> run = jdbc.queryForMap("""
+                SELECT status,diagnostic_code,settlement_status,prompt_tokens,completion_tokens,
+                       total_tokens,reserved_tokens,result_json
+                FROM ai_analysis_runs WHERE id=?
+                """, lease.run().getId());
+        assertEquals("failed", run.get("status"));
+        assertEquals("INVALID_JSON", run.get("diagnostic_code"));
+        assertEquals("settled_actual", run.get("settlement_status"));
+        assertEquals(4, ((Number) run.get("prompt_tokens")).intValue());
+        assertEquals(3, ((Number) run.get("completion_tokens")).intValue());
+        assertEquals(7, ((Number) run.get("total_tokens")).intValue());
+        assertEquals(0, ((Number) run.get("reserved_tokens")).intValue());
+        assertEquals(null, run.get("result_json"));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ai_agent_provider_calls WHERE analysis_run_id=? AND settlement_status='settled_actual'",
+                Integer.class, lease.run().getId()));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ai_agent_tool_calls WHERE analysis_run_id=?",
+                Integer.class, lease.run().getId()));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ai_agent_messages WHERE session_id=? AND role='assistant'",
+                Integer.class, session.getId()));
+    }
+
+    @Test
     void agentSessionsEnforceOwnershipArchiveAndStableMessageOrder() throws Exception {
         jdbc.execute("""
                 CREATE TABLE platform_users (
@@ -1358,10 +1421,10 @@ class PhaseOneMySqlIntegrationTest {
         insertCase(11L, 1L, "Eligible case", "verified", 0L);
         insertCase(12L, 2L, "Bad source chain", "verified", 0L);
         insertCase(13L, 1L, "Pending case", "legacy_unverified", 0L);
-        AgentToolContext context = new AgentToolContext(31L, 42L);
+        AgentToolContext context = new AgentToolContext(31L, 42L, null, 1L, null, null);
 
         var execution = agentToolRegistry.execute(
-                context, 1, "search_cases", new ObjectMapper().readTree("{\"regionId\":1,\"limit\":10}")
+                context, 1, "search_cases", new ObjectMapper().readTree("{\"limit\":10}")
         );
 
         assertEquals(1, execution.result().output().path("items").size());
@@ -1373,7 +1436,7 @@ class PhaseOneMySqlIntegrationTest {
     }
 
     @Test
-    void searchCasesToolIncludesDescendantRegionsAndTrustsAnExactIndustryTag() throws Exception {
+    void normalizedRequiredCaseSearchReturnsTwoDistinctEligibleCasesForTheSelectedIndustry() throws Exception {
         createAgentUserTable();
         runAgentRuntimeWorkspaceMigrations();
         prepareGuardedToolRun();
@@ -1398,10 +1461,10 @@ class PhaseOneMySqlIntegrationTest {
         jdbc.update("INSERT INTO case_tags (case_id,tag_id) VALUES (11,701),(12,701)");
 
         var execution = agentToolRegistry.execute(
-                new AgentToolContext(31L, 42L), 1, "search_cases",
+                new AgentToolContext(31L, 42L, null, 2L, 701L, "Artificial Intelligence"),
+                1, "search_cases",
                 new ObjectMapper().readTree("""
-                        {"regionId":2,"industryTagId":701,"industry":"Artificial Intelligence",
-                         "query":"artificial intelligence startup case","limit":10}
+                        {"scope":"selected","limit":5}
                         """)
         );
 
@@ -1442,16 +1505,19 @@ class PhaseOneMySqlIntegrationTest {
         jdbc.update("UPDATE policies SET region_id=4,applicability_mode='general' WHERE id=24");
         jdbc.update("INSERT INTO tags (id,name,tag_type,is_industry) VALUES (701,'AI','policy',1)");
         jdbc.update("INSERT INTO policy_industry_tags (policy_id,industry_tag_id) VALUES (23,701)");
-        AgentToolContext context = new AgentToolContext(31L, 42L);
+        AgentToolContext context = new AgentToolContext(31L, 42L, null, 3L, 701L, "AI");
+        ObjectMapper objectMapper = new ObjectMapper();
+        var items = objectMapper.createArrayNode();
+        int step = 0;
+        for (String scope : List.of("selected", "parent", "national")) {
+            var scoped = agentToolRegistry.execute(
+                    context, ++step, "search_policies",
+                    objectMapper.readTree("{\"scope\":\"" + scope
+                            + "\",\"query\":\"artificial intelligence startup policy\",\"limit\":10}")
+            ).result().output().path("items");
+            scoped.forEach(items::add);
+        }
 
-        var execution = agentToolRegistry.execute(
-                context, 1, "search_policies",
-                new ObjectMapper().readTree(
-                        "{\"regionId\":3,\"industryTagId\":701,"
-                                + "\"query\":\"artificial intelligence startup policy\",\"limit\":10}")
-        );
-
-        var items = execution.result().output().path("items");
         assertEquals(3, items.size());
         assertTrue(java.util.stream.StreamSupport.stream(items.spliterator(), false)
                 .noneMatch(item -> item.path("policyId").asLong() == 24L));
@@ -1494,15 +1560,20 @@ class PhaseOneMySqlIntegrationTest {
         jdbc.update("UPDATE case_items SET region_id=3,summary='Traditional retail' WHERE id=12");
         jdbc.update("INSERT INTO tags (id,name,tag_type,is_industry) VALUES (701,'AI','case',1)");
         jdbc.update("INSERT INTO case_tags (case_id,tag_id) VALUES (11,701),(13,701)");
-        AgentToolContext context = new AgentToolContext(31L, 42L, null, 3L);
-
-        var policies = agentToolRegistry.execute(
-                context, 1, "search_policies",
-                new ObjectMapper().readTree("{\"regionName\":\"武汉市\",\"industryTagId\":701,\"limit\":10}")
-        ).result().output().path("items");
+        AgentToolContext context = new AgentToolContext(31L, 42L, null, 3L, 701L, "AI");
+        ObjectMapper objectMapper = new ObjectMapper();
+        var policies = objectMapper.createArrayNode();
+        int step = 0;
+        for (String scope : List.of("selected", "parent", "national")) {
+            var scoped = agentToolRegistry.execute(
+                    context, ++step, "search_policies",
+                    objectMapper.readTree("{\"scope\":\"" + scope + "\",\"limit\":10}")
+            ).result().output().path("items");
+            scoped.forEach(policies::add);
+        }
         var cases = agentToolRegistry.execute(
-                context, 2, "search_cases",
-                new ObjectMapper().readTree("{\"regionName\":\"北京市\",\"industryTagId\":701,\"limit\":10}")
+                context, ++step, "search_cases",
+                objectMapper.readTree("{\"scope\":\"cross_region_reference\",\"limit\":10}")
         ).result().output().path("items");
 
         assertEquals(3, policies.size());
@@ -1527,9 +1598,9 @@ class PhaseOneMySqlIntegrationTest {
         assertEquals(1, coverage.crossRegionCount());
 
         AgentToolException forbidden = assertThrows(AgentToolException.class, () -> agentToolRegistry.execute(
-                context, 3, "search_cases", new ObjectMapper().readTree("{\"regionId\":999,\"limit\":3}")
+                context, 5, "search_cases", new ObjectMapper().readTree("{\"regionId\":999,\"limit\":3}")
         ));
-        assertEquals("FORBIDDEN_REGION_ID", forbidden.getDiagnosticCode());
+        assertEquals("INVALID_TOOL_ARGUMENTS", forbidden.getDiagnosticCode());
     }
 
     @Test
@@ -1547,9 +1618,9 @@ class PhaseOneMySqlIntegrationTest {
         insertSource(1L, "Allowed source", "published", "verified", 0L);
         insertSource(2L, "Other source", "published", "verified", 0L);
         insertCase(11L, 1L, "Eligible case", "verified", 0L);
-        AgentToolContext context = new AgentToolContext(31L, 42L);
+        AgentToolContext context = new AgentToolContext(31L, 42L, null, 1L, null, null);
         agentToolRegistry.execute(
-                context, 1, "search_cases", new ObjectMapper().readTree("{\"regionId\":1,\"limit\":10}")
+                context, 1, "search_cases", new ObjectMapper().readTree("{\"limit\":10}")
         );
 
         AgentToolException forbidden = assertThrows(AgentToolException.class, () -> agentToolRegistry.execute(
@@ -1581,11 +1652,11 @@ class PhaseOneMySqlIntegrationTest {
         insertPolicy(21L, 1L, "Hubei startup support", "verified", 0L);
         jdbc.update("UPDATE case_items SET region_id=3,original_url='https://example.gov.cn/case/11' WHERE id=11");
         jdbc.update("UPDATE policies SET region_id=2,applicability_mode='general',original_url='https://example.gov.cn/policy/21' WHERE id=21");
-        AgentToolContext context = new AgentToolContext(31L, 42L);
+        AgentToolContext context = new AgentToolContext(31L, 42L, null, 2L, null, null);
         agentToolRegistry.execute(context, 1, "search_cases",
-                new ObjectMapper().readTree("{\"regionId\":2,\"limit\":10}"));
+                new ObjectMapper().readTree("{\"limit\":10}"));
         agentToolRegistry.execute(context, 2, "search_policies",
-                new ObjectMapper().readTree("{\"regionId\":2,\"limit\":10}"));
+                new ObjectMapper().readTree("{\"scope\":\"selected\",\"limit\":10}"));
         agentToolRegistry.execute(context, 3, "get_source",
                 new ObjectMapper().readTree("{\"sourceId\":2}"));
 
@@ -1606,7 +1677,13 @@ class PhaseOneMySqlIntegrationTest {
         assertEquals(ErrorCode.NOT_FOUND, forbidden.getErrorCode());
 
         jdbc.update("UPDATE case_items SET status='draft',summary='must not be returned' WHERE id=11");
-        var afterStateChange = agentRunEvidenceService.read(user(), 31L).items().stream()
+        var changedEvidence = agentRunEvidenceService.read(user(), 31L);
+        assertEquals(3, changedEvidence.totalCount());
+        assertEquals(2, changedEvidence.availableCount());
+        assertEquals(1, changedEvidence.unavailableCount());
+        assertEquals(0, changedEvidence.availableGroups().get("case"));
+        assertEquals(1, changedEvidence.totalGroups().get("case"));
+        var afterStateChange = changedEvidence.items().stream()
                 .filter(item -> "case".equals(item.itemType())).findFirst().orElseThrow();
         assertEquals(false, afterStateChange.available());
         assertEquals("unavailable", afterStateChange.evidenceStatus());
@@ -1621,9 +1698,9 @@ class PhaseOneMySqlIntegrationTest {
         prepareGuardedToolRun();
         insertSource(1L, "Case source", "published", "verified", 0L);
         insertCase(11L, 1L, "Wuhan AI studio", "verified", 0L);
-        AgentToolContext context = new AgentToolContext(31L, 42L);
+        AgentToolContext context = new AgentToolContext(31L, 42L, null, 1L, null, null);
         agentToolRegistry.execute(context, 1, "search_cases",
-                new ObjectMapper().readTree("{\"regionId\":1,\"limit\":10}"));
+                new ObjectMapper().readTree("{\"limit\":10}"));
 
         var evidence = agentRunEvidenceService.read(user(), 31L);
 
@@ -1631,6 +1708,32 @@ class PhaseOneMySqlIntegrationTest {
         assertEquals(1, evidence.groups().get("case"));
         assertEquals(0, evidence.groups().get("policy"));
         assertEquals(0, evidence.groups().get("source"));
+    }
+
+    @Test
+    void runEvidenceApiReadsAuthorizedProjectionFromLargeUtf8AuditJson() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeWorkspaceMigrations();
+        prepareGuardedToolRun();
+        insertSource(1L, "Case source", "published", "verified", 0L);
+        insertCase(11L, 1L, "Wuhan AI studio", "verified", 0L);
+        AgentToolContext context = new AgentToolContext(31L, 42L, null, 1L, null, null);
+        agentToolRegistry.execute(context, 1, "search_cases",
+                new ObjectMapper().readTree("{\"limit\":10}"));
+        String auditJson = jdbc.queryForObject(
+                "SELECT result_summary_json FROM ai_agent_tool_calls WHERE analysis_run_id=31 LIMIT 1",
+                String.class);
+        var expanded = (com.fasterxml.jackson.databind.node.ObjectNode) new ObjectMapper().readTree(auditJson);
+        expanded.put("boundedAuditDetail", "已核验证据".repeat(5000));
+        assertTrue(expanded.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 16_000);
+        jdbc.update("UPDATE ai_agent_tool_calls SET result_summary_json=? WHERE analysis_run_id=31",
+                expanded.toString());
+
+        var evidence = agentRunEvidenceService.read(user(), 31L);
+
+        assertEquals(1, evidence.availableCount());
+        assertEquals(1, evidence.totalCount());
+        assertEquals(11L, evidence.items().get(0).itemId());
     }
 
     @Test
@@ -1651,9 +1754,9 @@ class PhaseOneMySqlIntegrationTest {
         insertCase(13L, 1L, "Case C", "verified", 0L);
         insertCase(14L, 1L, "Case outside search", "verified", 0L);
         jdbc.update("UPDATE case_items SET region_id=2 WHERE id=14");
-        AgentToolContext context = new AgentToolContext(31L, 42L);
+        AgentToolContext context = new AgentToolContext(31L, 42L, null, 1L, null, null);
         agentToolRegistry.execute(
-                context, 1, "search_cases", new ObjectMapper().readTree("{\"regionId\":1,\"limit\":10}")
+                context, 1, "search_cases", new ObjectMapper().readTree("{\"limit\":10}")
         );
 
         AgentToolException tooMany = assertThrows(AgentToolException.class, () -> agentToolRegistry.execute(
@@ -2515,6 +2618,31 @@ class PhaseOneMySqlIntegrationTest {
     }
 
     @Test
+    void agentMultiroundMigrationAddsRequestedIntentRepeatably() throws Exception {
+        jdbc.execute("ALTER TABLE ai_analysis_runs "
+                + "ADD COLUMN submission_kind VARCHAR(20) NOT NULL DEFAULT 'message' AFTER task_type");
+        jdbc.execute("ALTER TABLE ai_analysis_runs DROP COLUMN requested_intent");
+        runAgentMultiroundBudgetMigration();
+        runAgentMultiroundBudgetMigration();
+
+        Map<String, Object> definition = jdbc.queryForMap("""
+                SELECT character_maximum_length AS max_length,
+                       is_nullable AS nullable_value,
+                       column_default AS default_value
+                FROM information_schema.columns
+                WHERE table_schema=DATABASE() AND table_name='ai_analysis_runs'
+                  AND column_name='requested_intent'
+                """);
+        assertEquals(40L, ((Number) definition.get("max_length")).longValue());
+        assertEquals("NO", definition.get("nullable_value"));
+        assertEquals("auto", definition.get("default_value"));
+        assertEquals(28000, jdbc.queryForObject(
+                "SELECT agent_max_tokens FROM ai_model_settings WHERE id=1", Integer.class));
+        assertEquals(5, jdbc.queryForObject(
+                "SELECT agent_max_model_rounds FROM ai_model_settings WHERE id=1", Integer.class));
+    }
+
+    @Test
     void generationRejectsCasePolicyAndSourceChangesMadeWhileTheModelRuns() {
         for (String changedType : List.of("case", "policy", "source")) {
             resetDatabase();
@@ -2619,6 +2747,7 @@ class PhaseOneMySqlIntegrationTest {
         jdbc.execute("CREATE TABLE tag_aliases (id BIGINT PRIMARY KEY AUTO_INCREMENT,tag_id BIGINT NOT NULL,alias VARCHAR(100) NOT NULL,normalized_alias VARCHAR(100) NOT NULL,created_at DATETIME DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uk_tag_aliases_normalized(normalized_alias))");
         jdbc.execute("CREATE TABLE ai_evidence_reviews (id BIGINT PRIMARY KEY AUTO_INCREMENT,item_type VARCHAR(20) NOT NULL,item_id BIGINT NOT NULL,previous_status VARCHAR(30) NOT NULL,new_status VARCHAR(30) NOT NULL,admin_id BIGINT NOT NULL,admin_username VARCHAR(100) NOT NULL,notes VARCHAR(500),action_type VARCHAR(50),reason VARCHAR(500),operation_id VARCHAR(64),created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))");
         jdbc.execute("CREATE TABLE ai_analysis_runs (id BIGINT PRIMARY KEY AUTO_INCREMENT,user_id BIGINT NOT NULL,task_type VARCHAR(40) NOT NULL,case_id BIGINT,session_id BIGINT,user_message_id BIGINT,idempotency_key VARCHAR(64),status VARCHAR(30) NOT NULL,active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status='running' THEN user_id ELSE NULL END) STORED,session_active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status='running' THEN session_id ELSE NULL END) STORED,result_json JSON,provider VARCHAR(40) NOT NULL,model_id VARCHAR(191) NOT NULL,prompt_version VARCHAR(60) NOT NULL,evidence_hash CHAR(64) NOT NULL,prompt_tokens INT NOT NULL DEFAULT 0,completion_tokens INT NOT NULL DEFAULT 0,total_tokens INT NOT NULL DEFAULT 0,reserved_tokens BIGINT NOT NULL DEFAULT 0,started_at DATETIME(6),deadline_at DATETIME(6),heartbeat_at DATETIME(6),latency_ms BIGINT NOT NULL DEFAULT 0,provider_request_id VARCHAR(191),finish_reason VARCHAR(40),response_hash CHAR(64),error_type VARCHAR(80),diagnostic_code VARCHAR(80),step_count INT NOT NULL DEFAULT 0,tool_call_count INT NOT NULL DEFAULT 0,current_stage VARCHAR(40),visible_progress VARCHAR(120),cancelled_at DATETIME(6),completed_at DATETIME(6),created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),UNIQUE KEY uk_running(active_guard),UNIQUE KEY uk_session_running(session_active_guard),UNIQUE KEY uk_idempotency(user_id,task_type,idempotency_key)) ENGINE=InnoDB");
+        jdbc.execute("ALTER TABLE ai_analysis_runs ADD COLUMN requested_intent VARCHAR(40) NOT NULL DEFAULT 'auto' AFTER task_type");
         jdbc.execute("CREATE TABLE ai_model_settings (id BIGINT PRIMARY KEY,provider VARCHAR(40) NOT NULL,api_format VARCHAR(40) NOT NULL,api_base_url VARCHAR(500),model_id VARCHAR(191),model_catalog_json JSON,api_key_ciphertext TEXT,api_key_provider VARCHAR(40),api_key_origin VARCHAR(500),temperature DECIMAL(4,3) NOT NULL,max_output_tokens INT NOT NULL,timeout_seconds INT NOT NULL,retry_count INT NOT NULL,daily_token_quota BIGINT NOT NULL,enabled TINYINT(1) NOT NULL,agent_enabled TINYINT(1) NOT NULL DEFAULT 0,agent_rollout_state VARCHAR(30) NOT NULL DEFAULT 'explicitly_disabled',agent_rollout_changed_at DATETIME(6),agent_rollout_changed_by_admin_id BIGINT,agent_max_model_rounds INT NOT NULL DEFAULT 4,agent_max_tool_calls INT NOT NULL DEFAULT 6,agent_max_tokens INT NOT NULL DEFAULT 8000,agent_history_window INT NOT NULL DEFAULT 12,agent_timeout_seconds INT NOT NULL DEFAULT 120,agent_tool_mode VARCHAR(20) NOT NULL DEFAULT 'json_plan',last_test_status VARCHAR(30) NOT NULL,last_tested_at DATETIME,last_test_message VARCHAR(240),updated_by_admin_id BIGINT,updated_by_admin_username VARCHAR(100),created_at DATETIME DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
         jdbc.update("INSERT INTO ai_model_settings (id,provider,api_format,temperature,max_output_tokens,timeout_seconds,retry_count,daily_token_quota,enabled,agent_enabled,agent_max_model_rounds,agent_max_tool_calls,agent_max_tokens,agent_history_window,agent_timeout_seconds,agent_tool_mode,last_test_status) VALUES (1,'deepseek','openai_compatible',0.2,1200,30,1,100000,0,0,4,6,8000,12,120,'json_plan','not_tested')");
         jdbc.update("INSERT INTO regions (id,name,level,parent_id) VALUES (1,'Hubei','province',NULL)");
@@ -2641,6 +2770,13 @@ class PhaseOneMySqlIntegrationTest {
         try (Connection connection = dataSource.getConnection()) {
             ScriptUtils.executeSqlScript(connection, new FileSystemResource(
                     Path.of("..", "deploy", "sql", "20260725_ai_response_diagnostics.sql")));
+        }
+    }
+
+    private void runAgentMultiroundBudgetMigration() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource(
+                    Path.of("..", "deploy", "sql", "20260727_agent_multiround_budget.sql")));
         }
     }
 

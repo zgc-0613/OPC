@@ -151,6 +151,8 @@ public class AgentRunLifecycleService {
         run.setUserMessageId(userMessageId);
         run.setIdempotencyKey(idempotencyKey);
         run.setSubmissionKind(identity == null || identity.kind() == null ? "message" : identity.kind());
+        run.setRequestedIntent(identity == null
+                ? "auto" : ResearchExecutionRequirements.normalizeIntent(identity.requestedIntent()));
         run.setRequestContentHash(identity == null ? null : identity.contentHash());
         run.setStartProfileHash(identity == null ? null : identity.profileHash());
         run.setSessionContentGeneration(identity == null ? 0L : identity.sessionContentGeneration());

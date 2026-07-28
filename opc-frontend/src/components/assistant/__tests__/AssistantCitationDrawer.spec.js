@@ -80,4 +80,27 @@ describe('AssistantCitationDrawer focus management', () => {
     expect(document.querySelectorAll('.citation-drawer a')).toHaveLength(0)
     wrapper.unmount()
   })
+
+  it('renders the authorized research-material surface in evidence mode', async () => {
+    const wrapper = mount(AssistantCitationDrawer, {
+      attachTo: document.body,
+      props: {
+        open: true,
+        mode: 'evidence',
+        evidenceRunId: 31,
+        evidenceSummary: { availableCount: 1, totalCount: 1 },
+        evidenceItems: [{
+          itemType: 'policy', itemId: 21, sourceId: 8, title: '湖北创业支持',
+          matchReason: '地区匹配', available: true, citationId: '31:8:1', citationIndex: 1,
+        }],
+      },
+    })
+    await nextTick()
+
+    expect(document.querySelector('.citation-drawer').textContent).toContain('研究资料')
+    expect(document.querySelector('.citation-drawer').textContent).toContain('可用 1 项，共 1 项')
+    expect(document.querySelector('.citation-drawer').getAttribute('aria-labelledby')).toBe('evidence-drawer-title')
+    expect(document.querySelector('#drawer-evidence-31-8')).not.toBeNull()
+    wrapper.unmount()
+  })
 })

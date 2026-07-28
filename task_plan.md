@@ -4,7 +4,7 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 26 (research-quality closure complete locally; production deployment pending the real research gate)
+Phase 32 (deterministic research tool chains deployed; Agent Phase Two closed)
 
 ## Phases
 
@@ -380,7 +380,7 @@ Phase 26 (research-quality closure complete locally; production deployment pendi
 ### Phase 27: Predeploy Provider Evaluation, Contract Convergence, And Assistant Quality Closure
 - [x] Centralize Agent v2 prompt version, planning/synthesis output budgets, field limits, aggregate limits, output sections and controlled diagnostics in `AgentResearchContract`.
 - [x] Generate separate closed planning and synthesis schemas from the same contract constants used by Java validation and prompt boundary text.
-- [x] Add twelve sanitized replay fixtures for truncation, unknown fields, invalid arrays, source-ID confusion, uncited content, invalid structured results and Provider connection failure.
+- [x] Add fifteen sanitized replay fixtures for truncation, unknown fields, invalid arrays, source-ID confusion, uncited content, invalid structured results, forged coverage and Provider connection failure.
 - [x] Derive evidence coverage from current-run authorized tool evidence rather than trusting model-declared counts or status.
 - [x] Add database-backed region resolution and authorize only resolved or profile-owned region IDs before cross-region retrieval.
 - [x] Bind Assistant citations and evidence items to the message Run so historical citations cannot resolve against the latest Run.
@@ -390,3 +390,69 @@ Phase 26 (research-quality closure complete locally; production deployment pendi
 - [x] Run the mandatory real DeepSeek candidate probe before rollout, then switch production only after its contract, citation, coverage and settlement gates pass.
 - [x] Complete postdeploy compatibility and Agent probes plus an independent service/hash/process preflight.
 - **Status:** complete and deployed in release `20260726-213258`; candidate validation ran before the production symlink switch and the previous release remains available.
+
+### Phase 28: Multi-round Tool Closure, Independent Assistant, And Release Gate Convergence
+- [x] Restrict the initial Agent plan to independent `search_cases` and `search_policies` requests.
+- [x] Add a bounded continuation round that consumes actual same-Run case and source IDs before `compare_cases` or `get_source` can execute.
+- [x] Reject guessed IDs, cross-Run dependencies, and unresolved dependent requests with controlled diagnostics.
+- [x] Keep the session profile industry fixed and derive selected, parent, national and cross-region scopes on the server.
+- [x] Reject explicit region or industry changes in an established research session before message persistence or Token reservation.
+- [x] Separate the bounded full tool audit from the 12 KiB `_authorized` model projection, using deterministic UTF-8 field truncation.
+- [x] Add compatible available, total and unavailable evidence counts and keep unavailable material outside citation authorization.
+- [x] Move `/assistant` to a lazy, top-level protected `AssistantLayout` without the public archive sidebar.
+- [x] Add mutually exclusive, focus-restoring history and evidence drawers plus a single Assistant navigation and command surface.
+- [x] Reorder deployment so candidate database migration, Provider connection and three real Agent scenarios complete before any production backup, migration, restart or symlink switch.
+- [x] Add deployment tests proving candidate failure performs zero production migrations and zero production switches, while a successful release migrates and switches once.
+- [x] Pass final local gates: Spring `357` (`356` passed, one opt-in smoke skipped), MySQL `70/70`, Vitest `83/83`, all eight frontend scripts, Python deployment `77/77`, migration `14/14`, explicit MySQL migration `7/7`, both builds and repository checks.
+- [x] Run three bounded isolated candidate attempts without any production mutation and retain controlled diagnostics for each rejected build.
+- [ ] Run the isolated real Provider policy, case-comparison and source-verification candidate scenarios.
+- [ ] Perform one production migration/switch only after all three candidate scenarios pass, then run production health and cleanup checks.
+- **Status:** local implementation, tests and builds complete. The candidate gate rejected two policy-contract responses (`INVALID_DEPENDENCIES`, then `UNCITED_FACT`) and, after those fixes, rejected the case-comparison scenario as `evidence_insufficient`. Production migration/switch count is zero; Phase Two is not complete.
+
+### Phase 29: Real-provider Orchestration Closure And Final Candidate Gate
+- [x] Add current-run source allowlists to synthesis and prevent terminal evidence states from scheduling redundant searches.
+- [x] Give invalid initial planning and continuation `UNKNOWN_FIELDS` at most two bounded, content-free planning recoveries.
+- [x] Raise the measured Agent runtime defaults to five model rounds and 28,000 aggregate Tokens, and raise the planning response budget to 3,200 Tokens without changing the six-tool cap.
+- [x] Add the idempotent `20260727_agent_multiround_budget` precheck/migration/postcheck set and keep candidate/production migration hashes identical.
+- [x] Preserve `release_switched=false`, actual usage settlement and zero reservation for every rejected candidate path.
+- [x] Pass the focused orchestration/contract suite `53/53`, Spring `368` (`367` passed, one opt-in Provider smoke skipped), MySQL `70/70`, Vitest `85/85`, the Assistant subset `35/35`, all eight frontend scripts, Python `101` (`94` passed, seven explicit-MySQL cases skipped), static migration `14/14`, both builds and repository checks.
+- [x] Run bounded real candidates without production backup, migration, restart or switch; retain only controlled diagnostics and scalar usage metrics.
+- [ ] Re-run one isolated three-scenario candidate only after Provider connectivity is plausibly restored.
+- [ ] Perform one production migration/switch and postdeploy probe only after policy, dynamic comparison and source verification all pass in the same candidate gate.
+- **Status:** local implementation, deterministic verification and production artifacts are complete. Real candidates proved policy and source-verification success in separate attempts, but no attempt passed all three mandatory scenarios; the latest attempt stopped at `PROVIDER_CONNECTION_FAILED` before scenarios. Production remains `20260726-213258`, formal switch count is zero, and Phase Two is not complete.
+
+### Phase 30: Server-Owned Intent Requirements And Final Single-Deploy Gate
+- [x] Reproduce the `20260727-070820` candidate failures where model intent lowered the required case-comparison and source-verification tool chains.
+- [x] Add server-owned `ResearchExecutionRequirements` so validated API intent and deterministic message signals can only be supplemented, never removed, by model intent.
+- [x] Add optional backward-compatible `requestedIntent` to start and message APIs, persistence, idempotency identity and the four Assistant starters; reset edited starter prompts and continuations to `auto`.
+- [x] Normalize persisted result intent to the server-resolved intent and keep profile region/industry binding independent from task intent.
+- [x] Preserve complete sanitized probe metrics before tool-sequence validation, run all three candidate scenarios independently and aggregate their records.
+- [x] Delete only the exact unswitched release created by the failing deploy command while protecting current, previous and historic releases.
+- [x] Add the forward repeatable `requested_intent` schema migration and candidate/production precheck/postcheck validation.
+- [x] Pass Spring `373` (zero failures/errors, one opt-in Provider smoke skipped), MySQL 8.4 `71/71`, Vitest `87/87`, Assistant `36/36`, all eight frontend scripts, Python default `107` (seven opt-in MySQL skips), explicit MySQL `7/7`, deployment hardening `86/86`, both production builds and repository gates.
+- [x] Pass remote preflight and invoke the single allowed `python .codex_deploy_opc.py deploy` workflow; stop without production mutation after the policy candidate returned `REQUIRED_TOOL_CHAIN_UNSATISFIED`.
+- [ ] Require policy, dynamic case comparison and dynamic source verification to pass in the same isolated candidate before the one production migration/switch and postdeploy checks.
+- **Status:** local implementation, tests, builds and static gates are complete. The one allowed deploy ran all three scenarios: comparison and source verification passed, while policy failed the server tool-chain requirement. `release_switched=false`; production remains `/opt/opc/releases/20260726-213258`, and Phase Two remains open.
+
+### Phase 31: Intent Priority Stabilization And Bounded Deployment Closure
+- [x] Reproduce explicit `policy_lookup` plus conflicting model `case_analysis` and prove the former incorrect merge added `CASE_SEARCH`.
+- [x] Make non-`auto` requested intent authoritative; allow model intent to supplement only when `auto` has no deterministic server operation.
+- [x] Preserve explicit `general_research` and `technology_assessment` instead of degrading either to `follow_up`.
+- [x] Add orchestrator coverage proving an explicit policy Run can complete with only the required policy tool chain despite a conflicting model intent.
+- [x] Record actual tool sequence and scalar metrics before candidate terminal validation, including SQL `NULL` normalization.
+- [x] Pass focused orchestration `32/32`, deployment hardening `88/88`, Spring `380` with one opt-in Provider skip, MySQL 8.4 `71/71`, Vitest `87/87`, Assistant `36/36`, all eight frontend scripts, Python default `109` with seven opt-in MySQL skips, explicit MySQL `7/7`, Vite/JAR builds and repository gates.
+- [x] Run one initial candidate, one same-build transient retry, and two code-corrected candidate retries without changing production on failure.
+- [x] Verify cleanup leaves zero candidate services, databases/users, environment files, port 18082 listeners, and current-attempt release directories.
+- [ ] Pass policy, comparison and source verification in one real candidate batch and switch production once.
+- **Status:** bounded stop reached. The final candidate passed policy and source verification but returned `CANDIDATE_CASE_COMPARISON_EVIDENCE_INSUFFICIENT` with `search_cases, search_policies` and no `compare_cases`. `release_switched=false`; production remains `/opt/opc/releases/20260726-213258`, so Phase Two remains open.
+
+### Phase 32: Deterministic Tool-chain And Production Closure
+- [x] Reproduce the zero-result comparison branch and require one selected search plus at most one broader cross-region search before controlled insufficiency.
+- [x] Make the server reserve budget and complete required policy, case, comparison and source-verification tools through the audited registry.
+- [x] Normalize required search parameters, deduplicate case IDs, preserve request-level dependencies and redact query/category text from tool audit diagnostics.
+- [x] Restrict comparison dimensions to the shared product enum and fall back to `businessModel, outcome` when model suggestions are unsupported.
+- [x] Pass focused orchestration/contract `70/70`, Spring `387` with one opt-in Provider skip, MySQL 8.4 `71/71`, Vitest `87/87`, Assistant `36/36`, all eight frontend scripts, Python discovery `110` with seven explicit-MySQL skips, explicit MySQL `7/7`, deployment hardening `89/89`, both production builds and repository gates.
+- [x] Run four deploy batches: one transient Provider failure, one candidate-report parser failure, one deterministic dimension failure, then one all-green candidate and production switch.
+- [x] Deploy `/opt/opc/releases/20260728-130142` once, retain `/opt/opc/releases/20260726-213258` as previous, and verify backup, dump and backend rollback assets.
+- [x] Pass three independent production research probes, migration postchecks, domain/health/auth checks, one-process/loopback checks and complete candidate/temporary-data cleanup.
+- **Status:** complete. `/opt/opc/current` resolves to `/opt/opc/releases/20260728-130142`; Agent Phase Two exit criteria are satisfied. Manual responsive visual review remains a non-blocking user check.

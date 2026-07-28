@@ -43,6 +43,10 @@ public interface AgentEvidenceToolMapper {
               AND c.region_id IN
               <foreach collection="regionIds" item="regionId" open="(" separator="," close=")">#{regionId}</foreach>
             </if>
+            <if test="excludedRegionIds != null and !excludedRegionIds.isEmpty()">
+              AND c.region_id NOT IN
+              <foreach collection="excludedRegionIds" item="regionId" open="(" separator="," close=")">#{regionId}</foreach>
+            </if>
             <if test="category != null and category != ''">AND c.category=#{category}</if>
             <if test="industryTagId != null">
               AND (
@@ -90,6 +94,7 @@ public interface AgentEvidenceToolMapper {
             """)
     List<AgentCaseSearchRow> searchCases(
             @Param("regionIds") List<Long> regionIds,
+            @Param("excludedRegionIds") List<Long> excludedRegionIds,
             @Param("industryTagId") Long industryTagId,
             @Param("industry") String industry,
             @Param("keywords") String keywords,

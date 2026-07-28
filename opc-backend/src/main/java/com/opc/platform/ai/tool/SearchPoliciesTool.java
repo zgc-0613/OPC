@@ -2,13 +2,11 @@ package com.opc.platform.ai.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.mapper.AgentEvidenceToolMapper;
-import com.opc.platform.region.entity.Region;
 import com.opc.platform.region.mapper.RegionMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -40,10 +38,8 @@ public class SearchPoliciesTool implements AgentTool<SearchPoliciesArguments> {
     @Override
     public String argumentSchema() {
         return """
-                {"type":"object","additionalProperties":false,"anyOf":[{"required":["regionId"]},{"required":["regionName"]}],"properties":{
-                  "regionId":{"type":"integer"},"regionName":{"type":"string","maxLength":50},
-                  "industryTagId":{"type":"integer"},
-                  "industry":{"type":"string","maxLength":100},
+                {"type":"object","additionalProperties":false,"properties":{
+                  "scope":{"type":"string","enum":["selected","parent","national"]},
                   "query":{"type":"string","maxLength":120},
                   "limit":{"type":"integer","minimum":1,"maximum":10}
                 }}
@@ -52,11 +48,13 @@ public class SearchPoliciesTool implements AgentTool<SearchPoliciesArguments> {
 
     @Override
     public AgentToolResult execute(AgentToolContext context, SearchPoliciesArguments arguments) {
-        Long regionId = resolveRegion(context, arguments.getRegionId(), arguments.getRegionName());
-        RegionScope regionScope = regionScope(regionId);
+        AgentRegionResolver.RegionScope requestedScope = regionResolver.resolveScope(
+                context.primaryRegionId(), arguments.getScope());
+        List<Long> regionIds = "selected".equals(requestedScope.scope())
+                ? descendantRegionIds(context.primaryRegionId()) : requestedScope.regionIds();
         int limit = arguments.getLimit() == null ? 5 : Math.max(1, Math.min(10, arguments.getLimit()));
         List<AgentPolicySearchRow> rows = mapper.searchPolicies(
-                regionScope.regionIds(), arguments.getIndustryTagId(), trim(arguments.getIndustry()),
+                regionIds, context.primaryIndustryTagId(), trim(context.primaryIndustry()),
                 trim(arguments.getQuery()), limit
         );
         List<PolicyItem> items = (rows == null ? List.<AgentPolicySearchRow>of() : rows).stream()
@@ -64,8 +62,8 @@ public class SearchPoliciesTool implements AgentTool<SearchPoliciesArguments> {
                         row.getPolicyId(), bounded(row.getTitle(), 240), bounded(row.getPolicyType(), 50),
                         bounded(row.getSummary(), 600), bounded(row.getSupportMeasures(), 600),
                         safeMode(row.getApplicabilityMode()), bounded(row.getGeographicLevel(), 30),
-                        row.getRegionId(), row.getSourceId(),
-                        geographicScope(context, regionId, row, regionScope), matchReason(row, arguments)
+                        row.getRegionId(), row.getSourceId(), geographicScope(requestedScope.scope()),
+                        matchReason(row, context)
                 )).toList();
         Set<Long> sources = new LinkedHashSet<>();
         items.forEach(item -> sources.add(item.sourceId()));
@@ -80,67 +78,25 @@ public class SearchPoliciesTool implements AgentTool<SearchPoliciesArguments> {
         );
     }
 
-    private Long resolveRegion(AgentToolContext context, Long regionId, String regionName) {
-        if (StringUtils.hasText(regionName)) {
-            AgentRegionMatch match = regionResolver.resolve(regionName);
-            if (regionId != null && !regionId.equals(match.regionId())) {
-                throw new AgentToolException("REGION_ARGUMENT_CONFLICT", "地区名称与编号不一致");
-            }
-            context.authorizeRegion(match.regionId());
-            regionId = match.regionId();
+    private List<Long> descendantRegionIds(Long regionId) {
+        List<Long> ids = mapper.selectDescendantRegionIds(regionId);
+        if (ids == null || ids.isEmpty()) {
+            throw new AgentToolException("INVALID_REGION_ID", "研究画像中的地区不存在");
         }
-        if (regionId == null) regionId = context.primaryRegionId();
-        context.requireRegionAuthorized(regionId);
-        return regionId;
+        return ids.stream().filter(java.util.Objects::nonNull).distinct().limit(500).toList();
     }
 
-    private RegionScope regionScope(Long regionId) {
-        Region selected = regionMapper.selectById(regionId);
-        if (selected == null) throw new AgentToolException("INVALID_TOOL_ARGUMENTS", "所选地区不存在");
-        List<Long> ordered = new ArrayList<>();
-        Set<Long> seen = new LinkedHashSet<>();
-        Set<Long> exact = new LinkedHashSet<>();
-        Set<Long> parents = new LinkedHashSet<>();
-        Set<Long> national = new LinkedHashSet<>();
-        List<Long> descendants = mapper.selectDescendantRegionIds(regionId);
-        if (descendants != null) {
-            descendants.stream().filter(java.util.Objects::nonNull).limit(500).forEach(id -> {
-                if (seen.add(id)) ordered.add(id);
-                exact.add(id);
-            });
-        }
-        if (seen.add(selected.getId())) ordered.add(selected.getId());
-        exact.add(selected.getId());
-        Long currentId = selected.getParentId();
-        int ancestorDepth = 0;
-        while (currentId != null && seen.add(currentId) && ancestorDepth++ < 16) {
-            Region current = regionMapper.selectById(currentId);
-            if (current == null) break;
-            ordered.add(current.getId());
-            if ("country".equals(current.getLevel())) national.add(current.getId());
-            else parents.add(current.getId());
-            currentId = current.getParentId();
-        }
-        return new RegionScope(List.copyOf(ordered), Set.copyOf(exact), Set.copyOf(parents), Set.copyOf(national));
+    private String geographicScope(String requestedScope) {
+        return switch (requestedScope) {
+            case "parent" -> "parent";
+            case "national" -> "national";
+            default -> "exact";
+        };
     }
 
-    private String geographicScope(
-            AgentToolContext context,
-            Long requestedRegionId,
-            AgentPolicySearchRow row,
-            RegionScope scope
-    ) {
-        if (scope.national().contains(row.getRegionId())) return "national";
-        if (context.primaryRegionId() != null && !context.primaryRegionId().equals(requestedRegionId)) {
-            return "cross_region";
-        }
-        if (scope.parents().contains(row.getRegionId())) return "parent";
-        return "exact";
-    }
-
-    private String matchReason(AgentPolicySearchRow row, SearchPoliciesArguments arguments) {
+    private String matchReason(AgentPolicySearchRow row, AgentToolContext context) {
         return switch (safeMode(row.getApplicabilityMode())) {
-            case "specific" -> arguments.getIndustryTagId() != null
+            case "specific" -> context.primaryIndustryTagId() != null
                     ? "匹配所选地区及已核验行业标签" : "地区内指定行业政策参考";
             case "general" -> "所选地区或上级地区通用创业政策";
             default -> "所选地区或上级地区政策参考，行业适用性未分类";
@@ -176,11 +132,4 @@ public class SearchPoliciesTool implements AgentTool<SearchPoliciesArguments> {
     ) {
     }
 
-    private record RegionScope(
-            List<Long> regionIds,
-            Set<Long> exact,
-            Set<Long> parents,
-            Set<Long> national
-    ) {
-    }
 }

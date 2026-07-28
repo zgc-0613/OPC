@@ -473,7 +473,7 @@
 - Manual visual acceptance remains for `1366x768`, `1280x600`, `1024x768` and `390x844`; Playwright was not used per instruction.
 
 ## 2026-07-26 Predeploy Provider Evaluation And Contract Closure
-- Added the canonical `AgentResearchContract`, separate planning/synthesis schemas and validators, and twelve sanitized real-failure replay fixtures.
+- Added the canonical `AgentResearchContract`, separate planning/synthesis schemas and validators, and fifteen sanitized real-failure replay fixtures.
 - Replaced model-owned coverage with server-derived current-run case, policy, source and geographic-scope coverage; MySQL coverage tests reject unpublished, unverified and historical-run evidence.
 - Added database-backed region resolution and current-run region authorization for cross-region searches, including Hubei/Wuhan, provincial, national and cross-region MySQL scenarios.
 - Bound Assistant citation/evidence navigation to each message Run and retained safe HTTP(S)-only external links plus the existing Prisma Light interaction states.
@@ -483,3 +483,56 @@
 - The isolated real Provider candidate passed before rollout with `agent-research-v2`, 2 model rounds, 3 completed tools, 4 legal citations, zero unknown citations, matching server-derived coverage, `settled_actual`, zero reservation and `release_switched=false`.
 - Deployed `/opt/opc/releases/20260726-213258`; retained backup `/opt/opc/backups/20260726-213258`, database dump `/opt/opc/backups/20260726-213258/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260726-213258`, and previous release `/opt/opc/releases/20260726-162930`.
 - The postdeploy Agent probe completed with 2 model rounds, 2 completed tools, 4 legal citations, zero unknown citations and 9,965 total Tokens. Independent preflight confirmed matching hashes, three active services, valid nginx configuration, one `opc` backend process and loopback-only port 8082; temporary probe resources were cleaned by the guarded deployment workflow.
+
+## 2026-07-26 Multi-round Tool Closure And Independent Assistant
+- **Status:** local code, final tests and builds complete; isolated candidate rejected the case-comparison scenario, so production deployment did not run and Phase Two remains open.
+- Added an initial-search/continuation protocol so actual `search_cases` results drive `compare_cases` and actual search source IDs drive `get_source` inside the same Run.
+- Locked profile industry and server-derived region scopes; established sessions reject explicit research-boundary changes before persistence or Token reservation.
+- Split full 128 KiB UTF-8 tool audit data from the 12 KiB compact `_authorized` model projection and aligned authorization/evidence counts with the projected items.
+- Added available/total/unavailable evidence semantics and prevented unavailable material from resolving as a citation.
+- Moved `/assistant` out of `MainLayout` into a lazy protected `AssistantLayout`, with mutually exclusive focus-managed history/evidence drawers.
+- Moved candidate database migration, Provider connection and three real Agent probes ahead of every production database and release mutation.
+- Final verification passed Spring `357` executed (`356` passed, one opt-in Provider smoke skipped), MySQL 8.4 `70/70`, Vitest `83/83`, all eight frontend scripts, Python deployment `77/77`, migration `14/14`, explicit MySQL migration `7/7`, Vite/JAR builds and repository gates.
+- Candidate attempt 1 stopped at `INVALID_DEPENDENCIES` with 2 rounds, 2 tools, 8,440 Tokens and 19,697 ms. Candidate attempt 2 stopped at `UNCITED_FACT` with 2 rounds, 2 tools, 8,557 Tokens and 17,596 ms. Both recorded `release_switched=false` and led to bounded deterministic recovery tests.
+- Candidate attempt 3 passed policy lookup, then returned `evidence_insufficient` for case comparison. It did not reach source verification, so the mandatory three-scenario gate did not pass.
+- No Phase 28 database migration was added. Production backup/migration/switch/restart counts remain zero, and final preflight confirmed production is still `/opt/opc/releases/20260726-213258` with unchanged hashes and restored temporary identity counts.
+
+## 2026-07-27 Real-provider Orchestration And Candidate Closure
+- Added terminal-only continuation Schemas, current-run synthesis source allowlists and two bounded content-free planning recoveries. Server-derived terminal evidence now prevents redundant searches without weakening tool authorization or citation validation.
+- Raised the measured defaults to five model rounds, 28,000 aggregate Tokens and a 3,200-Token planning response budget. Added the idempotent `20260727_agent_multiround_budget` precheck/migration/postcheck set; this changes settings data but adds no table, column or index.
+- Ran four bounded candidate batches. The first proved policy lookup and source verification but exceeded the 24,000-Token comparison budget. Subsequent runs exposed controlled Schema/citation/question failures; the latest stopped at `PROVIDER_CONNECTION_FAILED` before scenarios. All completed Provider usage settled once, reservations returned to zero and `release_switched=false` remained true.
+- Verified focused orchestration/contract `53/53`, Spring `368` with zero failures and one opt-in smoke skip, MySQL `70/70`, Vitest `85/85`, Assistant subset `35/35`, frontend scripts `8/8`, Python discovery `101` with seven explicit-MySQL skips, static migration `14/14`, both production builds, Python syntax and repository gates.
+- Production mutation count remains zero. Current release and rollback assets remain `20260726-213258`; the next candidate run is deferred until Provider connectivity is plausibly restored. Phase Two remains open.
+
+## 2026-07-27 Final Single-deploy Closure
+- Added deterministic regressions for explicit comparison/source-verification questions misclassified by the model, conflicting model intent, ordinary general research, candidate metric retention, independent scenario aggregation and exact failed-release cleanup.
+- Implemented server-owned `ResearchExecutionRequirements` and threaded optional `requestedIntent` through the HTTP DTOs, idempotency identity, Run lifecycle, worker and orchestrator. Model intent can raise but cannot lower server requirements.
+- Updated the four Assistant starters to submit their matching intent on the first request, reset to `auto` after material prompt edits, and keep all continuation messages on per-message auto resolution.
+- Added repeatable persistence for `ai_analysis_runs.requested_intent`; candidate and production validate the same precheck/migration/postcheck hashes before rollout.
+- Candidate reports now preserve expected/actual/missing tools and all available safe scalar metrics before sequence gates. A failure in one scenario no longer prevents the other two from producing independent records.
+- Added exact unswitched candidate-release cleanup with current/previous release protection and primary-error preservation. The earlier `/opt/opc/releases/20260727-070820` directory remains untouched as required.
+- Final local gates passed: Spring `373`, MySQL `71/71`, Vitest `87/87`, Assistant `36/36`, eight frontend scripts, Python default `106`, explicit MySQL `7/7`, deployment hardening `85/85`, Vite build, executable JAR, Python syntax and repository checks.
+- Remote preflight passed with active services, valid Nginx, one loopback backend, 60% disk use and sufficient verified evidence. The one allowed deploy invocation then ran all scenarios and stopped before production mutation.
+- Policy failed `REQUIRED_TOOL_CHAIN_UNSATISFIED` after 3 rounds, 2 completed tools, 15,679 Tokens and 41,041 ms. Comparison passed its dynamic `search_cases -> compare_cases` chain in 4 rounds/3 tools with 6 citations and 24,165 Tokens. Source verification passed `search_policies -> get_source` in 4 rounds/3 tools with 2 citations and 18,257 Tokens.
+- Fixed the newly exposed diagnostic-order gap with a red-to-green test: failed Runs now record actual tool sequence before terminal validation without replacing their server diagnostic. Deployment hardening passes `86/86`; full Python discovery passes `107` with seven opt-in MySQL skips. The fix was deliberately not redeployed this round.
+- Verified `release_switched=false`, no new production backup/migration/restart, current release `/opt/opc/releases/20260726-213258`, and complete cleanup of candidate service, database/user, environment file and current-attempt release. Phase Two remains open.
+
+## 2026-07-28 Intent Priority Stabilization And Bounded Deploy
+- Added red-to-green requirements and orchestrator tests for explicit-intent authority, deterministic server-operation authority, auto fallback to model intent, and stable general/technology intents.
+- Fixed the explicit policy priority inversion and retained API/database compatibility. Added bounded comparison search, correction-order and continuation-schema regressions without raising runtime caps.
+- Candidate reporting now captures actual sequence before terminal checks and treats SQL `NULL` as no tool result. Deployment hardening passes `88/88`.
+- Local gates passed: Spring `380` (zero failures/errors, one opt-in Provider skip), MySQL 8.4 `71/71`, Vitest `87/87`, Assistant `36/36`, eight frontend scripts, Python `109` with seven skips plus explicit MySQL `7/7`, Vite/JAR builds and repository checks.
+- Attempt accounting: one initial candidate failed transient Provider connection; its one same-build retry failed comparison insufficiency; corrective candidate 1 failed policy `PLAN_REPEATED`, comparison `UNCITED_FACT`, and source `UNCITED_RECOMMENDATION`; corrective candidate 2 passed policy/source and repeated comparison `CANDIDATE_CASE_COMPARISON_EVIDENCE_INSUFFICIENT`.
+- Final candidate details: policy `search_policies, search_policies, search_cases`, 2 rounds, 3 tools, 2 citations, 8,765 Tokens, 25,588 ms; comparison `search_cases, search_policies`, 3 rounds, 2 tools, 0 citations, 16,362 Tokens, 37,852 ms; source `search_policies, get_source`, 4 rounds, 2 tools, 2 citations, 17,218 Tokens, 42,430 ms. Every scenario settled actual usage and had zero reservation.
+- Bounded stop applied after the same deterministic comparison diagnostic recurred following narrow fixes. Production switch count is zero. Current remains `/opt/opc/releases/20260726-213258`; candidate service/database/user/env/port/release counts are all zero.
+
+## 2026-07-28 Deterministic Tool-chain And Production Closure
+- Added zero-result, one-plus-one, duplicate-ID, reserved-budget, missing-required-tool and unsupported-dimension Red replays. Required comparison now performs at most two searches and cannot accept an early model insufficiency when two authorized cases exist.
+- Added server-owned required-tool completion without bypassing audit, request authorization, evidence hashes, replay verification, Token caps or profile boundaries.
+- Added safe per-tool diagnostics and candidate parsing; a real MySQL header shape was converted into a deterministic parser regression before retry.
+- Final local verification passed focused `70/70`, Spring `387`, MySQL `71/71`, Vitest `87/87`, Assistant `36/36`, eight frontend scripts, Python `110` plus explicit MySQL `7/7`, deployment hardening `89/89`, Vite/JAR builds, syntax, diff, ignore, artifact and scoped-secret checks.
+- Deploy attempt 1: transient `PROVIDER_CONNECTION_FAILED`, no scenarios, no switch. Attempt 2: all research chains completed but report parsing failed `CANDIDATE_AGENT_TOOL_DIAGNOSTIC_INVALID`, no switch. Attempt 3: policy/source passed; comparison failed `INVALID_TOOL_ARGUMENTS` after 4 authorized cases, no switch. Each candidate was fully cleaned.
+- Deploy attempt 4 passed policy, comparison and source verification in one candidate batch, then performed the only production switch to `/opt/opc/releases/20260728-130142`.
+- Candidate metrics: policy 2 rounds/1 tool/7,503 Tokens/19,955 ms/2 citations; comparison 2 rounds/2 tools/10,281 Tokens/34,003 ms/2 citations; source 4 rounds/2 tools/18,544 Tokens/65,468 ms/2 citations. All settled actual usage and zero reservation.
+- Production postchecks passed both domains, health, anonymous auth rejection, user/admin boundaries, history/latestRun, evidence/citations, migrations, Nginx, one `opc` process and loopback 8082. Three independent production chains passed and their temporary user/session counts returned to zero.
+- Current, hashes, backup, database dump, rollback backend and previous release were independently verified. Candidate service/database/user/env/18082 counts are zero. Agent Phase Two is closed; only manual desktop/tablet/phone visual review remains.

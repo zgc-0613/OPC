@@ -27,6 +27,45 @@ class InitialAdminCredentials:
         return bool(self.password)
 
 
+@dataclass
+class CandidateReleaseGate:
+    candidate_passed: bool = False
+    candidate_migration_hash: str | None = None
+    production_migration_calls: int = 0
+    release_switch_calls: int = 0
+    service_restart_calls: int = 0
+
+    def mark_candidate_passed(self, migration_hash):
+        if not isinstance(migration_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", migration_hash):
+            raise RuntimeError("Candidate migration bundle hash is invalid")
+        self.candidate_passed = True
+        self.candidate_migration_hash = migration_hash
+
+    def record_production_migration(self, migration_hash):
+        self._require_candidate(migration_hash)
+        if self.production_migration_calls:
+            raise RuntimeError("Production migration batch may run only once")
+        self.production_migration_calls += 1
+
+    def record_release_switch(self):
+        self._require_candidate(self.candidate_migration_hash)
+        if self.release_switch_calls:
+            raise RuntimeError("Production release may switch only once")
+        self.release_switch_calls += 1
+
+    def record_service_restart(self):
+        self._require_candidate(self.candidate_migration_hash)
+        if self.service_restart_calls:
+            raise RuntimeError("Production service may restart only once")
+        self.service_restart_calls += 1
+
+    def _require_candidate(self, migration_hash):
+        if not self.candidate_passed:
+            raise RuntimeError("Production mutation rejected before the candidate gate passed")
+        if migration_hash != self.candidate_migration_hash:
+            raise RuntimeError("Candidate and production migration hashes differ")
+
+
 def load_local_deploy_secrets(environ, path):
     secret_path = Path(path)
     if secret_path.exists():
@@ -303,7 +342,8 @@ def candidate_probe_failure_message(diagnostic_code, record):
     )
 
 
-def validate_agent_evidence_probe(data, expected_run_id):
+def validate_agent_evidence_probe(
+        data, expected_run_id, required_types=("case", "policy")):
     if not isinstance(data, dict):
         raise ValueError("Agent evidence probe is not an object")
     if data.get("runId") != expected_run_id or data.get("status") != "completed":
@@ -327,7 +367,9 @@ def validate_agent_evidence_probe(data, expected_run_id):
             raise ValueError("Agent evidence probe contains an untitled item")
         available_counts[item["itemType"]] += 1
 
-    for item_type in ("case", "policy"):
+    for item_type in required_types:
+        if item_type not in available_counts:
+            raise ValueError("Agent evidence probe requested an unknown evidence type")
         group_count = groups.get(item_type)
         if not isinstance(group_count, int) or group_count < 1 or available_counts[item_type] < 1:
             raise ValueError(f"Agent evidence probe is missing available {item_type} evidence")

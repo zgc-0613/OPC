@@ -3,6 +3,7 @@ package com.opc.platform.ai.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.opc.platform.ai.contract.AgentResearchContract;
 import com.opc.platform.ai.dto.AgentMessageCreateDTO;
 import com.opc.platform.ai.dto.AgentSessionStartDTO;
 import com.opc.platform.ai.entity.AiAgentMessage;
@@ -80,8 +81,9 @@ public class AgentResearchService {
             AgentMessageCreateDTO request
     ) {
         validateRequest(request);
+        String requestedIntent = requestedIntent(request.getRequestedIntent());
         AgentSubmissionIdentity identity = new AgentSubmissionIdentity(
-                "message", hash(request.getContent().trim()), null, 0L);
+                "message", hash(request.getContent().trim()), null, 0L, requestedIntent);
         AgentRuntimeConfig config = configProvider.agentRuntimeConfig();
         if (!config.enabled()) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Agent Runtime 尚未启用");
@@ -105,12 +107,14 @@ public class AgentResearchService {
 
     public AgentResearchStartReceipt start(AuthenticatedUser user, AgentSessionStartDTO request) {
         validateStartRequest(request);
+        String requestedIntent = requestedIntent(request.getRequestedIntent());
         String profileJson = profilePolicy.canonicalJson(request.getProfile());
         AgentSubmissionIdentity requestedIdentity = new AgentSubmissionIdentity(
                 "session_start",
                 hash(request.getContent().trim()),
                 profilePolicy.fingerprint(profileJson),
-                0L
+                0L,
+                requestedIntent
         );
         AgentRuntimeConfig config = configProvider.agentRuntimeConfig();
         if (!config.enabled()) {
@@ -161,9 +165,11 @@ public class AgentResearchService {
         AgentMessageCreateDTO message = new AgentMessageCreateDTO();
         message.setContent(request.getContent());
         message.setIdempotencyKey(request.getIdempotencyKey());
+        message.setRequestedIntent(requestedIdentity.requestedIntent());
         AgentSubmissionIdentity identity = new AgentSubmissionIdentity(
                 requestedIdentity.kind(), requestedIdentity.contentHash(), requestedIdentity.profileHash(),
-                session.getContentGeneration() == null ? 0L : session.getContentGeneration());
+                session.getContentGeneration() == null ? 0L : session.getContentGeneration(),
+                requestedIdentity.requestedIntent());
         Submission submission = createSubmission(user, session.getId(), message, config, identity);
         if (submission.reused()) {
             throw new ReusedSubmissionException(submission.receipt());
@@ -186,6 +192,9 @@ public class AgentResearchService {
         AiAgentSession session = sessionService.lockOwned(user, sessionId);
         if (!"active".equals(session.getStatus())) {
             throw new BusinessException(ErrorCode.CONFLICT, "已归档会话不能继续发送消息");
+        }
+        if (clarificationPolicy.changesResearchBoundary(session.getProfileJson(), request.getContent())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "需要基于新条件创建研究");
         }
         AiAgentMessage userMessage = sessionService.appendMessage(
                 user, sessionId, "user", request.getContent(), "completed", null, null);
@@ -257,6 +266,7 @@ public class AgentResearchService {
         run.setUserMessageId(userMessageId);
         run.setIdempotencyKey(idempotencyKey);
         run.setSubmissionKind(identity.kind());
+        run.setRequestedIntent(identity.requestedIntent());
         run.setRequestContentHash(identity.contentHash());
         run.setStartProfileHash(identity.profileHash());
         run.setSessionContentGeneration(identity.sessionContentGeneration());
@@ -309,6 +319,8 @@ public class AgentResearchService {
             }
         }
         boolean mismatch = !storedKind.equals(expected.kind())
+                || !ResearchExecutionRequirements.normalizeIntent(existing.getRequestedIntent())
+                    .equals(ResearchExecutionRequirements.normalizeIntent(expected.requestedIntent()))
                 || !Objects.equals(storedContentHash, expected.contentHash())
                 || value(existing.getSessionContentGeneration()) != expected.sessionContentGeneration()
                 || (expectedSessionId != null && !Objects.equals(existing.getSessionId(), expectedSessionId))
@@ -331,6 +343,14 @@ public class AgentResearchService {
                 || !request.getIdempotencyKey().matches("[A-Za-z0-9_-]{8,64}")) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "研究消息或幂等键格式无效");
         }
+    }
+
+    private String requestedIntent(String value) {
+        String normalized = ResearchExecutionRequirements.normalizeIntent(value);
+        if (!AgentResearchContract.REQUESTED_INTENTS.contains(normalized)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "requestedIntent is invalid");
+        }
+        return normalized;
     }
 
     private AgentResearchReceipt receipt(AiAnalysisRun run) {

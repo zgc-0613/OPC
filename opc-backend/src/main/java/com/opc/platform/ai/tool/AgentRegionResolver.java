@@ -8,6 +8,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -38,6 +41,48 @@ public class AgentRegionResolver {
         return toMatch(matches.get(0), "unique_name_match");
     }
 
+    public RegionScope resolveScope(Long selectedRegionId, String requestedScope) {
+        if (selectedRegionId == null || selectedRegionId <= 0) {
+            throw new AgentToolException("INVALID_REGION_ID", "研究画像中的地区编号无效");
+        }
+        Region selected = regionMapper.selectById(selectedRegionId);
+        if (selected == null) {
+            throw new AgentToolException("INVALID_REGION_ID", "研究画像中的地区不存在");
+        }
+        String scope = StringUtils.hasText(requestedScope) ? requestedScope.trim() : "selected";
+        if ("selected".equals(scope) || "cross_region_reference".equals(scope)) {
+            return new RegionScope(scope, List.of(selected.getId()));
+        }
+        if (!Set.of("parent", "national").contains(scope)) {
+            throw new AgentToolException("INVALID_REGION_SCOPE", "地区检索范围无效");
+        }
+
+        if ("country".equals(selected.getLevel())) {
+            return new RegionScope("national", List.of(selected.getId()));
+        }
+
+        List<Long> parentIds = new ArrayList<>();
+        List<Long> nationalIds = new ArrayList<>();
+        Set<Long> visited = new LinkedHashSet<>();
+        Long currentId = selected.getParentId();
+        int depth = 0;
+        while (currentId != null && visited.add(currentId) && depth++ < 16) {
+            Region current = regionMapper.selectById(currentId);
+            if (current == null) break;
+            if ("country".equals(current.getLevel())) nationalIds.add(current.getId());
+            else parentIds.add(current.getId());
+            currentId = current.getParentId();
+        }
+        if ("parent".equals(scope) && parentIds.isEmpty() && !nationalIds.isEmpty()) {
+            return new RegionScope("national", List.copyOf(nationalIds));
+        }
+        List<Long> resolved = "parent".equals(scope) ? parentIds : nationalIds;
+        if (resolved.isEmpty()) {
+            throw new AgentToolException("REGION_SCOPE_EMPTY", "所选地区没有可用的上级检索范围");
+        }
+        return new RegionScope(scope, List.copyOf(resolved));
+    }
+
     private List<Region> safe(List<Region> matches) {
         return matches == null ? List.of() : matches.stream().filter(java.util.Objects::nonNull).toList();
     }
@@ -46,5 +91,8 @@ public class AgentRegionResolver {
         return new AgentRegionMatch(
                 region.getId(), region.getName(), region.getLevel(), region.getParentId(), reason
         );
+    }
+
+    public record RegionScope(String scope, List<Long> regionIds) {
     }
 }

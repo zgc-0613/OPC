@@ -1,10 +1,10 @@
 <template>
-  <section class="evidence-panel" aria-labelledby="assistant-evidence-title">
+  <section class="evidence-panel" :aria-labelledby="titleId">
     <details :open="Boolean(items.length || loading || error)">
       <summary>
         <div>
           <span class="caption">RESEARCH MATERIALS</span>
-          <h2 id="assistant-evidence-title">研究资料</h2>
+          <h2 :id="titleId">研究资料</h2>
         </div>
         <small>{{ summaryLabel }}</small>
         <ChevronDown :size="17" aria-hidden="true" />
@@ -14,16 +14,18 @@
         <p v-if="loading" class="evidence-state" role="status">正在整理研究资料…</p>
         <p v-else-if="error" class="evidence-state is-error" role="alert">{{ error }}</p>
         <p v-else-if="!items.length" class="evidence-state" role="status">暂无可展示的研究资料</p>
+        <template v-else>
+          <p v-if="availableCount === 0" class="evidence-state" role="status">当前资料已失效，请重新检索</p>
 
-        <section v-for="group in visibleGroups" v-else :key="group.type" class="evidence-group" :aria-labelledby="`evidence-${group.type}`">
-          <header>
-            <h3 :id="`evidence-${group.type}`">{{ group.label }}</h3>
-            <span>{{ group.items.length }} 项</span>
-          </header>
-          <article v-for="item in group.items" :id="`evidence-${item.runId || runId}-${item.sourceId}`" :key="`${item.itemType}:${item.itemId}`" class="evidence-item" :class="{ unavailable: !item.available }" :data-run-id="item.runId || runId" :data-source-id="item.sourceId" :data-citation-id="item.citationId || undefined">
+          <section v-for="group in visibleGroups" :key="group.type" class="evidence-group" :aria-labelledby="`evidence-${group.type}`">
+            <header>
+              <h3 :id="`evidence-${group.type}`">{{ group.label }}</h3>
+              <span>可用 {{ groupAvailableCount(group.type) }} 项，共 {{ group.items.length }} 项</span>
+            </header>
+            <article v-for="item in group.items" :id="`${itemIdPrefix}-${item.runId || runId}-${item.sourceId}`" :key="`${item.itemType}:${item.itemId}`" class="evidence-item" :class="{ unavailable: !item.available }" :data-run-id="item.runId || runId" :data-source-id="item.sourceId" :data-citation-id="item.citationId || undefined">
             <div class="evidence-item-heading">
               <div>
-                <span v-if="item.sourceId" class="citation-reference">引用 [{{ item.sourceId }}]</span>
+                <span v-if="item.available && item.citationId" class="citation-reference">引用 [{{ item.citationIndex }}]</span>
                 <h4>{{ item.title || '未命名资料' }}</h4>
               </div>
               <span class="evidence-status">{{ item.available ? '已核验' : '当前不可用' }}</span>
@@ -40,8 +42,9 @@
               <a v-if="safeInternalPath(item.detailUrl)" :href="safeInternalPath(item.detailUrl)"><FileText :size="15" />站内详情</a>
               <a v-if="safeExternalUrl(item.originalUrl)" :href="safeExternalUrl(item.originalUrl)" target="_blank" rel="noopener noreferrer"><ExternalLink :size="15" />原始来源</a>
             </footer>
-          </article>
-        </section>
+            </article>
+          </section>
+        </template>
       </div>
     </details>
   </section>
@@ -53,7 +56,10 @@ import { ChevronDown, ExternalLink, FileText } from 'lucide-vue-next'
 
 const props = defineProps({
   runId: { type: [Number, String], default: null },
+  titleId: { type: String, default: 'assistant-evidence-title' },
+  itemIdPrefix: { type: String, default: 'evidence' },
   items: { type: Array, default: () => [] },
+  summary: { type: Object, default: null },
   loading: Boolean,
   error: { type: String, default: '' },
 })
@@ -66,7 +72,22 @@ const groupDefinitions = [
 const visibleGroups = computed(() => groupDefinitions
   .map((group) => ({ ...group, items: props.items.filter((item) => item?.itemType === group.type) }))
   .filter((group) => group.items.length))
-const summaryLabel = computed(() => props.loading ? '整理中' : `${props.items.length} 项`)
+const availableCount = computed(() => Number.isInteger(props.summary?.availableCount)
+  ? props.summary.availableCount
+  : props.items.filter((item) => item?.available).length)
+const totalCount = computed(() => Number.isInteger(props.summary?.totalCount)
+  ? props.summary.totalCount
+  : props.items.length)
+const summaryLabel = computed(() => props.loading
+  ? '整理中'
+  : `可用 ${availableCount.value} 项，共 ${totalCount.value} 项`)
+
+function groupAvailableCount(type) {
+  const value = props.summary?.availableGroups?.[type]
+  return Number.isInteger(value)
+    ? value
+    : props.items.filter((item) => item?.itemType === type && item?.available).length
+}
 
 function safeExternalUrl(value) {
   try {

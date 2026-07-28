@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick, ref } from 'vue'
 
 const api = vi.hoisted(() => ({
   archive: vi.fn(), cancel: vi.fn(), checkReadiness: vi.fn(), create: vi.fn(), getCapabilities: vi.fn(),
@@ -54,6 +55,7 @@ const deferred = () => {
   })
   return { promise, resolve, reject }
 }
+const latestEventValue = (wrapper, name) => wrapper.emitted(name)?.at(-1)?.[0]
 
 describe('AssistantView research workspace', () => {
   beforeEach(() => {
@@ -85,6 +87,12 @@ describe('AssistantView research workspace', () => {
   it('keeps the Prisma Light workspace free of forbidden visual treatments', () => {
     expect(assistantSource).not.toMatch(/linear-gradient|radial-gradient|backdrop-filter|border-left:\s*[2-9]px/i)
     expect(assistantSource).not.toMatch(/box-shadow:\s*0\s+\d{2,}px/i)
+  })
+
+  it('leaves the route layout as the only topbar and uses an open workspace surface', () => {
+    expect(assistantSource).not.toContain('class="desk-header"')
+    expect(assistantSource).not.toContain('id="assistant-title"')
+    expect(assistantSource).not.toMatch(/\.assistant-workspace\{[^}]*border:\s*1px\s+solid/)
   })
 
   it('adapts the research profile to its desk container rather than the viewport', () => {
@@ -406,6 +414,57 @@ describe('AssistantView research workspace', () => {
     wrapper.unmount()
   })
 
+  it('sends a starter intent once and returns to auto after the prompt is rewritten', async () => {
+    api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
+    api.start.mockResolvedValue({
+      session: session({ sessionId: 106, title: 'New research', profile: { regionId: 42, industry: 'AI' } }),
+      messageId: 202,
+      runId: 302,
+      status: 'received',
+    })
+    api.getSession.mockResolvedValue(detail({ session: session({ sessionId: 106 }) }))
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    const selects = wrapper.findAll('.profile-fields select')
+    await selects[1].setValue('42')
+    await wrapper.get('[role="combobox"]').setValue('浜哄伐鏅鸿兘搴旂敤')
+    await vi.advanceTimersByTimeAsync(420)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(420)
+    await flushPromises()
+
+    await wrapper.findAll('.starter-grid button')[1].trigger('click')
+    expect(wrapper.findComponent({ name: 'AssistantConversation' }).emitted('prefill')).toBeTruthy()
+    expect(wrapper.get('form.composer textarea').element.value).toContain('比较')
+    expect(wrapper.get('button.send-command').attributes('disabled')).toBeUndefined()
+    await wrapper.get('form.composer').trigger('submit')
+    await flushPromises()
+    expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({
+      requestedIntent: 'case_comparison',
+    }))
+    wrapper.unmount()
+
+    api.start.mockClear()
+    localStorage.clear()
+    api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
+    const rewritten = mount(AssistantView)
+    await flushPromises()
+    const rewrittenSelects = rewritten.findAll('.profile-fields select')
+    await rewrittenSelects[1].setValue('42')
+    await rewritten.get('[role="combobox"]').setValue('浜哄伐鏅鸿兘搴旂敤')
+    await vi.advanceTimersByTimeAsync(420)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(420)
+    await flushPromises()
+    await rewritten.findAll('.starter-grid button')[1].trigger('click')
+    await rewritten.get('form.composer textarea').setValue('帮我梳理下一步创业方向')
+    await rewritten.get('form.composer').trigger('submit')
+    await flushPromises()
+
+    expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ requestedIntent: 'auto' }))
+    rewritten.unmount()
+  })
+
   it('reuses the pending start identity after an ambiguous failure and reload', async () => {
     api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
     api.start
@@ -556,7 +615,7 @@ describe('AssistantView research workspace', () => {
     }))
     await flushPromises()
 
-    expect(wrapper.get('#assistant-title').text()).toBe('研究 B')
+    expect(latestEventValue(wrapper, 'workspace-title')).toBe('研究 B')
     expect(wrapper.text()).toContain('会话 B 的问题')
     expect(wrapper.text()).not.toContain('会话 A 的问题')
     expect(localStorage.getItem(SELECTED_SESSION_KEY)).toBe('102')
@@ -591,7 +650,7 @@ describe('AssistantView research workspace', () => {
     processA.resolve({ ...activeRun, visibleProgress: '会话 A 的研究过程' })
     await flushPromises()
     expect(document.querySelector('.citation-drawer')).toBeNull()
-    expect(wrapper.get('#assistant-title').text()).toBe('研究 B')
+    expect(latestEventValue(wrapper, 'workspace-title')).toBe('研究 B')
     wrapper.unmount()
   })
 
@@ -617,7 +676,7 @@ describe('AssistantView research workspace', () => {
     receipt.resolve({ sessionId: 101, messageId: 211, runId: 311, status: 'received' })
     await flushPromises()
 
-    expect(wrapper.get('#assistant-title').text()).toBe('研究 B')
+    expect(latestEventValue(wrapper, 'workspace-title')).toBe('研究 B')
     expect(wrapper.text()).toContain('会话 B 的问题')
     expect(localStorage.getItem(SELECTED_SESSION_KEY)).toBe('102')
     wrapper.unmount()
@@ -671,7 +730,7 @@ describe('AssistantView research workspace', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('#assistant-title').text()).toBe('研究 B')
+    expect(latestEventValue(wrapper, 'workspace-title')).toBe('研究 B')
     expect(wrapper.text()).toContain('会话 B 的问题')
     expect(wrapper.text()).not.toContain('会话 A 的更早问题')
     wrapper.unmount()
@@ -815,24 +874,61 @@ describe('AssistantView research workspace', () => {
     await flushPromises()
 
     expect(api.getEvidence).toHaveBeenCalledWith(301)
-    expect(wrapper.text()).toContain('研究资料')
-    expect(wrapper.text()).toContain('武汉 AI 工作室')
-    expect(wrapper.get('a[href="/cases/11"]').exists()).toBe(true)
-    expect(wrapper.get('.evidence-item').attributes('data-run-id')).toBe('301')
-    expect(wrapper.get('.evidence-item').attributes('data-source-id')).toBe('2')
-    expect(wrapper.get('.evidence-item').attributes('data-citation-id')).toBe('301:2:1')
+    expect(wrapper.findAll('.evidence-summary-command')).toHaveLength(1)
+    expect(wrapper.find('.evidence-item').exists()).toBe(false)
+    await wrapper.get('.evidence-summary-command').trigger('click')
+    await nextTick()
+    const drawer = document.querySelector('.citation-drawer')
+    expect(drawer.textContent).toContain('研究资料')
+    expect(drawer.textContent).toContain('武汉 AI 工作室')
+    expect(drawer.querySelector('a[href="/cases/11"]')).not.toBeNull()
+    expect(drawer.querySelector('.evidence-item').dataset.runId).toBe('301')
+    expect(drawer.querySelector('.evidence-item').dataset.sourceId).toBe('2')
+    expect(drawer.querySelector('.evidence-item').dataset.citationId).toBe('301:2:1')
     wrapper.unmount()
   })
 
   it('opens and closes the mobile history drawer with Escape', async () => {
-    const wrapper = mount(AssistantView)
+    const historyRequest = ref(0)
+    const restoreFocus = vi.fn()
+    const wrapper = mount(AssistantView, {
+      global: { provide: { 'assistant-history-control': { request: historyRequest, restoreFocus } } },
+    })
     await flushPromises()
 
-    await wrapper.get('.mobile-history-command').trigger('click')
+    historyRequest.value += 1
+    await nextTick()
     expect(wrapper.get('.history-sidebar').classes()).toContain('is-mobile-open')
     await wrapper.get('.history-sidebar').trigger('keydown', { key: 'Escape' })
     await flushPromises()
     expect(wrapper.get('.history-sidebar').classes()).not.toContain('is-mobile-open')
+    expect(restoreFocus).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('opens research materials from the layout request and closes the history drawer first', async () => {
+    const evidenceRequest = ref(0)
+    const historyRequest = ref(0)
+    const wrapper = mount(AssistantView, {
+      attachTo: document.body,
+      global: { provide: {
+        'assistant-evidence-request': evidenceRequest,
+        'assistant-history-control': { request: historyRequest, restoreFocus: vi.fn() },
+      } },
+    })
+    await flushPromises()
+
+    historyRequest.value += 1
+    await nextTick()
+    expect(wrapper.get('.history-sidebar').classes()).toContain('is-mobile-open')
+    evidenceRequest.value += 1
+    await nextTick()
+
+    expect(wrapper.get('.history-sidebar').classes()).not.toContain('is-mobile-open')
+    expect(document.querySelector('.citation-drawer').textContent).toContain('研究资料')
+    document.querySelector('.citation-drawer').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(document.querySelector('.citation-drawer')).toBeNull()
     wrapper.unmount()
   })
 

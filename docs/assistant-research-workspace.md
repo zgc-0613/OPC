@@ -130,3 +130,27 @@ The strengthened real research gate rejected invalid candidates and restored `/o
 The final local run executed 322 Spring tests (`321` passed and one opt-in Provider smoke was skipped), including MySQL 8.4 `67/67`; Vitest remained `73/73`, all 8 frontend scripts passed, both production builds passed and repository gates stayed green. The last rejected candidate reproduced a 2,000-token compact-synthesis truncation; a red-to-green request contract corrected synthesis to 3,200 under the configured aggregate Run limit.
 
 Release `/opt/opc/releases/20260726-162930` is live, with backup `/opt/opc/backups/20260726-162930`, database dump `/opt/opc/backups/20260726-162930/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260726-162930`, and previous release `/opt/opc/releases/20260726-092000`. The real `deepseek-v4-flash` probe completed with 3 rounds, 2 tools, 5 case items, 2 policy items, 4 legal citations, 0 unknown citations, 11,039 tokens and 46,160 ms latency. Independent preflight confirmed the artifact hashes, three active services, one backend process, loopback-only listening and restored temporary-account counts.
+
+## Phase 28 independent Assistant workspace
+
+`/assistant` is now a lazy top-level protected route under `AssistantLayout`, rather than a child of `MainLayout`. Direct anonymous access retains `/assistant` as the login redirect with reason `ai-login-required`; refresh and session selection remain owned by `AssistantView`. The public archive sidebar, public page heading and public back-to-top control no longer render inside the Assistant.
+
+The lightweight workspace topbar contains one return-to-index command, the current research title, one materials command and an account entry. Desktop keeps one Assistant history rail, the bounded conversation/Composer surface and an on-demand evidence drawer. Tablet and phone use mutually exclusive focus-managed drawers; Escape closes the active drawer and restores the opening control. The existing history, drafts, citations, polling, retry and first-message behavior remain in `AssistantView`.
+
+Evidence presentation now distinguishes available from historical total material. It displays `可用 X 项，共 Y 项`; an all-unavailable result displays `当前资料已失效，请重新检索`. Unavailable items retain their status explanation but are not labeled or linked as citations. Inline evidence and the drawer use separate DOM identity prefixes while sharing `runId`, `sourceId` and `citationId` semantics.
+
+The layout remains SoloFirm Prisma Light and uses a `100vh` fallback plus `100dvh`, bounded flex/grid children, independent conversation scrolling, safe-area Composer padding and 44 px coarse-pointer commands. Playwright is intentionally not used. Manual checks remain required at `1366x768`, `1280x600`, `1024x768`, `390x844` and the requested 375 px phone width.
+
+Final Phase 28 frontend verification passed 83 Vitest tests across 16 files, all eight package scripts and the production build. The public synchronous main chunk is `428.22 kB`; lazy Assistant chunks are `1.37 kB` for the layout and `203.61 kB` for the view. The independent workspace was not deployed because the mandatory real Provider candidate stopped at case-comparison evidence insufficiency. Manual viewport acceptance therefore applies to the eventual deployed release, not the current production baseline.
+
+## Phase 29 workspace verification
+
+The independent route and visual ownership remain unchanged while Agent compatibility fixes continue. The current frontend suite passes `85/85`, including the Assistant component subset `35/35`, all eight package scripts and the production build. The public synchronous bundle remains approximately 428 kB and `AssistantView` remains a lazy approximately 203 kB route chunk, so the public home does not synchronously load the Assistant workspace.
+
+No Phase 29 production rollout occurred because the three-scenario Provider candidate is not green. Manual inspection remains required on the eventual release at `1366x768`, `1280x600`, `1024x768`, `390x844` and 375 px width for single-topbar hierarchy, evidence drawer exclusivity, focus restoration, long-conversation Composer access and safe-area behavior.
+
+## Phase 31 deployment status
+
+No Assistant component or layout change was required for the intent-priority repair. The independent lazy `AssistantLayout`, Starter `requestedIntent` behavior, one-topbar workspace and evidence drawer remain covered by Vitest `87/87`, the Assistant subset `36/36`, all eight package scripts and the Vite production build. The public entry remains `428.22 kB` and the lazy Assistant view remains `204.03 kB`.
+
+The final candidate did not pass all three Agent scenarios, so these already-built Assistant assets were not switched into production. Manual viewport acceptance still applies to the eventual deployed release; current production remains `/opt/opc/releases/20260726-213258`.

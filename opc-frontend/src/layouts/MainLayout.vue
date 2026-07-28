@@ -4,7 +4,6 @@
     :class="[
       {
         'home-shell': isHome,
-        'assistant-route-shell': isAssistant,
         'sidebar-collapsed': sidebarCollapsed,
         'mobile-sidebar-open': mobileSidebarOpen,
       },
@@ -130,24 +129,24 @@
     </aside>
 
     <main class="main archive-main">
-      <header v-if="!isHome && !isAssistant" class="public-page-heading">
+      <header v-if="!isHome" class="public-page-heading">
         <div>
           <h1>{{ routeTitle }}</h1>
           <p>{{ routeSubtitle }}</p>
         </div>
-        <div v-if="!['analysis-overview', 'assistant'].includes(route.name)" class="topbar-status">
+        <div v-if="route.name !== 'analysis-overview'" class="topbar-status">
           <span></span>
           公开索引模式
         </div>
       </header>
 
-      <section :class="isAssistant ? 'assistant-content-shell' : 'content content-shell'">
+      <section class="content content-shell">
         <RouterView />
       </section>
     </main>
 
     <button
-      v-if="showBackToTop && !isAssistant"
+      v-if="showBackToTop"
       class="public-back-to-top"
       type="button"
       aria-label="返回页面顶部"
@@ -169,7 +168,6 @@ import { isUserAuthenticated } from '@/api/auth'
 const route = useRoute()
 
 const isHome = computed(() => route.name === 'home')
-const isAssistant = computed(() => route.name === 'assistant')
 const sidebarCollapsed = ref(false)
 const mobileSidebarOpen = ref(false)
 const showBackToTop = ref(false)
@@ -193,7 +191,6 @@ const routeTitle = computed(() => {
     'policy-detail': '政策详情',
     'case-list': '案例索引',
     'case-detail': '案例详情',
-    assistant: '创业研究助手',
     'source-ledger': '来源台账',
     'user-account': '个人主页',
   }
@@ -209,7 +206,6 @@ const routeSubtitle = computed(() => {
     'policy-detail': '查看政策摘要、支持措施、来源链接和关键字段。',
     'case-list': '汇集一人公司与 AI 创业案例，支持多维度检索与分析。',
     'case-detail': '查看案例主体、模式、工具和成果记录。',
-    assistant: '结合创业画像检索本地已核验案例与政策，生成带来源依据的行动建议。',
     'source-ledger': '查看来源链接、文件名、访问日期及状态，确保资料可追溯、可复核。',
     'user-account': '管理你的 SoloFirm 账号与个人资料空间。',
   }
@@ -246,21 +242,3 @@ onUnmounted(() => {
   window.removeEventListener('scroll', updateBackToTopVisibility)
 })
 </script>
-
-<style scoped>
-.assistant-route-shell {
-  width: 100%;
-  height: 100vh;
-  height: 100dvh;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.assistant-route-shell .archive-main,
-.assistant-content-shell {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-</style>

@@ -9,6 +9,8 @@ import com.opc.platform.ai.mapper.AiAgentMessageMapper;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
 import com.opc.platform.ai.provider.AgentRuntimeConfig;
 import com.opc.platform.ai.provider.AgentRuntimeConfigProvider;
+import com.opc.platform.common.enums.ErrorCode;
+import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.userauth.AuthenticatedUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
@@ -16,10 +18,12 @@ import org.springframework.core.task.TaskRejectedException;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -28,6 +32,50 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AgentResearchServiceTest {
+
+    @Test
+    void explicitBoundaryChangeIsRejectedBeforeMessageWriteOrTokenReservation() {
+        AgentSessionService sessions = mock(AgentSessionService.class);
+        AiAgentMessageMapper messages = mock(AiAgentMessageMapper.class);
+        AiAnalysisRunMapper runs = mock(AiAnalysisRunMapper.class);
+        AgentRunLifecycleService lifecycle = mock(AgentRunLifecycleService.class);
+        AgentRuntimeConfigProvider configProvider = mock(AgentRuntimeConfigProvider.class);
+        AgentRunDispatcher dispatcher = mock(AgentRunDispatcher.class);
+        AgentClarificationPolicy clarification = mock(AgentClarificationPolicy.class);
+        AgentProfilePolicy profilePolicy = mock(AgentProfilePolicy.class);
+        AgentSessionHistoryService historyService = mock(AgentSessionHistoryService.class);
+        TransactionTemplate transactions = mock(TransactionTemplate.class);
+        AgentRuntimeConfig config = new AgentRuntimeConfig(
+                true, 4, 6, 8000, 12, Duration.ofSeconds(120), "json_plan");
+        when(configProvider.agentRuntimeConfig()).thenReturn(config);
+        when(transactions.execute(any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            TransactionCallback<Object> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(TransactionStatus.class));
+        });
+        AiAgentSession session = new AiAgentSession();
+        session.setId(10L);
+        session.setUserId(42L);
+        session.setStatus("active");
+        session.setProfileJson("{\"regionId\":2,\"industryTagId\":7}");
+        when(sessions.lockOwned(any(), anyLong())).thenReturn(session);
+        when(clarification.changesResearchBoundary(any(), any())).thenReturn(true);
+        AgentResearchService service = new AgentResearchService(
+                sessions, messages, runs, lifecycle, configProvider, dispatcher, clarification,
+                profilePolicy, historyService, transactions, Runnable::run, new ObjectMapper());
+        AgentMessageCreateDTO request = new AgentMessageCreateDTO();
+        request.setContent("请把研究地区改为广东省");
+        request.setIdempotencyKey("idem-boundary-123");
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.submit(
+                new AuthenticatedUser(42L, "owner", "owner@example.com"), 10L, request));
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
+        assertEquals("需要基于新条件创建研究", exception.getMessage());
+        verify(sessions, never()).appendMessage(any(), anyLong(), any(), any(), any(), any(), any());
+        verify(lifecycle, never()).enqueue(any(), anyLong(), anyLong(), any(), any(), any());
+        verify(messages, never()).attachRun(anyLong(), anyLong());
+    }
 
     @Test
     void rejectedWakeupLeavesReceivedRunAvailableForDatabaseWorker() {
@@ -84,13 +132,16 @@ class AgentResearchServiceTest {
         AgentMessageCreateDTO request = new AgentMessageCreateDTO();
         request.setContent("Research Hubei AI opportunities");
         request.setIdempotencyKey("idem-queue-123");
+        request.setRequestedIntent("case_comparison");
 
         AgentResearchReceipt receipt = service.submit(
                 new AuthenticatedUser(42L, "owner", "owner@example.com"), 10L, request);
 
         assertEquals("received", receipt.status());
         assertEquals(30L, receipt.runId());
-        verify(lifecycle).enqueue(any(), anyLong(), anyLong(), any(), any(), any());
+        ArgumentCaptor<AgentSubmissionIdentity> identity = ArgumentCaptor.forClass(AgentSubmissionIdentity.class);
+        verify(lifecycle).enqueue(any(), anyLong(), anyLong(), any(), any(), identity.capture());
+        assertEquals("case_comparison", identity.getValue().requestedIntent());
         verify(sessions).updateResearchContext(any(), anyLong(), any());
         verify(dispatcher, never()).processNext();
     }

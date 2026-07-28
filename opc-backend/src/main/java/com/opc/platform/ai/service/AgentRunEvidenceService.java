@@ -3,6 +3,7 @@ package com.opc.platform.ai.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.opc.platform.ai.contract.AgentResearchContract;
 import com.opc.platform.ai.entity.AiAgentToolCall;
 import com.opc.platform.ai.entity.AiAnalysisRun;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
@@ -24,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -88,13 +90,25 @@ public class AgentRunEvidenceService {
             };
             if (item != null) items.add(item);
         }
-        Map<String, Integer> groups = ITEM_TYPES.stream().collect(Collectors.toMap(
+        Map<String, Integer> totalGroups = ITEM_TYPES.stream().collect(Collectors.toMap(
                 Function.identity(),
                 type -> (int) items.stream().filter(item -> type.equals(item.itemType())).count(),
                 (left, right) -> left,
                 LinkedHashMap::new
         ));
-        return new AgentRunEvidenceVO(runId, run.getStatus(), List.copyOf(items), Map.copyOf(groups));
+        Map<String, Integer> availableGroups = ITEM_TYPES.stream().collect(Collectors.toMap(
+                Function.identity(),
+                type -> (int) items.stream().filter(item -> item.available() && type.equals(item.itemType())).count(),
+                (left, right) -> left,
+                LinkedHashMap::new
+        ));
+        int availableCount = (int) items.stream().filter(AgentEvidenceItemVO::available).count();
+        int totalCount = items.size();
+        return new AgentRunEvidenceVO(
+                runId, run.getStatus(), List.copyOf(items), Map.copyOf(totalGroups),
+                availableCount, totalCount, totalCount - availableCount,
+                Map.copyOf(availableGroups), Map.copyOf(totalGroups)
+        );
     }
 
     private AgentEvidenceItemVO caseEvidence(
@@ -180,6 +194,7 @@ public class AgentRunEvidenceService {
         for (AiAgentToolCall call : calls == null ? List.<AiAgentToolCall>of() : calls) {
             if (call == null || !"completed".equals(call.getStatus())) continue;
             JsonNode root = parse(call.getResultSummaryJson());
+            if (root.path("_authorized").isObject()) root = root.path("_authorized");
             switch (String.valueOf(call.getToolName())) {
                 case "search_cases" -> appendArray(unique, counts, root.path("items"), "case", "caseId");
                 case "search_policies" -> appendArray(unique, counts, root.path("items"), "policy", "policyId");
@@ -224,7 +239,10 @@ public class AgentRunEvidenceService {
     }
 
     private JsonNode parse(String value) {
-        if (value == null || value.length() > 16000) return objectMapper.createObjectNode();
+        if (value == null || value.getBytes(StandardCharsets.UTF_8).length
+                > AgentResearchContract.MAX_TOOL_AUDIT_JSON_BYTES) {
+            return objectMapper.createObjectNode();
+        }
         try {
             JsonNode parsed = objectMapper.readTree(value);
             return parsed == null ? objectMapper.createObjectNode() : parsed;

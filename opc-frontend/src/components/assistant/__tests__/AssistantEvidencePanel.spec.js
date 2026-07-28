@@ -14,6 +14,7 @@ describe('AssistantEvidencePanel', () => {
             regionName: '武汉市', geographicLevel: 'city', industry: 'software',
             matchReason: '匹配已核验行业标签', evidenceStatus: 'verified', publisher: '武汉市政府',
             sourceTitle: '案例原文', originalUrl: 'https://example.gov.cn/case/11', detailUrl: '/cases/11', available: true,
+            citationId: '31:2:1', citationIndex: 1,
           },
           {
             itemType: 'policy', itemId: 21, sourceId: 1, title: '湖北创业支持', brief: '政策摘要',
@@ -34,7 +35,8 @@ describe('AssistantEvidencePanel', () => {
     expect(wrapper.text()).toContain('案例')
     expect(wrapper.text()).toContain('政策')
     expect(wrapper.text()).toContain('原始来源')
-    expect(wrapper.text()).toContain('引用 [2]')
+    expect(wrapper.text()).toContain('引用 [1]')
+    expect(wrapper.findAll('.citation-reference')).toHaveLength(1)
     expect(wrapper.get('a[href="/cases/11"]').text()).toContain('站内详情')
     const external = wrapper.get('a[href="https://example.gov.cn/case/11"]')
     expect(external.attributes('target')).toBe('_blank')
@@ -58,6 +60,30 @@ describe('AssistantEvidencePanel', () => {
     expect(wrapper.text()).toContain('状态已变化，请重新检索')
     expect(wrapper.text()).not.toContain('must not leak')
     expect(wrapper.find('a').exists()).toBe(false)
+    expect(wrapper.find('.citation-reference').exists()).toBe(false)
+  })
+
+  it('distinguishes available evidence from retained unavailable history', () => {
+    const wrapper = mount(AssistantEvidencePanel, {
+      props: {
+        runId: 31,
+        summary: {
+          availableCount: 0,
+          totalCount: 2,
+          unavailableCount: 2,
+          availableGroups: { case: 0, policy: 0, source: 0 },
+          totalGroups: { case: 2, policy: 0, source: 0 },
+        },
+        items: [11, 12].map((itemId) => ({
+          itemType: 'case', itemId, sourceId: itemId + 100,
+          title: '当前不可用', matchReason: '状态已经变化', available: false,
+        })),
+      },
+    })
+
+    expect(wrapper.text()).toContain('可用 0 项，共 2 项')
+    expect(wrapper.text()).toContain('当前资料已失效，请重新检索')
+    expect(wrapper.get('.evidence-group > header span').text()).toBe('可用 0 项，共 2 项')
   })
 
   it('distinguishes loading, empty, and error states', async () => {

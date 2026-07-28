@@ -7,6 +7,11 @@ public record AgentRunEvidenceVO(
         Long runId,
         String status,
         List<AgentEvidenceItemVO> items,
-        Map<String, Integer> groups
+        Map<String, Integer> groups,
+        int availableCount,
+        int totalCount,
+        int unavailableCount,
+        Map<String, Integer> availableGroups,
+        Map<String, Integer> totalGroups
 ) {
 }

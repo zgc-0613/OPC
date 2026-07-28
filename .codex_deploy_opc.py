@@ -19,6 +19,7 @@ import bcrypt
 import paramiko
 
 from scripts.deployment_hardening import (
+    CandidateReleaseGate,
     candidate_probe_failure_message,
     ensure_stable_cursor_hmac_secret,
     is_loopback_listener,
@@ -67,6 +68,9 @@ ASSISTANT_WORKSPACE_POSTCHECK = ROOT / "deploy" / "sql" / "20260725_assistant_wo
 ASSISTANT_HISTORY_REVISION_PRECHECK = ROOT / "deploy" / "sql" / "20260726_assistant_history_revision_precheck.sql"
 ASSISTANT_HISTORY_REVISION_MIGRATION = ROOT / "deploy" / "sql" / "20260726_assistant_history_revision.sql"
 ASSISTANT_HISTORY_REVISION_POSTCHECK = ROOT / "deploy" / "sql" / "20260726_assistant_history_revision_postcheck.sql"
+AGENT_MULTIRROUND_BUDGET_PRECHECK = ROOT / "deploy" / "sql" / "20260727_agent_multiround_budget_precheck.sql"
+AGENT_MULTIRROUND_BUDGET_MIGRATION = ROOT / "deploy" / "sql" / "20260727_agent_multiround_budget.sql"
+AGENT_MULTIRROUND_BUDGET_POSTCHECK = ROOT / "deploy" / "sql" / "20260727_agent_multiround_budget_postcheck.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 LOCAL_DEPLOY_SECRET_FILE = ROOT / ".local-secrets" / "opc-deploy.env"
@@ -444,8 +448,141 @@ SQL
         raise RuntimeError("Candidate database cleanup failed")
 
 
-def start_candidate_runtime(client, release, stamp, candidate_database):
-    unit = "opc-backend-candidate-" + re.sub(r"[^0-9A-Za-z]", "", stamp)
+def cleanup_failed_candidate_release(client, release, stamp, protected_release):
+    if not re.fullmatch(r"[0-9]{8}-[0-9]{6}", stamp or ""):
+        raise ValueError("Candidate release cleanup timestamp is invalid")
+    expected_release = f"/opt/opc/releases/{stamp}"
+    if release != expected_release:
+        raise ValueError("Candidate release cleanup path is invalid")
+    protected = (protected_release or "").strip()
+    if protected:
+        if not re.fullmatch(r"/opt/opc/releases/[0-9]{8}-[0-9]{6}", protected):
+            raise ValueError("Protected release path is invalid")
+        if release == protected:
+            raise ValueError("Candidate release cleanup targets the protected release")
+    protected_check = f"test \"$candidate\" != '{protected}'\n" if protected else ""
+    run(
+        client,
+        f"""set -euo pipefail
+candidate='{release}'
+test "$candidate" = '/opt/opc/releases/{stamp}'
+current_target="$(readlink -f '/opt/opc/current' 2>/dev/null || true)"
+test "$candidate" != "$current_target"
+{protected_check}if test -d "$candidate"; then
+  rm -rf -- '{release}'
+fi
+test ! -e "$candidate"
+""",
+        timeout=120,
+    )
+
+
+def apply_candidate_release_migrations(client, release, candidate_database, stamp):
+    database_name = candidate_database.name
+
+    def source(filename):
+        return candidate_database_command(
+            client, database_name, f"SOURCE {release}/{filename};\n")
+
+    source("admin-registration.sql")
+    source("ai-phase-one.sql")
+    source("ai-model-catalog.sql")
+    source("ai-stabilization-precheck.sql")
+    source("ai-stabilization.sql")
+    _, output, _ = source("ai-stabilization-postcheck.sql")
+    if output.splitlines()[-1:] != ["0"]:
+        raise RuntimeError("Candidate AI stabilization database postcheck failed")
+
+    _, output, _ = source("evidence-workbench.sql")
+    if output.splitlines()[-1:] != ["3\t3\t1"]:
+        raise RuntimeError("Candidate evidence workbench migration verification failed")
+    source("phase-one-finalization.sql")
+    _, output, _ = candidate_database_command(
+        client,
+        database_name,
+        "SELECT COUNT(*) FROM information_schema.referential_constraints "
+        "WHERE constraint_schema = DATABASE() "
+        "AND constraint_name IN ('fk_case_items_source', 'fk_policies_source');\n",
+    )
+    if output.splitlines()[-1:] != ["2"]:
+        raise RuntimeError("Candidate phase-one foreign-key verification failed")
+
+    _, output, _ = source("policy-applicability.sql")
+    fields = output.splitlines()[-1].split("\t")
+    if len(fields) != 3 or fields[:2] != ["1", "2"]:
+        raise RuntimeError("Candidate policy applicability migration verification failed")
+    _, output, _ = source("ai-response-diagnostics.sql")
+    if output.splitlines()[-1:] != ["3"]:
+        raise RuntimeError("Candidate AI diagnostics migration verification failed")
+
+    _, output, _ = source("agent-runtime-precheck.sql")
+    if output.splitlines()[-1:] != ["3"]:
+        raise RuntimeError("Candidate Agent Runtime precheck failed")
+    source("agent-runtime.sql")
+    source("agent-runtime-stabilization.sql")
+    _, output, _ = source("agent-runtime-postcheck.sql")
+    try:
+        validate_agent_runtime_postcheck(output)
+    except ValueError as exception:
+        raise RuntimeError(f"Candidate Agent Runtime postcheck failed: {exception}") from exception
+
+    _, output, _ = source("assistant-workspace-precheck.sql")
+    fields = output.splitlines()[-1].split("\t")
+    if len(fields) != 5 or fields[:3] != ["3", "5", "3"]:
+        raise RuntimeError("Candidate Assistant workspace precheck failed")
+    existing_workspace_columns = int(fields[3])
+    existing_purge_audit_tables = int(fields[4])
+    if existing_workspace_columns < 0 or existing_workspace_columns > 6 \
+            or existing_purge_audit_tables not in (0, 1):
+        raise RuntimeError("Candidate Assistant workspace precheck returned invalid counts")
+    assistant_rollout_at = (
+        "2026-07-25 21:56:34.000000"
+        if existing_workspace_columns == 6
+        else time.strftime("%Y-%m-%d %H:%M:%S.000000", time.strptime(stamp, "%Y%m%d-%H%M%S"))
+    )
+    candidate_database_command(
+        client,
+        database_name,
+        "INSERT INTO app_settings (setting_key,setting_value,`sensitive`) VALUES "
+        f"('migration.assistant_workspace_rollout_at','{assistant_rollout_at}',0) "
+        "ON DUPLICATE KEY UPDATE setting_key=VALUES(setting_key);\n",
+    )
+    source("assistant-workspace.sql")
+    source("assistant-workspace-stabilization.sql")
+    _, output, _ = source("assistant-workspace-postcheck.sql")
+    try:
+        validate_assistant_workspace_postcheck(output)
+    except ValueError as exception:
+        raise RuntimeError(f"Candidate Assistant workspace postcheck failed: {exception}") from exception
+
+    _, output, _ = source("assistant-history-revision-precheck.sql")
+    fields = output.splitlines()[-1].split("\t")
+    if len(fields) != 2 or fields[0] != "1" or fields[1] not in ("0", "1"):
+        raise RuntimeError("Candidate Assistant history revision precheck failed")
+    source("assistant-history-revision.sql")
+    _, output, _ = source("assistant-history-revision-postcheck.sql")
+    try:
+        validate_assistant_history_revision_postcheck(output)
+    except ValueError as exception:
+        raise RuntimeError(f"Candidate Assistant history revision postcheck failed: {exception}") from exception
+    _, output, _ = source("agent-multiround-budget-precheck.sql")
+    if output.splitlines()[-1:] not in (["1\t1\t0"], ["1\t1\t1"]):
+        raise RuntimeError("Candidate Agent multi-round budget precheck failed")
+    source("agent-multiround-budget.sql")
+    _, output, _ = source("agent-multiround-budget-postcheck.sql")
+    if output.splitlines()[-1:] != ["1\t1"]:
+        raise RuntimeError("Candidate Agent multi-round budget postcheck failed")
+
+
+def candidate_runtime_unit(stamp):
+    compact = re.sub(r"[^0-9A-Za-z]", "", stamp or "")
+    if not re.fullmatch(r"[0-9]{14}", compact):
+        raise RuntimeError("Candidate runtime stamp is invalid")
+    return "opc-backend-candidate-" + compact
+
+
+def start_candidate_runtime(client, release, stamp, candidate_database, unit=None):
+    unit = unit or candidate_runtime_unit(stamp)
     run(
         client,
         "set -euo pipefail\n"
@@ -473,9 +610,15 @@ def start_candidate_runtime(client, release, stamp, candidate_database):
 def stop_candidate_runtime(client, unit):
     if not unit:
         return
+    if not re.fullmatch(r"opc-backend-candidate-[0-9]{14}", unit):
+        raise RuntimeError("Candidate runtime identity is invalid")
     code, _, _ = run(
         client,
-        f"systemctl stop '{unit}.service' && systemctl reset-failed '{unit}.service' >/dev/null 2>&1 || true",
+        "set +e\n"
+        f"systemctl stop '{unit}.service'\n"
+        "stop_code=$?\n"
+        f"systemctl reset-failed '{unit}.service' >/dev/null 2>&1 || true\n"
+        "exit \"$stop_code\"",
         check=False,
         timeout=60,
     )
@@ -488,8 +631,12 @@ def test_candidate_provider_connection(client, admin_headers):
         client, "http://127.0.0.1:18082/api/admin/ai-settings", headers=admin_headers,
     )
     settings = settings_body.get("data") or {}
-    if settings_body.get("code") != 200 or not settings.get("provider") or not settings.get("modelId"):
-        raise RuntimeError("PROVIDER_CONNECTION_FAILED: candidate Provider settings are incomplete")
+    if settings_body.get("code") != 200:
+        raise RuntimeError("PROVIDER_CONNECTION_FAILED: candidate Provider settings request was rejected")
+    if not settings.get("provider"):
+        raise RuntimeError("PROVIDER_CONNECTION_FAILED: candidate Provider name is missing")
+    if not settings.get("modelId"):
+        raise RuntimeError("PROVIDER_CONNECTION_FAILED: candidate model ID is missing")
     _, connection_body = remote_request_json(
         client,
         "http://127.0.0.1:18082/api/admin/ai-settings/test-connection",
@@ -548,7 +695,230 @@ def cleanup_candidate_probe_data(client, username, database_name=None):
         raise RuntimeError("Candidate probe data cleanup could not be verified")
 
 
-def run_candidate_agent_v2_probe(client, stamp, settings, candidate_database):
+class CandidateProbeFailure(RuntimeError):
+    def __init__(self, diagnostic_code, record):
+        self.diagnostic_code = diagnostic_code
+        self.record = dict(record)
+        super().__init__(candidate_probe_failure_message(diagnostic_code, record))
+
+
+class CandidateScenarioAggregateError(RuntimeError):
+    def __init__(self, failures, results):
+        self.failures = dict(failures)
+        self.results = dict(results)
+        summary = ",".join(
+            f"{scenario}={diagnostic}" for scenario, diagnostic in failures.items()
+        )
+        super().__init__(f"CANDIDATE_SCENARIOS_FAILED: {summary}")
+
+
+CANDIDATE_REQUIREMENT_BY_TOOL = {
+    "search_policies": "POLICY_SEARCH",
+    "search_cases": "CASE_SEARCH",
+    "compare_cases": "CASE_COMPARISON",
+    "get_source": "SOURCE_VERIFICATION",
+}
+CANDIDATE_SAFE_INTENTS = {
+    "auto", "policy_lookup", "case_analysis", "case_comparison",
+    "source_verification", "technology_assessment", "general_research",
+    "mixed_research", "not_recorded",
+}
+
+
+def safe_candidate_intent(value, fallback="not_recorded"):
+    return value if value in CANDIDATE_SAFE_INTENTS else fallback
+
+
+def parse_candidate_tool_sequence(output):
+    lines = [line.strip() for line in str(output or "").splitlines() if line.strip()]
+    if not lines or lines[-1].upper() == "NULL":
+        return []
+    return [tool for tool in lines[-1].split(",") if tool]
+
+
+def parse_candidate_tool_diagnostics(output):
+    diagnostics = []
+    for line in str(output or "").splitlines():
+        if "\t" not in line:
+            continue
+        fields = line.split("\t")
+        if fields[:2] == ["step_no", "tool_name"]:
+            continue
+        if len(fields) != 12:
+            raise ValueError("CANDIDATE_AGENT_TOOL_DIAGNOSTIC_INVALID")
+        try:
+            depends_on = json.loads(fields[10] or "[]")
+            if not isinstance(depends_on, list) or any(
+                    not isinstance(value, str) for value in depends_on):
+                raise ValueError
+            diagnostics.append({
+                "step_no": int(fields[0]),
+                "tool_name": fields[1],
+                "request_id": fields[2],
+                "scope": fields[3] or None,
+                "query_present": fields[4].lower() in {"1", "true"},
+                "category_present": fields[5].lower() in {"1", "true"},
+                "requested_limit": int(fields[6]) if fields[6] else None,
+                "returned_count": int(fields[7]),
+                "distinct_authorized_case_count": int(fields[8]),
+                "distinct_authorized_source_count": int(fields[9]),
+                "depends_on": depends_on,
+                "status": fields[11],
+            })
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raise ValueError("CANDIDATE_AGENT_TOOL_DIAGNOSTIC_INVALID") from None
+    return diagnostics
+
+
+def record_candidate_tool_sequence(record, scenario, required_tools, actual_tool_sequence):
+    expected_tools = list(required_tools)
+    actual_tools = list(actual_tool_sequence)
+    missing_tools = [tool for tool in expected_tools if tool not in actual_tools]
+    positions = [actual_tools.index(tool) for tool in expected_tools if tool in actual_tools]
+    sequence_valid = not missing_tools and positions == sorted(positions) \
+        and len(set(positions)) == len(positions)
+    diagnostic = "OK" if sequence_valid \
+        else f"CANDIDATE_{scenario.upper()}_TOOL_SEQUENCE_INVALID"
+    record.update({
+        "scenario": scenario,
+        "expected_tools": expected_tools,
+        "actual_tool_sequence": actual_tools,
+        "tool_sequence": actual_tools,
+        "missing_tools": missing_tools,
+        "execution_requirements": [
+            CANDIDATE_REQUIREMENT_BY_TOOL[tool]
+            for tool in expected_tools if tool in CANDIDATE_REQUIREMENT_BY_TOOL
+        ],
+        "diagnostic_code": diagnostic,
+    })
+    return sequence_valid, diagnostic
+
+
+def validate_candidate_tool_sequence(record, scenario, required_tools, actual_tool_sequence):
+    sequence_valid, diagnostic = record_candidate_tool_sequence(
+        record, scenario, required_tools, actual_tool_sequence)
+    if not sequence_valid:
+        raise CandidateProbeFailure(diagnostic, record)
+    return record
+
+
+def candidate_scenario_diagnostic(error, scenario):
+    message = str(error or "")
+    match = re.search(r"\b([A-Z][A-Z0-9_]{2,63})\b", message)
+    if match and match.group(1) not in {"ERROR", "HTTP", "MYSQL", "SQLSTATE"}:
+        return match.group(1)
+    return f"CANDIDATE_{scenario.upper()}_FAILED"
+
+
+def candidate_research_context(client, database_name, scenario):
+    if scenario == "case_comparison":
+        sql = (
+            "SELECT c.region_id,ct.tag_id,r.name,t.name,COUNT(DISTINCT c.id) "
+            "FROM case_items c "
+            "JOIN sources s ON s.id=c.source_id "
+            "JOIN regions r ON r.id=c.region_id "
+            "JOIN case_tags ct ON ct.case_id=c.id "
+            "JOIN tags t ON t.id=ct.tag_id AND t.is_industry=1 "
+            "WHERE c.status='published' AND c.ai_evidence_status='verified' "
+            "AND s.status='published' AND s.ai_evidence_status='verified' "
+            "GROUP BY c.region_id,ct.tag_id,r.name,t.name "
+            "HAVING COUNT(DISTINCT c.id) >= 2 "
+            "ORDER BY COUNT(DISTINCT c.id) DESC,c.region_id,ct.tag_id LIMIT 1;\n"
+        )
+        minimum_count = 2
+    else:
+        sql = (
+            "SELECT p.region_id,COALESCE(pit.industry_tag_id,fallback_tag.id),r.name,"
+            "COALESCE(specific_tag.name,fallback_tag.name),1 "
+            "FROM policies p "
+            "JOIN sources s ON s.id=p.source_id "
+            "JOIN regions r ON r.id=p.region_id "
+            "JOIN tags fallback_tag ON fallback_tag.id=(SELECT MIN(id) FROM tags WHERE is_industry=1) "
+            "LEFT JOIN policy_industry_tags pit ON pit.policy_id=p.id "
+            "LEFT JOIN tags specific_tag ON specific_tag.id=pit.industry_tag_id AND specific_tag.is_industry=1 "
+            "WHERE p.status='published' AND p.ai_evidence_status='verified' "
+            "AND s.status='published' AND s.ai_evidence_status='verified' "
+            "AND (p.applicability_mode IN ('general','unclassified') OR specific_tag.id IS NOT NULL) "
+            "ORDER BY (specific_tag.id IS NOT NULL) DESC,p.id LIMIT 1;\n"
+        )
+        minimum_count = 1
+    try:
+        _, output, _ = candidate_database_command(client, database_name, sql)
+    except Exception:
+        raise RuntimeError(f"CANDIDATE_{scenario.upper()}_CONTEXT_QUERY_FAILED") from None
+    rows = [line.split("\t") for line in output.splitlines() if line.count("\t") >= 4]
+    if not rows or len(rows[-1]) != 5:
+        raise RuntimeError(f"CANDIDATE_{scenario.upper()}_EVIDENCE_CONTEXT_MISSING")
+    row = rows[-1]
+    try:
+        region_id = int(row[0])
+        industry_tag_id = int(row[1])
+        evidence_count = int(row[4])
+    except (TypeError, ValueError):
+        raise RuntimeError(f"CANDIDATE_{scenario.upper()}_EVIDENCE_CONTEXT_INVALID") from None
+    region_name = row[2].strip()
+    industry = row[3].strip()
+    if region_id <= 0 or industry_tag_id <= 0 or evidence_count < minimum_count \
+            or not region_name or not industry or len(region_name) > 100 or len(industry) > 100:
+        raise RuntimeError(f"CANDIDATE_{scenario.upper()}_EVIDENCE_CONTEXT_INVALID")
+    return {
+        "region_id": region_id,
+        "industry_tag_id": industry_tag_id,
+        "region_name": region_name,
+        "industry": industry,
+        "evidence_count": evidence_count,
+    }
+
+
+def run_candidate_agent_v2_scenarios(client, stamp, settings, candidate_database):
+    results = {}
+    failures = {}
+    for scenario in ("policy", "case_comparison", "source_verification"):
+        try:
+            results[scenario] = run_candidate_agent_v2_probe(
+                client, stamp, settings, candidate_database, scenario
+            )
+        except Exception as error:
+            diagnostic = error.diagnostic_code if isinstance(error, CandidateProbeFailure) \
+                else candidate_scenario_diagnostic(error, scenario)
+            failures[scenario] = diagnostic
+            record = dict(error.record) if isinstance(error, CandidateProbeFailure) else {}
+            record.update({
+                "scenario": scenario,
+                "status": "failed",
+                "diagnostic_code": diagnostic,
+                "release_switched": False,
+            })
+            results[scenario] = record
+    if failures:
+        raise CandidateScenarioAggregateError(failures, results)
+    return results
+
+
+def run_candidate_agent_v2_probe(client, stamp, settings, candidate_database, scenario):
+    scenarios = {
+        "policy": {
+            "content": "检索{region}{industry}创业政策，说明适用边界并只引用本次运行的政策来源。",
+            "required_evidence": ("policy",),
+            "required_tools": ("search_policies",),
+            "requested_intent": "policy_lookup",
+        },
+        "case_comparison": {
+            "content": "先检索{region}{industry}创业案例，再使用检索实际返回的案例编号比较两个案例并给出行动建议。",
+            "required_evidence": ("case",),
+            "required_tools": ("search_cases", "compare_cases"),
+            "requested_intent": "case_comparison",
+        },
+        "source_verification": {
+            "content": "先检索{region}{industry}创业政策资料，再使用检索实际返回的来源编号核验一个原始来源。",
+            "required_evidence": ("source",),
+            "required_tools": ("search_policies", "get_source"),
+            "requested_intent": "source_verification",
+        },
+    }
+    scenario_contract = scenarios.get(scenario)
+    if scenario_contract is None:
+        raise RuntimeError("Candidate Agent scenario is invalid")
     username = f"candidate_{stamp.replace('-', '')[-10:]}_{secrets.token_hex(2)}"
     token = secrets.token_hex(32)
     session_id = None
@@ -564,29 +934,26 @@ def run_candidate_agent_v2_probe(client, stamp, settings, candidate_database):
             f"SELECT id,'{token}',DATE_ADD(NOW(),INTERVAL 15 MINUTE) FROM platform_users "
             f"WHERE username='{username}' LIMIT 1;\n",
         )
-        _, region_output, _ = candidate_database_command(
-            client,
-            candidate_database.name,
-            "SELECT id FROM regions WHERE name IN ('湖北省','湖北') ORDER BY (name='湖北省') DESC,id LIMIT 1;\n"
-            "SELECT id FROM tags WHERE is_industry=1 AND name LIKE '%人工智能%' ORDER BY id LIMIT 1;\n",
-        )
-        ids = [line.strip() for line in region_output.splitlines() if line.strip().isdigit()]
-        if len(ids) < 2:
-            raise RuntimeError("CANDIDATE_EVIDENCE_CONTEXT_MISSING: region or industry tag is unavailable")
+        research_context = candidate_research_context(
+            client, candidate_database.name, scenario)
         headers = {"Authorization": f"Bearer {token}"}
         payload = {
             "profile": {
                 "ventureType": "solo_company",
-                "regionId": int(ids[-2]),
-                "industryTagId": int(ids[-1]),
-                "industry": "人工智能应用",
+                "regionId": research_context["region_id"],
+                "industryTagId": research_context["industry_tag_id"],
+                "industry": research_context["industry"],
                 "stage": "validation",
                 "budgetRange": "under_100k",
                 "goal": "核验本地案例、政策与优先行动",
                 "resources": "具备产品开发能力",
             },
-            "content": "检索湖北及武汉的人工智能创业案例和政策，并给出十万元内的优先行动建议。",
-            "idempotencyKey": f"candidate-agent-{stamp.replace('-', '')}-{secrets.token_hex(3)}",
+            "content": scenario_contract["content"].format(
+                region=research_context["region_name"],
+                industry=research_context["industry"],
+            ),
+            "requestedIntent": scenario_contract["requested_intent"],
+            "idempotencyKey": f"candidate-agent-{scenario}-{stamp.replace('-', '')}-{secrets.token_hex(3)}",
         }
         _, start_body = remote_request_json(
             client,
@@ -626,14 +993,19 @@ def run_candidate_agent_v2_probe(client, stamp, settings, candidate_database):
             "WITH authorized_sources AS ("
             " SELECT DISTINCT source_id FROM ("
             "  SELECT item_source.source_id FROM ai_agent_tool_calls tc"
-            "  JOIN JSON_TABLE(COALESCE(tc.result_summary_json,JSON_OBJECT()),'$.items[*]'"
+            "  JOIN JSON_TABLE(COALESCE(JSON_EXTRACT(tc.result_summary_json,'$._authorized.items'),JSON_ARRAY()),'$[*]'"
             "   COLUMNS(source_id BIGINT PATH '$.sourceId')) item_source"
             f"  WHERE tc.analysis_run_id={run_id} AND tc.status='completed'"
             "  UNION ALL"
-            "  SELECT conclusion_source.source_id FROM ai_agent_tool_calls tc"
-            "  JOIN JSON_TABLE(COALESCE(tc.result_summary_json,JSON_OBJECT()),'$.conclusions[*]'"
-            "   COLUMNS(source_id BIGINT PATH '$.sourceId')) conclusion_source"
+            "  SELECT compared_source.source_id FROM ai_agent_tool_calls tc"
+            "  JOIN JSON_TABLE(COALESCE(JSON_EXTRACT(tc.result_summary_json,'$._authorized.cases'),JSON_ARRAY()),'$[*]'"
+            "   COLUMNS(source_id BIGINT PATH '$.sourceId')) compared_source"
             f"  WHERE tc.analysis_run_id={run_id} AND tc.status='completed'"
+            "  UNION ALL"
+            "  SELECT CAST(JSON_UNQUOTE(JSON_EXTRACT(tc.result_summary_json,'$._authorized.sourceId')) AS UNSIGNED)"
+            "  FROM ai_agent_tool_calls tc"
+            f"  WHERE tc.analysis_run_id={run_id} AND tc.status='completed'"
+            "   AND JSON_EXTRACT(tc.result_summary_json,'$._authorized.sourceId') IS NOT NULL"
             " ) evidence_ids WHERE source_id IS NOT NULL"
             "), cited_sources AS ("
             " SELECT cited.source_id FROM ai_agent_messages message"
@@ -662,6 +1034,9 @@ def run_candidate_agent_v2_probe(client, stamp, settings, candidate_database):
         audit = audit_lines[-1].split("\t") if audit_lines else []
         if len(audit) != 19:
             raise RuntimeError("CANDIDATE_AGENT_AUDIT_INCOMPLETE")
+        structured_result = run_data.get("structuredResult") or {}
+        resolved_intent = safe_candidate_intent(
+            structured_result.get("intent"), scenario_contract["requested_intent"])
         probe_record = {
             "status": audit[0],
             "provider": audit[1],
@@ -682,8 +1057,64 @@ def run_candidate_agent_v2_probe(client, stamp, settings, candidate_database):
             "prompt_version": audit[16],
             "settlement_status": audit[17],
             "reserved_tokens": int(audit[18]),
+            "configured_max_model_rounds": int(settings.get("agentMaxModelRounds") or 5),
+            "configured_max_tool_calls": int(settings.get("agentMaxToolCalls") or 6),
+            "configured_max_tokens": int(settings.get("agentMaxTokens") or 28000),
+            "scenario": scenario,
+            "expected_tools": list(scenario_contract["required_tools"]),
+            "actual_tool_sequence": [],
+            "tool_sequence": [],
+            "missing_tools": list(scenario_contract["required_tools"]),
+            "resolved_intent": resolved_intent,
+            "model_intent": safe_candidate_intent(run_data.get("modelIntent")),
+            "execution_requirements": [
+                CANDIDATE_REQUIREMENT_BY_TOOL[tool]
+                for tool in scenario_contract["required_tools"]
+            ],
+            "terminal_status": run_data.get("status") or audit[0],
+            "diagnostic_code": run_data.get("diagnosticCode") or "OK",
             "release_switched": False,
         }
+        _, tool_sequence_output, _ = candidate_database_command(
+            client,
+            candidate_database.name,
+            "SELECT GROUP_CONCAT(tool_name ORDER BY step_no SEPARATOR ',') "
+            "FROM ai_agent_tool_calls "
+            f"WHERE analysis_run_id={run_id} AND status='completed';\n",
+        )
+        tool_sequence = parse_candidate_tool_sequence(tool_sequence_output)
+        record_candidate_tool_sequence(
+            probe_record, scenario, scenario_contract["required_tools"], tool_sequence)
+        _, tool_diagnostic_output, _ = candidate_database_command(
+            client,
+            candidate_database.name,
+            "SELECT step_no,tool_name,"
+            " COALESCE(JSON_UNQUOTE(JSON_EXTRACT(result_summary_json,'$._diagnostic.requestId')),''),"
+            " COALESCE(JSON_UNQUOTE(JSON_EXTRACT(result_summary_json,'$._diagnostic.scope')),''),"
+            " IF(COALESCE(JSON_EXTRACT(result_summary_json,'$._diagnostic.queryPresent'),FALSE),1,0),"
+            " IF(COALESCE(JSON_EXTRACT(result_summary_json,'$._diagnostic.categoryPresent'),FALSE),1,0),"
+            " COALESCE(JSON_UNQUOTE(JSON_EXTRACT(result_summary_json,'$._diagnostic.requestedLimit')),''),"
+            " COALESCE(JSON_UNQUOTE(JSON_EXTRACT(result_summary_json,'$._diagnostic.returnedCount')),'0'),"
+            " COALESCE(JSON_UNQUOTE(JSON_EXTRACT(result_summary_json,'$._diagnostic.distinctAuthorizedCaseCount')),'0'),"
+            " COALESCE(JSON_UNQUOTE(JSON_EXTRACT(result_summary_json,'$._diagnostic.distinctAuthorizedSourceCount')),'0'),"
+            " COALESCE(JSON_EXTRACT(result_summary_json,'$._diagnostic.dependsOn'),JSON_ARRAY()),"
+            " COALESCE(JSON_UNQUOTE(JSON_EXTRACT(result_summary_json,'$._diagnostic.status')),'')"
+            " FROM ai_agent_tool_calls"
+            f" WHERE analysis_run_id={run_id} AND status='completed'"
+            " ORDER BY step_no;\n",
+        )
+        try:
+            tool_diagnostics = parse_candidate_tool_diagnostics(tool_diagnostic_output)
+        except ValueError:
+            diagnostic = "CANDIDATE_AGENT_TOOL_DIAGNOSTIC_INVALID"
+            probe_record["diagnostic_code"] = diagnostic
+            raise CandidateProbeFailure(diagnostic, probe_record) from None
+        probe_record["tool_diagnostics"] = tool_diagnostics
+        if len(tool_diagnostics) != probe_record["completed_tool_count"] \
+                or [item["tool_name"] for item in tool_diagnostics] != tool_sequence:
+            diagnostic = "CANDIDATE_AGENT_TOOL_DIAGNOSTIC_INCOMPLETE"
+            probe_record["diagnostic_code"] = diagnostic
+            raise CandidateProbeFailure(diagnostic, probe_record)
         if probe_record["prompt_version"] != "agent-research-v2" \
                 or probe_record["provider"] != settings.get("provider") \
                 or probe_record["model"] != settings.get("modelId"):
@@ -692,7 +1123,15 @@ def run_candidate_agent_v2_probe(client, stamp, settings, candidate_database):
             raise RuntimeError("CANDIDATE_AGENT_CITATION_AUDIT_MISMATCH")
         if run_data.get("status") not in {"completed", "evidence_insufficient"}:
             diagnostic = run_data.get("diagnosticCode") or "CANDIDATE_AGENT_FAILED"
-            raise RuntimeError(candidate_probe_failure_message(diagnostic, probe_record))
+            probe_record["diagnostic_code"] = diagnostic
+            raise CandidateProbeFailure(diagnostic, probe_record)
+        if run_data.get("status") != "completed":
+            diagnostic = f"CANDIDATE_{scenario.upper()}_EVIDENCE_INSUFFICIENT"
+            probe_record["diagnostic_code"] = diagnostic
+            raise CandidateProbeFailure(diagnostic, probe_record)
+
+        validate_candidate_tool_sequence(
+            probe_record, scenario, scenario_contract["required_tools"], tool_sequence)
 
         _, evidence_body = remote_request_json(
             client,
@@ -725,11 +1164,15 @@ def run_candidate_agent_v2_probe(client, stamp, settings, candidate_database):
         if run_data.get("status") == "completed":
             if probe_record["tool_call_count"] < 1 or not (run_data.get("citations") or []):
                 raise RuntimeError("CANDIDATE_AGENT_EVIDENCE_INVALID")
-            validate_agent_evidence_probe(evidence, expected_run_id=run_id)
+            validate_agent_evidence_probe(
+                evidence,
+                expected_run_id=run_id,
+                required_types=scenario_contract["required_evidence"],
+            )
         try:
             validate_candidate_agent_probe_record(
                 probe_record,
-                max_model_rounds=int(settings.get("agentMaxModelRounds") or 4),
+                max_model_rounds=int(settings.get("agentMaxModelRounds") or 5),
                 max_tool_calls=int(settings.get("agentMaxToolCalls") or 6),
             )
         except ValueError as error:
@@ -761,9 +1204,9 @@ def ai_settings_update_payload(settings, agent_enabled):
         "dailyTokenQuota": settings.get("dailyTokenQuota"),
         "enabled": bool(settings.get("enabled")),
         "agentEnabled": bool(agent_enabled),
-        "agentMaxModelRounds": settings.get("agentMaxModelRounds") or 4,
+        "agentMaxModelRounds": settings.get("agentMaxModelRounds") or 5,
         "agentMaxToolCalls": settings.get("agentMaxToolCalls") or 6,
-        "agentMaxTokens": settings.get("agentMaxTokens") or 8000,
+        "agentMaxTokens": settings.get("agentMaxTokens") or 28000,
         "agentHistoryWindow": settings.get("agentHistoryWindow") or 12,
         "agentTimeoutSeconds": settings.get("agentTimeoutSeconds") or 120,
         "agentToolMode": settings.get("agentToolMode") or "json_plan",
@@ -835,6 +1278,7 @@ def preflight(client):
 
 def deploy(client):
     initial_client = client
+    candidate_only = os.environ.get("OPC_CANDIDATE_ONLY") == "1"
     cursor_secret = require_cursor_hmac_secret_environment(os.environ)
     required = [
         FRONTEND / "index.html",
@@ -862,6 +1306,9 @@ def deploy(client):
         ASSISTANT_HISTORY_REVISION_PRECHECK,
         ASSISTANT_HISTORY_REVISION_MIGRATION,
         ASSISTANT_HISTORY_REVISION_POSTCHECK,
+        AGENT_MULTIRROUND_BUDGET_PRECHECK,
+        AGENT_MULTIRROUND_BUDGET_MIGRATION,
+        AGENT_MULTIRROUND_BUDGET_POSTCHECK,
     ]
     for path in required:
         if not path.exists():
@@ -883,6 +1330,7 @@ def deploy(client):
     assistant_probe = None
     agent_probe = None
     candidate_probe = None
+    candidate_probes = {}
     unclassified_policy_count = None
     admin_headers = None
     agent_disable_payload = None
@@ -890,13 +1338,14 @@ def deploy(client):
     temporary_probe_admin = None
     probe_admin_count_before = None
     primary_error = None
+    release_gate = CandidateReleaseGate()
 
     _, previous_current, _ = run(
         client,
         f"if test -L '{current_link}'; then readlink -f '{current_link}'; fi",
     )
 
-    run(client, f"mkdir -p '{release}' '{backup}'")
+    run(client, f"mkdir -p '{release}'")
     backup_command = f"""set -euo pipefail
 FRONTEND_SOURCE=/var/www/opc
 BACKEND_SOURCE=/opt/opc-backend.jar
@@ -913,8 +1362,6 @@ MYSQL_PWD="$DB_PASS" mysqldump --single-transaction --quick --no-tablespaces -u 
 gzip -t '{backup}/opc_platform.sql.gz.tmp'
 mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
 """
-    run(client, backup_command, timeout=300)
-
     sftp = client.open_sftp()
     upload_tree(sftp, FRONTEND, f"{release}/frontend")
     sftp.put(str(BACKEND), f"{release}/opc-backend.jar")
@@ -939,6 +1386,9 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     sftp.put(str(ASSISTANT_HISTORY_REVISION_PRECHECK), f"{release}/assistant-history-revision-precheck.sql")
     sftp.put(str(ASSISTANT_HISTORY_REVISION_MIGRATION), f"{release}/assistant-history-revision.sql")
     sftp.put(str(ASSISTANT_HISTORY_REVISION_POSTCHECK), f"{release}/assistant-history-revision-postcheck.sql")
+    sftp.put(str(AGENT_MULTIRROUND_BUDGET_PRECHECK), f"{release}/agent-multiround-budget-precheck.sql")
+    sftp.put(str(AGENT_MULTIRROUND_BUDGET_MIGRATION), f"{release}/agent-multiround-budget.sql")
+    sftp.put(str(AGENT_MULTIRROUND_BUDGET_POSTCHECK), f"{release}/agent-multiround-budget-postcheck.sql")
     sftp.put(str(NGINX), uploaded_nginx)
     sftp.put(str(SYSTEMD), uploaded_systemd)
     sftp.close()
@@ -967,6 +1417,9 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"{release}/assistant-history-revision-precheck.sql": sha256(ASSISTANT_HISTORY_REVISION_PRECHECK),
         f"{release}/assistant-history-revision.sql": sha256(ASSISTANT_HISTORY_REVISION_MIGRATION),
         f"{release}/assistant-history-revision-postcheck.sql": sha256(ASSISTANT_HISTORY_REVISION_POSTCHECK),
+        f"{release}/agent-multiround-budget-precheck.sql": sha256(AGENT_MULTIRROUND_BUDGET_PRECHECK),
+        f"{release}/agent-multiround-budget.sql": sha256(AGENT_MULTIRROUND_BUDGET_MIGRATION),
+        f"{release}/agent-multiround-budget-postcheck.sql": sha256(AGENT_MULTIRROUND_BUDGET_POSTCHECK),
         uploaded_nginx: sha256(NGINX),
         uploaded_systemd: sha256(SYSTEMD),
     }
@@ -974,11 +1427,94 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         _, remote_hash, _ = run(client, f"sha256sum '{remote_path}' | awk '{{print $1}}'")
         if remote_hash.lower() != local_hash.lower():
             raise RuntimeError(f"Upload checksum mismatch: {remote_path}")
+    migration_bundle_hash = hashlib.sha256(
+        "".join(
+            local_files[path] for path in sorted(local_files)
+            if path.endswith(".sql")
+        ).encode("ascii")
+    ).hexdigest()
+
+    candidate_database = None
+    candidate_admin = prepare_temporary_probe_admin(stamp)
+    candidate_admin_count = 0
+    candidate_unit = None
+    candidate_error = None
+    try:
+        candidate_database = prepare_candidate_database(client, stamp)
+        apply_candidate_release_migrations(client, release, candidate_database, stamp)
+        candidate_admin_count = select_existing_admin_count(client, candidate_database.name)
+        candidate_admin = create_temporary_probe_admin(
+            client, candidate_admin, candidate_database.name)
+        candidate_unit = candidate_runtime_unit(stamp)
+        start_candidate_runtime(client, release, stamp, candidate_database, candidate_unit)
+        candidate_settings = test_candidate_provider_connection(client, candidate_admin.headers)
+        candidate_probes = run_candidate_agent_v2_scenarios(
+            client, stamp, candidate_settings, candidate_database)
+        candidate_probe = candidate_probes["source_verification"]
+        release_gate.mark_candidate_passed(migration_bundle_hash)
+    except Exception as error:
+        candidate_error = error
+        raise
+    finally:
+        candidate_cleanup_error = None
+        candidate_release_cleanup_error = None
+        try:
+            stop_candidate_runtime(client, candidate_unit)
+        except Exception as error:
+            candidate_cleanup_error = error
+        try:
+            if candidate_database is not None:
+                cleanup_temporary_probe_admin(
+                    client, candidate_admin, candidate_database.name)
+                assert_probe_admin_count_restored(
+                    client, candidate_admin_count, candidate_database.name)
+        except Exception as error:
+            candidate_cleanup_error = candidate_cleanup_error or error
+        try:
+            cleanup_candidate_database(client, candidate_database)
+        except Exception as error:
+            candidate_cleanup_error = candidate_cleanup_error or error
+        if candidate_error is not None and not release_switched:
+            try:
+                cleanup_failed_candidate_release(
+                    client, release, stamp, previous_current)
+            except Exception as error:
+                candidate_release_cleanup_error = error
+        if candidate_cleanup_error is not None:
+            if candidate_error is not None:
+                candidate_error.add_note(
+                    "Candidate runtime or temporary identity cleanup also failed"
+                )
+            else:
+                raise candidate_cleanup_error
+        if candidate_release_cleanup_error is not None:
+            if candidate_error is not None:
+                candidate_error.add_note("Candidate release cleanup also failed")
+            else:
+                raise candidate_release_cleanup_error
+
+    if candidate_only:
+        return {
+            "stamp": stamp,
+            "release": release,
+            "previous_current": previous_current,
+            "candidate_only": True,
+            "production_database_mutated": False,
+            "release_switched": False,
+            "frontend_hash": sha256(FRONTEND / "index.html"),
+            "backend_hash": sha256(BACKEND),
+            "candidate_probe": candidate_probe,
+            "candidate_probes": candidate_probes,
+        }
+
+    run(client, f"mkdir -p '{backup}'")
+    run(client, backup_command, timeout=300)
 
     existing_admin_count = select_existing_admin_count(client)
     initial_admin_credentials = require_initial_admin_credentials(os.environ, existing_admin_count)
     try:
         mutated = True
+        release_gate.record_production_migration(migration_bundle_hash)
         run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/admin-registration.sql'")
         run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-phase-one.sql'")
         run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/ai-model-catalog.sql'")
@@ -1123,6 +1659,25 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
             raise RuntimeError(
                 f"Assistant history revision database postcheck failed: {exception}"
             ) from exception
+        _, multiround_precheck_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/agent-multiround-budget-precheck.sql'",
+        )
+        if multiround_precheck_output.splitlines()[-1:] not in (["1\t1\t0"], ["1\t1\t1"]):
+            raise RuntimeError("Agent multi-round budget database precheck failed")
+        run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/agent-multiround-budget.sql'",
+        )
+        _, multiround_postcheck_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/agent-multiround-budget-postcheck.sql'",
+        )
+        if multiround_postcheck_output.splitlines()[-1:] != ["1\t1"]:
+            raise RuntimeError("Agent multi-round budget database postcheck failed")
         run(
             client,
             "set -euo pipefail\n"
@@ -1186,51 +1741,9 @@ chmod 0640 /etc/opc-backend.env
         run(client, f"systemd-analyze verify '{uploaded_systemd}'")
         run(client, f"cp -a '{backup}/opc-backend.jar' '{backup_jar}'")
 
-        candidate_database = None
-        candidate_admin = prepare_temporary_probe_admin(stamp)
-        candidate_admin_count = 0
-        candidate_unit = None
-        candidate_error = None
-        try:
-            candidate_database = prepare_candidate_database(client, stamp)
-            candidate_admin_count = select_existing_admin_count(client, candidate_database.name)
-            candidate_admin = create_temporary_probe_admin(
-                client, candidate_admin, candidate_database.name)
-            candidate_unit = start_candidate_runtime(client, release, stamp, candidate_database)
-            candidate_settings = test_candidate_provider_connection(client, candidate_admin.headers)
-            candidate_probe = run_candidate_agent_v2_probe(
-                client, stamp, candidate_settings, candidate_database)
-        except Exception as error:
-            candidate_error = error
-            raise
-        finally:
-            candidate_cleanup_error = None
-            try:
-                stop_candidate_runtime(client, candidate_unit)
-            except Exception as error:
-                candidate_cleanup_error = error
-            try:
-                if candidate_database is not None:
-                    cleanup_temporary_probe_admin(
-                        client, candidate_admin, candidate_database.name)
-                    assert_probe_admin_count_restored(
-                        client, candidate_admin_count, candidate_database.name)
-            except Exception as error:
-                candidate_cleanup_error = candidate_cleanup_error or error
-            try:
-                cleanup_candidate_database(client, candidate_database)
-            except Exception as error:
-                candidate_cleanup_error = candidate_cleanup_error or error
-            if candidate_cleanup_error is not None:
-                if candidate_error is not None:
-                    candidate_error.add_note(
-                        "Candidate runtime or temporary identity cleanup also failed"
-                    )
-                else:
-                    raise candidate_cleanup_error
-
         run(client, f"install -o root -g root -m 0644 '{uploaded_nginx}' '{remote_nginx}'")
         run(client, f"install -o root -g root -m 0644 '{uploaded_systemd}' '{remote_systemd}'")
+        release_gate.record_release_switch()
         run(
             client,
             f"ln -sfn '{release}' '{current_link}.next.{stamp}' && mv -Tf '{current_link}.next.{stamp}' '{current_link}'",
@@ -1238,6 +1751,7 @@ chmod 0640 /etc/opc-backend.env
         release_switched = True
         run(client, "nginx -t")
         run(client, "systemctl daemon-reload")
+        release_gate.record_service_restart()
         run(client, "systemctl restart opc-backend.service")
         health_command = """set -euo pipefail
 for i in $(seq 1 40); do
@@ -1702,7 +2216,7 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 raise RuntimeError("Production Agent API and database citation counts differ")
             validate_agent_probe_record(
                 agent_probe,
-                max_model_rounds=int(ai_settings_data.get("agentMaxModelRounds") or 4),
+                max_model_rounds=int(ai_settings_data.get("agentMaxModelRounds") or 5),
                 max_tool_calls=int(ai_settings_data.get("agentMaxToolCalls") or 6),
             )
             _, agent_session_detail = request_json(
@@ -2185,6 +2699,7 @@ nginx -t && systemctl reload nginx
         "assistant_probe": assistant_probe,
         "agent_probe": agent_probe,
         "candidate_probe": candidate_probe,
+        "candidate_probes": candidate_probes,
         "unclassified_policy_count": unclassified_policy_count,
     }
 
@@ -2247,19 +2762,31 @@ def deploy_frontend(client):
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "preflight"
     load_local_deploy_secrets(os.environ, LOCAL_DEPLOY_SECRET_FILE)
-    if mode == "deploy":
+    if mode in ("deploy", "candidate"):
         ensure_stable_cursor_hmac_secret(os.environ, LOCAL_DEPLOY_SECRET_FILE)
         require_cursor_hmac_secret_environment(os.environ)
     client = connect()
     try:
-        if mode == "preflight":
-            print(json.dumps(preflight(client), ensure_ascii=False, indent=2))
-        elif mode == "deploy":
-            print(json.dumps(deploy(client), ensure_ascii=False, indent=2))
-        elif mode == "frontend":
-            print(json.dumps(deploy_frontend(client), ensure_ascii=False, indent=2))
-        else:
-            raise RuntimeError(f"Unknown mode: {mode}")
+        try:
+            if mode == "preflight":
+                print(json.dumps(preflight(client), ensure_ascii=False, indent=2))
+            elif mode == "deploy":
+                print(json.dumps(deploy(client), ensure_ascii=False, indent=2))
+            elif mode == "candidate":
+                os.environ["OPC_CANDIDATE_ONLY"] = "1"
+                print(json.dumps(deploy(client), ensure_ascii=False, indent=2))
+            elif mode == "frontend":
+                print(json.dumps(deploy_frontend(client), ensure_ascii=False, indent=2))
+            else:
+                raise RuntimeError(f"Unknown mode: {mode}")
+        except CandidateScenarioAggregateError as error:
+            print(json.dumps({
+                "candidate_only": mode == "candidate",
+                "release_switched": False,
+                "diagnostic_codes": error.failures,
+                "candidate_probes": error.results,
+            }, ensure_ascii=False, indent=2), file=sys.stderr)
+            raise
     finally:
         client.close()
 

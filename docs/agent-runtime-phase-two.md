@@ -2,7 +2,7 @@
 
 ## Delivery status
 
-Local stabilization, deterministic evaluation, automated tests, migration tests, and production builds are complete as of 2026-07-25. Production deployment and the semantic real-model probe have not run because the deployment process has no securely injected `OPC_SSH_PASSWORD`; the credential will not be embedded in a command, log, script, or report. This document therefore does not claim a production version, rollback directory, paid-model token record, request ID, or live citation result.
+Agent Phase Two is deployed as `/opt/opc/releases/20260728-130142`. The server-owned tool chains, same-batch real Provider candidate gate, production migration/switch, postdeploy research probes and cleanup checks all passed. Credentials remain externally injected and are not recorded in this document.
 
 ## Phase-one closure fixes
 
@@ -190,7 +190,7 @@ Release `/opt/opc/releases/20260726-162930` is live. The real `deepseek-v4-flash
 
 `AgentResearchContract` now owns the v2 planning and synthesis limits, prompt version, final output sections and fixed diagnostic codes. `AgentToolRegistry` builds separate closed Provider schemas from those constants, `AgentOrchestrator` validates against the same constants and the boundary prompts render them directly. The runtime no longer has independent schema, prompt and Java numbers that can drift between deployments.
 
-`AgentContractReplayTest` reads twelve sanitized minimal fixtures for plan/final truncation, unknown fields, array limits, uncited facts and recommendations, source-ID confusion, invalid sections, missing citations, coverage mismatch and Provider connection failure. These are compatibility regressions, not stored Provider answers and not human quality scores.
+`AgentContractReplayTest` reads fifteen sanitized minimal fixtures for plan/final truncation, unknown fields, array limits, uncited facts and recommendations, source-ID confusion, invalid sections, invalid dependencies, missing citations, coverage mismatch and Provider connection failure. These are compatibility regressions, not stored Provider answers and not human quality scores.
 
 Model coverage is never authoritative. `AgentToolContext` derives case, policy, unique-source, exact, parent, national and cross-region counts from completed current-run tools. Synthesis replaces model counts and marks the replacement with a controlled diagnostic. `AgentRegionResolver` accepts a bounded name, resolves one database directory row and authorizes that region in the Run context; arbitrary numeric IDs remain forbidden.
 
@@ -199,3 +199,47 @@ Deployment starts a candidate backend against an isolated migrated database snap
 Final local results are Spring `341` (`340` passed and one real-Provider smoke skipped), MySQL 8.4 `68/68`, Vitest `77/77`, all 8 frontend scripts, deployment/migration Python `83/83` plus explicit MySQL `7/7`, and both production builds. The isolated candidate completed on `deepseek-v4-flash` before rollout with 2 model rounds, 3 completed tools, 4 legal citations, zero unknown citations, server-derived `sufficient` coverage, actual settlement, zero reservation and `release_switched=false`.
 
 Release `/opt/opc/releases/20260726-213258` is live. Backup `/opt/opc/backups/20260726-213258`, database dump `/opt/opc/backups/20260726-213258/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260726-213258`, and previous release `/opt/opc/releases/20260726-162930` are retained. Independent preflight confirmed matching hashes, three active services, valid nginx configuration and one loopback-owned backend process.
+
+## Phase 28 multi-round closure
+
+The initial `agent-research-v2` planning round is intentionally limited to independent `search_cases` and `search_policies` calls. After those calls complete, the runtime sends only the bounded `_authorized` result projection into a continuation round. That round can request `compare_cases`, `get_source`, another bounded search, `final`, or `evidence_insufficient`. Dependent case/source IDs must come from the completed same-Run request named by `dependsOn`; no historical Run, guessed numeric ID or unresolved dependency is accepted.
+
+The session profile is the fixed research boundary. Search tools receive the profile industry and a controlled region scope, while `AgentRegionResolver` selects database-backed region IDs. Explicit region or industry changes in an established session are rejected before message persistence or Token reservation and direct the user to create new research. Cross-region references remain permitted when requested as comparisons and stay visibly classified as reference material.
+
+Tool persistence and model context have separate bounds. A complete typed audit JSON may use up to 128 KiB measured as UTF-8 bytes. The model receives at most 12 KiB of deterministic `_authorized` projection containing retained item/source identities and bounded evidence fields. Truncated-away items are not authorized and cannot affect citations or evidence counts.
+
+The evidence API preserves its original items/groups fields and adds `availableCount`, `totalCount`, `unavailableCount`, `availableGroups` and `totalGroups`. Unavailable records are status-only and cannot satisfy a citation. Phase 28 adds no table, column, index or migration.
+
+The deployment order now migrates and validates an isolated candidate database before any production backup, migration, restart or current-release switch. Three real Provider scenarios must prove policy search, dynamic search-to-compare and dynamic search-to-source verification.
+
+Real candidate evaluation exposed two additional Provider compatibility shapes. An invalid continuation dependency now receives one correction round containing only completed request IDs and authorized case/source IDs; the rejected response is not copied into model history and no tool runs. Invalid source IDs, uncited facts, uncited recommendations and missing citations share one similarly bounded source-contract correction. A second violation remains terminal.
+
+Final local results are Spring `357` (`356` passed and one opt-in Provider smoke skipped), MySQL 8.4 `70/70`, Vitest `83/83`, all eight frontend scripts, Python deployment `77/77`, migration `14/14`, explicit MySQL migration `7/7`, and both production builds. Three isolated candidate attempts made no production changes. The final attempt passed policy lookup but returned `evidence_insufficient` for case comparison, so source verification was not reached and Phase 28 was not deployed. Production remains `/opt/opc/releases/20260726-213258` with the prior backup and rollback artifacts.
+
+## Phase 29 bounded Provider compatibility closure
+
+Measured real candidates showed that the former four-round/24,000-Token candidate limit could reject a legitimate three-tool comparison after 25,422 actual Tokens. Runtime defaults are now five model rounds, six tool calls and 28,000 aggregate Tokens; planning output uses 3,200 Tokens. The idempotent `20260727_agent_multiround_budget` migration raises only lower stored values and adds no schema object.
+
+Initial planning and continuation `UNKNOWN_FIELDS` receive at most two content-free recoveries. Once server-derived intent evidence is terminal, continuation is removed from the next Schema and redundant tool requests are redirected to a terminal action. Synthesis receives only the current Run's legal source allowlists.
+
+Local verification passed focused orchestration/contract `53/53`, Spring `368` (`367` passed and one opt-in smoke skipped), MySQL `70/70`, Vitest `85/85`, all eight frontend scripts, Python discovery `101` with seven explicit-MySQL skips, static migration `14/14`, Vite/JAR builds and repository gates. Real candidate batches proved policy and source verification separately but not an all-green three-scenario gate. The latest candidate stopped at `PROVIDER_CONNECTION_FAILED` before scenarios; cleanup succeeded and production mutation remained zero. Phase Two remains open.
+
+## Phase 31 intent-priority stabilization
+
+Execution requirements now have an explicit authority order. A non-`auto` validated `requestedIntent` defines the resolved intent and required operations. For `auto`, conservative deterministic message operations are authoritative. Model intent is used only when neither server source provides an operation; it cannot add unrelated work to an explicit or deterministically resolved request. This keeps explicit policy, comparison, general-research and technology-assessment requests stable.
+
+Terminal eligibility remains server-owned and is evaluated before source-contract repair. One-result comparison search can request one broader independent search; invalid tool arguments expose the continuation/final schema; source-contract recovery remains bounded to two attempts and all global round/tool/Token caps are unchanged.
+
+Local results are focused orchestration `32/32`, Spring `380` with one opt-in Provider skip, MySQL 8.4 `71/71`, Vitest `87/87`, eight frontend scripts, Python `109` with seven skips plus explicit MySQL `7/7`, Vite/JAR builds and repository gates. The last permitted corrective candidate passed policy and source verification but comparison returned controlled evidence insufficiency after `search_cases, search_policies`, so no `compare_cases` proof or production rollout exists. Production remains `/opt/opc/releases/20260726-213258`; all current-attempt candidate resources were removed.
+
+## Phase 32 deterministic runtime and production closure
+
+The comparison evaluator no longer returns insufficiency before its one allowed broader search. `AgentOrchestrator` reserves capacity and deterministically executes missing required searches, comparison and source verification through `AgentToolRegistry`; no unaudited tool path was added. Required search arguments are server normalized, case identities are distinct and request scoped, and optional tools cannot consume required capacity.
+
+Audit results add a safe `_diagnostic` projection with request/dependency identity, scope, query/category presence, limits, returned counts and cumulative authorized counts. Persisted audit arguments redact query/category text. Candidate reports read this projection before terminal gates and retain every scenario independently.
+
+Comparison dimensions are a shared finite contract. Provider suggestions outside `businessModel`, `technicalPath`, `targetCustomer`, `outcome`, `regionalContext` and `evidenceStrength` are discarded; an empty validated set falls back to `businessModel, outcome`.
+
+The final all-green candidate used `deepseek/deepseek-v4-flash`: policy `search_policies` in 2 rounds/7,503 Tokens/19,955 ms; comparison `search_cases, compare_cases` in 2 rounds/10,281 Tokens/34,003 ms; source verification `search_policies, get_source` in 4 rounds/18,544 Tokens/65,468 ms. Each returned 2 legal citations, settled actual usage and zero reservation.
+
+Production switched once to `/opt/opc/releases/20260728-130142`. Three independent production probes repeated the required chains with legal current-Run citations, settled usage and zero reservations. Services, Nginx, auth, history/latestRun, evidence counts, migration postchecks, hashes, single loopback backend and cleanup passed. Backup, dump, rollback backend and previous release are `/opt/opc/backups/20260728-130142`, `/opt/opc/backups/20260728-130142/opc_platform.sql.gz`, `/opt/opc-backend.rollback.20260728-130142` and `/opt/opc/releases/20260726-213258`.

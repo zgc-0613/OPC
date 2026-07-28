@@ -20,6 +20,7 @@ public class AiAnalysisRun {
     private Long userMessageId;
     private String idempotencyKey;
     private String submissionKind;
+    private String requestedIntent;
     private String requestContentHash;
     private String startProfileHash;
     private Long sessionContentGeneration;

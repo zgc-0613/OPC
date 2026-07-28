@@ -6,9 +6,12 @@
   {"id":"planning-long-dimension","phase":"planning","shape":{"comparisonDimensions":["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]},"diagnostic":"INVALID_COMPARISON_DIMENSIONS","providerCalls":1,"toolCalls":0},
   {"id":"planning-invalid-output-section","phase":"planning","shape":{"outputSections":["directAnswer","notAllowed"]},"diagnostic":"INVALID_OUTPUT_SECTIONS","providerCalls":1,"toolCalls":0},
   {"id":"planning-invalid-dependency","phase":"planning","shape":{"toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":["missing"]}]},"diagnostic":"INVALID_DEPENDENCIES","providerCalls":1,"toolCalls":0},
+  {"id":"provider-connection-failure","phase":"provider_connection","diagnostic":"PROVIDER_CONNECTION_FAILED","providerCalls":1,"toolCalls":0},
   {"id":"synthesis-truncated","phase":"synthesis","raw":"{","finishReason":"length","diagnostic":"TRUNCATED_RESPONSE","providerCalls":2,"toolCalls":1},
-  {"id":"synthesis-fact-without-source","phase":"synthesis","shape":{"keyFindings":[{"text":"事实缺少来源","evidenceType":"fact","sourceIds":[]}]},"diagnostic":"UNCITED_FACT","providerCalls":2,"toolCalls":2},
-  {"id":"synthesis-recommendation-without-source","phase":"synthesis","shape":{"recommendations":[{"priority":"high","reason":"需要行动","nextAction":"立即执行","sourceIds":[]}]},"diagnostic":"UNCITED_RECOMMENDATION","providerCalls":2,"toolCalls":2},
-  {"id":"synthesis-case-id-used-as-source-id","phase":"synthesis","shape":{"keyFindings":[{"text":"错误编号","evidenceType":"fact","sourceIds":[11]}]},"diagnostic":"INVALID_SOURCE_ID","providerCalls":2,"toolCalls":2},
-  {"id":"synthesis-without-citation","phase":"synthesis","shape":{"citations":[]},"diagnostic":"MISSING_CITATIONS","providerCalls":2,"toolCalls":2}
+  {"id":"synthesis-fact-without-source","phase":"synthesis","shape":{"keyFindings":[{"text":"unsupported fact","evidenceType":"fact","sourceIds":[]}]},"diagnostic":"UNCITED_FACT","providerCalls":2,"toolCalls":2},
+  {"id":"synthesis-recommendation-without-source","phase":"synthesis","shape":{"recommendations":[{"priority":"high","reason":"act now","nextAction":"execute","sourceIds":[]}]},"diagnostic":"UNCITED_RECOMMENDATION","providerCalls":2,"toolCalls":2},
+  {"id":"synthesis-item-id-used-as-source-id","phase":"synthesis","shape":{"keyFindings":[{"text":"wrong identifier type","evidenceType":"fact","sourceIds":[11]}]},"diagnostic":"INVALID_SOURCE_ID","providerCalls":2,"toolCalls":2},
+  {"id":"synthesis-without-citation","phase":"synthesis","shape":{"citations":[]},"diagnostic":"MISSING_CITATIONS","providerCalls":2,"toolCalls":2},
+  {"id":"synthesis-aggregate-limit","phase":"synthesis","mutation":"aggregate-limit","diagnostic":"INVALID_STRUCTURED_RESULT","providerCalls":2,"toolCalls":2},
+  {"id":"synthesis-forged-coverage","phase":"synthesis","shape":{"evidenceCoverage":{"status":"sufficient","caseCount":99,"policyCount":88,"sourceCount":77,"limitations":[]}},"status":"completed","derivedCoverage":{"status":"partial","caseCount":1,"policyCount":0,"sourceCount":1},"providerCalls":2,"toolCalls":2}
 ]

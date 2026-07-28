@@ -3,6 +3,7 @@ package com.opc.platform.ai.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.opc.platform.ai.contract.AgentResearchContract;
 import com.opc.platform.ai.entity.AiAgentToolCall;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
 import com.opc.platform.ai.provider.AgentRuntimeConfig;
@@ -12,6 +13,7 @@ import com.opc.platform.ai.tool.AgentToolContext;
 import com.opc.platform.ai.tool.AgentToolRegistry;
 import com.opc.platform.ai.tool.AgentToolResult;
 import com.opc.platform.ai.tool.SearchCasesArguments;
+import com.opc.platform.common.enums.ErrorCode;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
@@ -50,42 +52,66 @@ class AgentContractReplayTest {
         AtomicInteger toolCalls = new AtomicInteger();
         AgentToolRegistry registry = registry(toolCalls);
         ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>();
-        if ("synthesis".equals(fixture.path("phase").asText())) {
+        String phase = fixture.path("phase").asText();
+        if ("synthesis".equals(phase)) {
             responses.add(response(plan().toString(), "stop"));
             responses.add(response(payload(fixture, finalResult()).toString(),
                     fixture.path("finishReason").asText("stop")));
-        } else {
+        } else if (!"provider_connection".equals(phase)) {
             String content = fixture.has("raw")
                     ? fixture.path("raw").asText()
                     : payload(fixture, plan()).toString();
             responses.add(response(content, fixture.path("finishReason").asText("stop")));
         }
-        int rounds = "synthesis".equals(fixture.path("phase").asText()) ? 2 : 1;
+        int rounds = "synthesis".equals(phase) ? 2 : 1;
         AgentOrchestrator orchestrator = new AgentOrchestrator(objectMapper, registry);
-
-        AgentOrchestratorException exception = assertThrows(
-                AgentOrchestratorException.class,
-                () -> orchestrator.execute(
-                        new AgentOrchestratorInput(
-                                91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
-                                "sanitized replay", List.of(),
-                                new AgentRuntimeConfig(true, rounds, 4, 8000, 4,
-                                        Duration.ofSeconds(30), "json_plan")
-                        ),
-                        request -> {
-                            providerCalls.incrementAndGet();
-                            return responses.removeFirst();
-                        },
-                        progress -> { }
-                )
+        AgentOrchestratorInput input = new AgentOrchestratorInput(
+                91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                "sanitized replay", List.of(),
+                new AgentRuntimeConfig(true, rounds, 4, 8000, 4,
+                        Duration.ofSeconds(30), "json_plan")
         );
+        java.util.function.Function<com.opc.platform.ai.provider.AiProviderRequest, AiProviderResponse> provider =
+                request -> {
+                    providerCalls.incrementAndGet();
+                    if ("provider_connection".equals(phase)) {
+                        throw new AgentOrchestratorException(
+                                ErrorCode.UPSTREAM_ERROR, "PROVIDER_CONNECTION_FAILED",
+                                "Provider connection failed");
+                    }
+                    return responses.removeFirst();
+                };
 
-        assertEquals(fixture.path("diagnostic").asText(), exception.getDiagnosticCode());
+        if (fixture.has("status")) {
+            AgentOrchestratorOutcome outcome = orchestrator.execute(input, provider, progress -> { });
+            assertEquals(fixture.path("status").asText(), outcome.status());
+            JsonNode expected = fixture.path("derivedCoverage");
+            JsonNode actual = outcome.structuredResult().path("evidenceCoverage");
+            assertEquals(expected.path("status").asText(), actual.path("status").asText());
+            assertEquals(expected.path("caseCount").asInt(), actual.path("caseCount").asInt());
+            assertEquals(expected.path("policyCount").asInt(), actual.path("policyCount").asInt());
+            assertEquals(expected.path("sourceCount").asInt(), actual.path("sourceCount").asInt());
+            assertEquals(true, actual.path("derivedByServer").asBoolean());
+            assertEquals("EVIDENCE_COVERAGE_MISMATCH", actual.path("diagnosticCode").asText());
+        } else {
+            AgentOrchestratorException exception = assertThrows(
+                    AgentOrchestratorException.class,
+                    () -> orchestrator.execute(input, provider, progress -> { })
+            );
+            assertEquals(fixture.path("diagnostic").asText(), exception.getDiagnosticCode());
+        }
         assertEquals(fixture.path("providerCalls").asInt(), providerCalls.get());
         assertEquals(fixture.path("toolCalls").asInt(), toolCalls.get());
     }
 
     private ObjectNode payload(JsonNode fixture, ObjectNode base) {
+        if ("aggregate-limit".equals(fixture.path("mutation").asText())) {
+            var findings = base.putArray("keyFindings");
+            for (int index = 0; index <= AgentResearchContract.MAX_KEY_FINDINGS; index++) {
+                findings.addObject().put("text", "bounded item " + index)
+                        .put("evidenceType", "fact").putArray("sourceIds").add(1);
+            }
+        }
         JsonNode shape = fixture.path("shape");
         if (shape.isObject()) shape.fields().forEachRemaining(entry -> base.set(entry.getKey(), entry.getValue()));
         return base;

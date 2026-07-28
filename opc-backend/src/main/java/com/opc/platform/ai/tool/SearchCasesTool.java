@@ -37,9 +37,7 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
     public String argumentSchema() {
         return """
                 {"type":"object","additionalProperties":false,"properties":{
-                  "regionId":{"type":"integer"},"regionName":{"type":"string","maxLength":50},
-                  "industryTagId":{"type":"integer"},
-                  "industry":{"type":"string","maxLength":100},
+                  "scope":{"type":"string","enum":["selected","cross_region_reference"]},
                   "query":{"type":"string","maxLength":120},
                   "category":{"type":"string","maxLength":50},
                   "limit":{"type":"integer","minimum":1,"maximum":10}
@@ -50,10 +48,14 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
     @Override
     public AgentToolResult execute(AgentToolContext context, SearchCasesArguments arguments) {
         int limit = arguments.getLimit() == null ? 5 : Math.max(1, Math.min(10, arguments.getLimit()));
-        Long regionId = resolveRegion(context, arguments.getRegionId(), arguments.getRegionName());
-        List<Long> regionIds = descendantRegionIds(regionId);
+        AgentRegionResolver.RegionScope scope = regionResolver.resolveScope(
+                context.primaryRegionId(), arguments.getScope());
+        List<Long> selectedRegionIds = descendantRegionIds(context.primaryRegionId());
+        boolean crossRegion = "cross_region_reference".equals(scope.scope());
+        List<Long> regionIds = crossRegion ? List.of() : selectedRegionIds;
+        List<Long> excludedRegionIds = crossRegion ? selectedRegionIds : List.of();
         List<AgentCaseSearchRow> rows = mapper.searchCases(
-                regionIds, arguments.getIndustryTagId(), trim(arguments.getIndustry()),
+                regionIds, excludedRegionIds, context.primaryIndustryTagId(), trim(context.primaryIndustry()),
                 trim(arguments.getQuery()), trim(arguments.getCategory()), limit
         );
         List<CaseItem> items = (rows == null ? List.<AgentCaseSearchRow>of() : rows).stream()
@@ -62,7 +64,8 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
                         row.getRegionId(), bounded(row.getGeographicLevel(), 30),
                         bounded(row.getCategory(), 50), bounded(row.getSummary(), 500),
                         bounded(row.getBusinessModel(), 500), bounded(row.getOutcome(), 500),
-                        row.getSourceId(), "verified", geographicScope(context, regionId), matchReason(arguments)
+                        row.getSourceId(), "verified", crossRegion ? "cross_region" : "exact",
+                        matchReason(context, crossRegion, arguments)
                 )).toList();
         Set<Long> sources = new LinkedHashSet<>();
         Set<Long> cases = new LinkedHashSet<>();
@@ -81,20 +84,6 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
         );
     }
 
-    private Long resolveRegion(AgentToolContext context, Long regionId, String regionName) {
-        if (StringUtils.hasText(regionName)) {
-            AgentRegionMatch match = regionResolver.resolve(regionName);
-            if (regionId != null && !regionId.equals(match.regionId())) {
-                throw new AgentToolException("REGION_ARGUMENT_CONFLICT", "地区名称与编号不一致");
-            }
-            context.authorizeRegion(match.regionId());
-            regionId = match.regionId();
-        }
-        if (regionId == null) regionId = context.primaryRegionId();
-        context.requireRegionAuthorized(regionId);
-        return regionId;
-    }
-
     private List<Long> descendantRegionIds(Long regionId) {
         if (regionId == null) return List.of();
         List<Long> ids = mapper.selectDescendantRegionIds(regionId);
@@ -104,16 +93,15 @@ public class SearchCasesTool implements AgentTool<SearchCasesArguments> {
         return ids.stream().filter(java.util.Objects::nonNull).distinct().limit(500).toList();
     }
 
-    private String matchReason(SearchCasesArguments arguments) {
-        if (arguments.getIndustryTagId() != null) return "匹配已核验行业标签";
-        if (arguments.getRegionId() != null) return "匹配所选地区";
+    private String matchReason(
+            AgentToolContext context,
+            boolean crossRegion,
+            SearchCasesArguments arguments
+    ) {
+        if (crossRegion) return "所选地区资料不足时使用的跨地区借鉴案例";
+        if (context.primaryIndustryTagId() != null) return "匹配已确认地区和行业标签";
         if (StringUtils.hasText(arguments.getQuery())) return "匹配研究关键词";
         return "符合已发布和已核验证据条件";
-    }
-
-    private String geographicScope(AgentToolContext context, Long requestedRegionId) {
-        return context.primaryRegionId() != null && !context.primaryRegionId().equals(requestedRegionId)
-                ? "cross_region" : "exact";
     }
 
     private String trim(String value) {

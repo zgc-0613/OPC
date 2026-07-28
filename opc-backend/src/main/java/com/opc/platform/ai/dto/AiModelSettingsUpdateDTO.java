@@ -70,7 +70,7 @@ public class AiModelSettingsUpdateDTO {
     @NotNull
     @Min(1)
     @Max(8)
-    private Integer agentMaxModelRounds = 4;
+    private Integer agentMaxModelRounds = 5;
 
     @NotNull
     @Min(1)
@@ -80,7 +80,7 @@ public class AiModelSettingsUpdateDTO {
     @NotNull
     @Min(512)
     @Max(32000)
-    private Integer agentMaxTokens = 8000;
+    private Integer agentMaxTokens = 28000;
 
     @NotNull
     @Min(1)

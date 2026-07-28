@@ -45,7 +45,7 @@ class AgentResearchQualityEvaluationTest {
                 new Scenario("technology-path", "technology_assessment", List.of("search_cases"), "under_100k", "idea", "partial", false, false),
                 new Scenario("verify-source", "source_verification", List.of("search_policies", "get_source"), "under_100k", "validation", "partial", false, false),
                 new Scenario("insufficient-local-data", "case_analysis", List.of("search_cases"), "under_100k", "validation", "insufficient", true, false),
-                new Scenario("cross-region-reference", "case_comparison", List.of("search_cases", "search_cases"), "100k_500k", "growth", "partial", false, false),
+                new Scenario("cross-region-reference", "case_comparison", List.of("search_cases", "search_cases", "compare_cases"), "100k_500k", "growth", "partial", false, false),
                 new Scenario("follow-up", "follow_up", List.of("search_policies"), "under_100k", "validation", "partial", false, true),
                 new Scenario("same-goal-low-budget", "mixed_research", List.of("search_cases", "search_policies"), "under_100k", "validation", "sufficient", false, false),
                 new Scenario("same-goal-growth-stage", "mixed_research", List.of("search_cases", "search_policies"), "100k_500k", "growth", "sufficient", false, false)
@@ -63,7 +63,7 @@ class AgentResearchQualityEvaluationTest {
             assertEquals(scenario.coverage(), structured.path("evidenceCoverage").path("status").asText(), scenario.id());
             assertTrue(structured.path("evidenceCoverage").path("derivedByServer").asBoolean(), scenario.id());
             assertEquals(scenario.tools(), evaluation.toolNames(), scenario.id());
-            assertEquals(2, evaluation.modelCalls(), scenario.id());
+            assertEquals(hasDependentTools(scenario) ? 3 : 2, evaluation.modelCalls(), scenario.id());
             assertRequiredSections(structured, scenario.id());
             assertEvidenceLinks(structured, evaluation.allowedSourceIds(), scenario.id());
             assertFalse(outcome.answer().contains("零售"), scenario.id());
@@ -97,10 +97,12 @@ class AgentResearchQualityEvaluationTest {
         JsonNode plan = plan(scenario);
         Set<Long> expectedSources = expectedSources(scenario);
         JsonNode result = result(scenario, expectedSources);
-        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
-                response(plan.toString(), 12, 8, "quality-plan"),
-                response(result.toString(), 18, 12, "quality-result")
-        ));
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>();
+        responses.add(response(plan.toString(), 12, 8, "quality-plan"));
+        if (hasDependentTools(scenario)) {
+            responses.add(response(continuation(scenario).toString(), 10, 6, "quality-continuation"));
+        }
+        responses.add(response(result.toString(), 18, 12, "quality-result"));
         AtomicInteger modelCalls = new AtomicInteger();
         List<AiProviderMessage> firstRequestMessages = new ArrayList<>();
         List<AiProviderMessage> history = scenario.followUp()
@@ -157,7 +159,7 @@ class AgentResearchQualityEvaluationTest {
                 return switch (name) {
                     case "compare_cases" -> "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"caseIds\"],\"properties\":{\"caseIds\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":3,\"items\":{\"type\":\"integer\"}}}}";
                     case "get_source" -> "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"sourceId\"],\"properties\":{\"sourceId\":{\"type\":\"integer\"}}}";
-                    default -> "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"regionId\",\"industryTagId\"],\"properties\":{\"regionId\":{\"type\":\"integer\"},\"industryTagId\":{\"type\":\"integer\"}}}";
+                    default -> "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"scope\":{\"type\":\"string\"}}}";
                 };
             }
             public AgentToolResult execute(AgentToolContext context, Map<String, Object> arguments) {
@@ -190,12 +192,13 @@ class AgentResearchQualityEvaluationTest {
     }
 
     private JsonNode caseOutput(Map<String, Object> arguments) {
-        long regionId = ((Number) arguments.get("regionId")).longValue();
+        boolean crossRegion = "cross_region_reference".equals(arguments.get("scope"));
         var root = objectMapper.createObjectNode();
         var items = root.putArray("items");
         items.addObject().put("caseId", 11).put("sourceId", 1)
-                .put("title", regionId == 4 ? "上海人工智能服务案例" : "武汉人工智能服务案例")
-                .put("region", regionId == 4 ? "上海市" : "武汉市");
+                .put("title", crossRegion ? "上海人工智能服务案例" : "武汉人工智能服务案例")
+                .put("region", crossRegion ? "上海市" : "武汉市")
+                .put("geographicScope", crossRegion ? "cross_region" : "exact");
         items.addObject().put("caseId", 12).put("sourceId", 3)
                 .put("title", "武汉软件工作室案例").put("region", "武汉市");
         return root;
@@ -213,17 +216,20 @@ class AgentResearchQualityEvaluationTest {
         root.put("action", "plan").put("intent", scenario.intent());
         root.putArray("researchQuestions").add("地区与行业证据是否支持核心研究问题？");
         var requests = root.putArray("toolRequests");
-        for (int index = 0; index < scenario.tools().size(); index++) {
-            String tool = scenario.tools().get(index);
+        List<String> initialTools = scenario.tools().stream()
+                .filter(tool -> Set.of("search_cases", "search_policies").contains(tool))
+                .toList();
+        for (int index = 0; index < initialTools.size(); index++) {
+            String tool = initialTools.get(index);
             var request = requests.addObject();
             request.put("requestId", "request" + index).put("toolName", tool);
             var arguments = request.putObject("arguments");
-            if ("compare_cases".equals(tool)) arguments.putArray("caseIds").add(11).add(12);
-            else if ("get_source".equals(tool)) arguments.put("sourceId", 2);
-            else arguments.put("regionId", "cross-region-reference".equals(scenario.id()) && index == 1 ? 4 : 2)
-                    .put("industryTagId", 7);
-            var dependencies = request.putArray("dependsOn");
-            if (Set.of("compare_cases", "get_source").contains(tool)) dependencies.add("request" + (index - 1));
+            if ("cross-region-reference".equals(scenario.id()) && index == 1) {
+                arguments.put("scope", "cross_region_reference");
+            } else {
+                arguments.put("scope", "selected");
+            }
+            request.putArray("dependsOn");
         }
         root.putArray("comparisonDimensions").add("regionalContext").add("evidenceStrength");
         var sections = root.putArray("outputSections");
@@ -233,6 +239,26 @@ class AgentResearchQualityEvaluationTest {
                 "citations", "confidence", "evidenceCoverage"
         )) sections.add(section);
         return root;
+    }
+
+    private JsonNode continuation(Scenario scenario) {
+        var root = objectMapper.createObjectNode();
+        root.put("action", "continue");
+        var requests = root.putArray("toolRequests");
+        for (String tool : scenario.tools()) {
+            if (!Set.of("compare_cases", "get_source").contains(tool)) continue;
+            var request = requests.addObject();
+            request.put("requestId", "dependent-" + tool).put("toolName", tool);
+            var arguments = request.putObject("arguments");
+            if ("compare_cases".equals(tool)) arguments.putArray("caseIds").add(11).add(12);
+            else arguments.put("sourceId", 2);
+            request.putArray("dependsOn").add("request0");
+        }
+        return root;
+    }
+
+    private boolean hasDependentTools(Scenario scenario) {
+        return scenario.tools().stream().anyMatch(Set.of("compare_cases", "get_source")::contains);
     }
 
     private JsonNode result(Scenario scenario, Set<Long> sources) {

@@ -12,7 +12,6 @@ import PolicyDetailView from '@/views/PolicyDetailView.vue'
 import CaseListView from '@/views/CaseListView.vue'
 import CaseDetailView from '@/views/CaseDetailView.vue'
 import CaseAnalysisView from '@/views/CaseAnalysisView.vue'
-import AssistantView from '@/views/AssistantView.vue'
 import SourceLedgerView from '@/views/SourceLedgerView.vue'
 import AdminHomeView from '@/views/admin/AdminHomeView.vue'
 import PolicyAdminView from '@/views/admin/PolicyAdminView.vue'
@@ -24,7 +23,7 @@ import EvidenceReviewAdminView from '@/views/admin/EvidenceReviewAdminView.vue'
 import { isAdminAuthenticated, isUserAuthenticated } from '@/api/auth'
 import { recordVisit } from '@/api/visit'
 
-const routes = [
+export const routes = [
   {
     path: '/',
     component: MainLayout,
@@ -76,14 +75,6 @@ const routes = [
         },
       },
       {
-        path: 'assistant',
-        name: 'assistant',
-        component: AssistantView,
-        meta: {
-          requiresUser: true,
-        },
-      },
-      {
         path: 'sources',
         name: 'source-ledger',
         component: SourceLedgerView,
@@ -95,6 +86,20 @@ const routes = [
         meta: {
           requiresUser: true,
         },
+      },
+    ],
+  },
+  {
+    path: '/assistant',
+    component: () => import('@/layouts/AssistantLayout.vue'),
+    meta: {
+      requiresUser: true,
+    },
+    children: [
+      {
+        path: '',
+        name: 'assistant',
+        component: () => import('@/views/AssistantView.vue'),
       },
     ],
   },

@@ -106,6 +106,32 @@ class AgentResearchControllerTest {
     }
 
     @Test
+    void invalidRequestedIntentUsesTheExistingBadRequestContract() throws Exception {
+        UserLoginVO user = new UserLoginVO();
+        user.setUserId(42L);
+        user.setUsername("owner");
+        user.setEmail("owner@example.com");
+        when(userAuthService.getCurrentUser("valid-token")).thenReturn(user);
+
+        mockMvc.perform(post("/api/ai/research/sessions/start")
+                        .header("Authorization", "Bearer valid-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "profile":{"regionId":1,"industry":"AI"},
+                                  "content":"Compare two verified cases",
+                                  "requestedIntent":"invented_intent",
+                                  "idempotencyKey":"idem-start-invalid"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("requestedIntent")));
+
+        verify(researchService, never()).start(any(), any());
+    }
+
+    @Test
     void compatibilityDeleteUsesTheExplicitArchiveLifecycle() throws Exception {
         UserLoginVO user = new UserLoginVO();
         user.setUserId(42L);

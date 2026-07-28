@@ -86,7 +86,8 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
     @Insert("""
             INSERT INTO ai_analysis_runs (
                 user_id, task_type, case_id, session_id, user_message_id, idempotency_key,
-                submission_kind, request_content_hash, start_profile_hash, session_content_generation,
+                submission_kind, requested_intent, request_content_hash, start_profile_hash,
+                session_content_generation,
                 status, provider, model_id, current_stage, visible_progress,
                 prompt_version, evidence_hash, reserved_tokens, started_at,
                 deadline_at, heartbeat_at
@@ -95,6 +96,7 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
                 #{run.userId}, #{run.taskType}, #{run.caseId}, #{run.sessionId},
                 #{run.userMessageId}, #{run.idempotencyKey},
                 COALESCE(#{run.submissionKind}, 'message'),
+                COALESCE(#{run.requestedIntent}, 'auto'),
                 #{run.requestContentHash}, #{run.startProfileHash},
                 COALESCE(#{run.sessionContentGeneration}, 0), #{run.status},
                 #{run.provider}, #{run.modelId}, #{run.currentStage}, #{run.visibleProgress},
