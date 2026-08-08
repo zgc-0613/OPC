@@ -69,9 +69,15 @@ public class EntrepreneurshipAdvisorService {
                         PROMPT_VERSION,
                         systemPrompt(evidence),
                         userPrompt(request, region, evidence),
-                        responseSchema()
+                responseSchema()
                 ),
                 execution -> {
+                    if (isTruncated(execution.response())) {
+                        evidenceService.requireUnchanged(evidence);
+                        return truncatedFallback(
+                                execution.run(), execution.descriptor(), execution.response(), evidence
+                        );
+                    }
                     ModelPayload payload = parse(execution.response());
                     List<AiCitationVO> citations = validateCitations(payload.getCitations(), evidence.sources());
                     evidenceService.requireUnchanged(evidence);
@@ -221,6 +227,67 @@ public class EntrepreneurshipAdvisorService {
         result.setOpportunities(payload.getOpportunities());
         result.setRisks(payload.getRisks());
         result.setActionPlan(payload.getActionPlan());
+        populateEvidenceMatches(result, evidence);
+        result.setCitations(citations);
+        result.setConfidence(payload.getConfidence());
+        result.setEvidenceStatus(evidence.readinessStatus());
+        result.setEvidenceReasons(evidence.reasons());
+        result.setProvider(descriptor.provider());
+        result.setModel(descriptor.model());
+        result.setPromptVersion(PROMPT_VERSION);
+        result.setGeneratedAt(LocalDateTime.now());
+        result.setTokenUsage(new AiTokenUsageVO(
+                providerResponse.promptTokens(),
+                providerResponse.completionTokens(),
+                providerResponse.totalTokens()
+        ));
+        return result;
+    }
+
+    private EntrepreneurshipAdviceVO truncatedFallback(
+            AiAnalysisRun run,
+            AiProviderDescriptor descriptor,
+            AiProviderResponse providerResponse,
+            EntrepreneurshipEvidenceService.Assessment evidence
+    ) {
+        EntrepreneurshipAdviceVO result = new EntrepreneurshipAdviceVO();
+        result.setAnalysisId(run.getId());
+        result.setSummary("完整建议未生成");
+        result.setRecommendedDirection("模型回答在完成前被截断。系统未使用截断文本生成结论；请缩小地区、行业或问题范围后重新研究。");
+        result.setOpportunities(List.of());
+        result.setRisks(List.of("当前不能根据不完整的模型回答形成明确的机会或风险判断。"));
+        result.setActionPlan(List.of("缩小研究范围后重新提交，或稍后重试。"));
+        populateEvidenceMatches(result, evidence);
+        result.setCitations(evidence.sources().values().stream()
+                .limit(6)
+                .map(source -> new AiCitationVO(
+                        source.getId(), source.getTitle(), source.getUrl(),
+                        "该来源属于本次已核验资料范围；系统未依据截断的模型文本作出具体业务结论。"
+                ))
+                .toList());
+        List<String> reasons = new ArrayList<>(evidence.reasons());
+        reasons.add("模型最终回答被截断；未使用不完整文本生成结论。");
+        result.setConfidence(0.0);
+        result.setEvidenceStatus(evidence.readinessStatus());
+        result.setEvidenceReasons(List.copyOf(reasons));
+        result.setProvider(descriptor.provider());
+        result.setModel(descriptor.model());
+        result.setPromptVersion(PROMPT_VERSION);
+        result.setGeneratedAt(LocalDateTime.now());
+        result.setLimitedResult(true);
+        result.setDiagnosticCode("FINAL_RESPONSE_TRUNCATED_FALLBACK");
+        result.setTokenUsage(new AiTokenUsageVO(
+                providerResponse.promptTokens(),
+                providerResponse.completionTokens(),
+                providerResponse.totalTokens()
+        ));
+        return result;
+    }
+
+    private void populateEvidenceMatches(
+            EntrepreneurshipAdviceVO result,
+            EntrepreneurshipEvidenceService.Assessment evidence
+    ) {
         result.setMatchedCases(evidence.cases().stream()
                 .map(match -> new AssistantCaseMatchVO(
                         match.item().getId(),
@@ -245,20 +312,10 @@ public class EntrepreneurshipAdvisorService {
                         match.matchReason()
                 ))
                 .toList());
-        result.setCitations(citations);
-        result.setConfidence(payload.getConfidence());
-        result.setEvidenceStatus(evidence.readinessStatus());
-        result.setEvidenceReasons(evidence.reasons());
-        result.setProvider(descriptor.provider());
-        result.setModel(descriptor.model());
-        result.setPromptVersion(PROMPT_VERSION);
-        result.setGeneratedAt(LocalDateTime.now());
-        result.setTokenUsage(new AiTokenUsageVO(
-                providerResponse.promptTokens(),
-                providerResponse.completionTokens(),
-                providerResponse.totalTokens()
-        ));
-        return result;
+    }
+
+    private boolean isTruncated(AiProviderResponse response) {
+        return "length".equals(safe(response == null ? null : response.finishReason()).toLowerCase());
     }
 
     private String systemPrompt(EntrepreneurshipEvidenceService.Assessment evidence) {

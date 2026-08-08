@@ -28,6 +28,16 @@ public class AgentProviderSettlementService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean settleActual(Long providerCallId, AiProviderResponse response) {
+        return settleActual(providerCallId, response, null, 0);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean settleActual(
+            Long providerCallId,
+            AiProviderResponse response,
+            String leaseOwner,
+            int executionAttempt
+    ) {
         if (providerCallId == null || response == null) return false;
         AiAgentProviderCall call = providerCallMapper.selectForUpdate(providerCallId);
         if (call == null) return false;
@@ -46,15 +56,28 @@ public class AgentProviderSettlementService {
             return true;
         }
         if (!"provider_dispatched".equals(call.getSettlementStatus())) return false;
-        if (providerCallMapper.settleActual(
-                providerCallId, usage.prompt(), usage.completion(), usage.total(), usage.latency(),
-                usage.requestId(), response.finishReason(), now) != 1) {
+        int callSettled = executionAttempt > 0
+                ? providerCallMapper.settleActualFenced(
+                        providerCallId, leaseOwner, executionAttempt,
+                        usage.prompt(), usage.completion(), usage.total(), usage.latency(),
+                        usage.requestId(), response.finishReason(), now)
+                : providerCallMapper.settleActual(
+                        providerCallId, usage.prompt(), usage.completion(), usage.total(), usage.latency(),
+                        usage.requestId(), response.finishReason(), now);
+        if (callSettled != 1) {
             return false;
         }
-        if (runMapper.settleAgentUsageActual(
-                call.getAnalysisRunId(), usage.prompt(), usage.completion(), usage.total(), usage.latency(),
-                usage.requestId(), response.finishReason(), now) != 1) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Agent usage settlement state changed");
+        int updated = executionAttempt > 0
+                ? runMapper.settleAgentUsageActualFenced(
+                        call.getAnalysisRunId(), leaseOwner, executionAttempt,
+                        usage.prompt(), usage.completion(), usage.total(), usage.latency(),
+                        usage.requestId(), response.finishReason(), now)
+                : runMapper.settleAgentUsageActual(
+                        call.getAnalysisRunId(), usage.prompt(), usage.completion(), usage.total(), usage.latency(),
+                        usage.requestId(), response.finishReason(), now);
+        if (updated != 1) {
+            if (executionAttempt > 0) return false;
+            throw new BusinessException(ErrorCode.CONFLICT, "Agent usage settlement failed");
         }
         return true;
     }
@@ -87,7 +110,37 @@ public class AgentProviderSettlementService {
             int stepCount,
             int toolCallCount
     ) {
+        settleFailure(runId, status, errorType, diagnosticCode, stepCount, toolCallCount, null, 0);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean settleFailure(
+            Long runId,
+            String status,
+            String errorType,
+            String diagnosticCode,
+            int stepCount,
+            int toolCallCount,
+            String leaseOwner,
+            int executionAttempt
+    ) {
         LocalDateTime now = LocalDateTime.now();
+        if (executionAttempt > 0 && "expired".equals(status)) {
+            return runMapper.expireAgentRunFenced(runId, leaseOwner, executionAttempt, now) == 1;
+        }
+        if (executionAttempt > 0) {
+            int estimatedCalls = providerCallMapper.markDispatchedEstimatedFenced(
+                    runId, leaseOwner, executionAttempt, now);
+            if (runMapper.settleAgentFailedFenced(
+                    runId, leaseOwner, executionAttempt, status, "研究运行未完成",
+                    errorType, diagnosticCode, stepCount, toolCallCount, now) != 1) {
+                return false;
+            }
+            if (estimatedCalls > 0 && runMapper.reconcileAgentProviderUsage(runId, now) != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Agent usage reconciliation failed");
+            }
+            return true;
+        }
         int estimatedCalls = providerCallMapper.markDispatchedEstimated(runId, now);
         runMapper.settleAgentFailed(
                 runId, status, "研究运行未完成", errorType, diagnosticCode,
@@ -95,6 +148,7 @@ public class AgentProviderSettlementService {
         if (estimatedCalls > 0 && runMapper.reconcileAgentProviderUsage(runId, now) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "Agent usage reconciliation failed");
         }
+        return true;
     }
 
     private record Usage(int prompt, int completion, int total, long latency, String requestId) {

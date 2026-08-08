@@ -42,10 +42,19 @@ public interface AiAgentMessageMapper extends BaseMapper<AiAgentMessage> {
 
     @Select("""
             <script>
-            SELECT * FROM ai_agent_messages
-            WHERE session_id=#{sessionId}
-            <if test="beforeSequence != null">AND sequence_no &lt; #{beforeSequence}</if>
-            ORDER BY sequence_no DESC
+            SELECT m.*,
+                   CASE WHEN m.role='assistant' AND m.status='completed'
+                        THEN JSON_EXTRACT(r.result_json, '$.structuredResult')
+                        ELSE NULL END AS structured_result_json,
+                   CASE WHEN m.role='assistant' AND m.status='completed'
+                        THEN JSON_EXTRACT(r.result_json, '$.analyticsSnapshot')
+                        ELSE NULL END AS analytics_snapshot_json
+            FROM ai_agent_messages m
+            LEFT JOIN ai_analysis_runs r
+              ON r.id=m.run_id AND r.task_type='agent_research'
+            WHERE m.session_id=#{sessionId}
+            <if test="beforeSequence != null">AND m.sequence_no &lt; #{beforeSequence}</if>
+            ORDER BY m.sequence_no DESC
             LIMIT #{limit}
             </script>
             """)

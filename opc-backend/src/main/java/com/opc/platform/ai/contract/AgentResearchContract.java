@@ -45,14 +45,26 @@ public final class AgentResearchContract {
     public static final String INVALID_COMPARISON_DIMENSIONS = "INVALID_COMPARISON_DIMENSIONS";
     public static final String INVALID_OUTPUT_SECTIONS = "INVALID_OUTPUT_SECTIONS";
     public static final String INVALID_DEPENDENCIES = "INVALID_DEPENDENCIES";
+    public static final String MISSING_FIELD = "MISSING_FIELD";
+    public static final String INVALID_CONFIDENCE = "INVALID_CONFIDENCE";
     public static final String REQUIRED_TOOL_CHAIN_UNSATISFIED = "REQUIRED_TOOL_CHAIN_UNSATISFIED";
     public static final String TRUNCATED_RESPONSE = "TRUNCATED_RESPONSE";
+    public static final String PLANNING_RESPONSE_TRUNCATED_FALLBACK =
+            "PLANNING_RESPONSE_TRUNCATED_FALLBACK";
+    public static final String FINAL_RESPONSE_TRUNCATED_FALLBACK = "FINAL_RESPONSE_TRUNCATED_FALLBACK";
+    public static final String FINAL_RESPONSE_INVALID_STRUCTURED_FALLBACK =
+            "FINAL_RESPONSE_INVALID_STRUCTURED_FALLBACK";
+    public static final String FINAL_RESPONSE_INVALID_JSON_FALLBACK =
+            "FINAL_RESPONSE_INVALID_JSON_FALLBACK";
+    public static final String FINAL_RESPONSE_CONTRACT_FALLBACK = "FINAL_RESPONSE_CONTRACT_FALLBACK";
     public static final String UNCITED_FACT = "UNCITED_FACT";
     public static final String UNCITED_RECOMMENDATION = "UNCITED_RECOMMENDATION";
     public static final String MISSING_CITATIONS = "MISSING_CITATIONS";
     public static final String INVALID_SOURCE_ID = "INVALID_SOURCE_ID";
+    public static final String INVALID_EVIDENCE_COVERAGE = "INVALID_EVIDENCE_COVERAGE";
     public static final String INVALID_STRUCTURED_RESULT = "INVALID_STRUCTURED_RESULT";
     public static final String PROVIDER_CONNECTION_FAILED = "PROVIDER_CONNECTION_FAILED";
+    public static final String AGENT_DEADLINE_FALLBACK = "AGENT_DEADLINE_FALLBACK";
 
     public static final String REQUESTED_INTENT_PATTERN =
             "auto|policy_lookup|case_analysis|case_comparison|source_verification|technology_assessment|general_research";

@@ -4,7 +4,25 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 33 (Phase Three readiness, metrics, product and API specification complete)
+Phase 41 (Phase Three user-facing v1 production release)
+
+### Phase 41: Phase Three User-Facing v1 Production Release
+- [x] Re-run the complete local acceptance matrix: frontend Vitest `157/157`, eight frontend contract scripts, MySQL 8.4 Testcontainers `80/80`, Spring Boot `509` (`0` failures, `0` errors, `1` explicit opt-in provider smoke skip), JAR packaging, Python migration `17/17`, deployment hardening `103/103`, syntax and diff checks.
+- [x] Run the isolated candidate gate and its three controlled provider scenarios before production mutation. Policy, case-comparison, and source-verification scenarios completed with authorized citations and settled usage.
+- [x] Create a timestamped production backup, apply additive Phase Three migration precheck/migration/postcheck groups, atomically switch the release, retain a backend rollback artifact, and run the guarded production probes.
+- [x] Verify report export and ownership isolation, preference consent/delete, feedback CAS, Analytics snapshot ownership, and administrator quality authorization through temporary probe data that the deployment script cleans up.
+- **Status:** deployed as Phase Three user-facing v1 / partial release. Current production target: `/opt/opc/releases/20260808-162621`; previous release retained: `/opt/opc/releases/20260807-173031`. This is not a claim that the broader Phase Three product-complete bar, formal technology/revenue statistics, or browser human acceptance is complete.
+
+### Phase 40: Assistant Terminal Synchronization Recovery And Local Acceptance Correction
+- [x] Keep the terminal server Run visible when the subsequent owned session-detail read fails.
+- [x] Add run-bound, generation-gated manual result synchronization without creating a Run, model request, token reservation, or session.
+- [x] Preserve finite polling, deadline, cancellation-recovery, session-switch, and unmount semantics.
+- [x] Cover completed and failed terminal recovery, stale session isolation, unmount isolation, keyboard focus, and touch-target behavior through Vitest.
+- [x] Run full frontend Vitest (`25` files / `148` tests), Vite build, focused Agent tests (`50/50`), all Agent tests (`163` run / `0` failures / `0` errors / `1` expected opt-in skip), JAR packaging, Python migration (`17/17`), deployment hardening (`94/94`), syntax, and diff checks.
+- [x] Execute Docker preflight and the enabled `PhaseOneMySqlIntegrationTest`; record the Docker Desktop Linux Engine startup failure as an environment blocker rather than a pass.
+- [x] Start Docker Desktop Linux Engine and rerun `PhaseOneMySqlIntegrationTest` for MySQL 8.4 acceptance.
+- [x] Perform deployment only in the separately authorized Phase 41 release round after MySQL acceptance.
+- **Status:** superseded by the Phase 41 release evidence. MySQL 8.4 Testcontainers now passes `80/80`; no commit or push was performed.
 
 ## Phases
 
@@ -469,3 +487,77 @@ Phase 33 (Phase Three readiness, metrics, product and API specification complete
 - [ ] Implement Phase Three A, B or C business features; intentionally outside this preparation round.
 - [ ] Run any production migration or deployment; intentionally outside this preparation round.
 - **Status:** specification preparation complete. Production audit at `2026-07-29 01:08–01:10 CST` found 105 eligible case rows (canonical business-case count unknown because 42 exact duplicate candidates), 57 eligible policies and 121 eligible sources. No application code or production state was changed.
+
+### Phase 34: Phase Three Specification Stabilization
+- [x] Re-read the eight required skills, product/design context, seven Phase Three specs, current security wiring and Agent request/tool/citation contracts.
+- [x] Freeze `/api/analytics/**` Spring Security permitAll plus UserAuthInterceptor wiring and its full-path tests.
+- [x] Add backward-compatible `phase3-task-v1` taskContext, server-owned task selection/Run authorization order and versioned structuredResult compatibility.
+- [x] Freeze case operation/registration/legacy region roles and policy applicability semantics.
+- [x] Converge technology unavailable/filter/empty responses across filters, endpoint and errors.
+- [x] Define report active/trash/permanent lifecycle, independent session-purge behavior, exports, user feedback and admin quality aggregation.
+- [x] Separate Phase B partial production release from Phase Three product complete.
+- [x] Fix data-completeness macro averages, revenue value_status/bin/Type 7 algorithms, grayscale command rules and the 26-file SQL fact.
+- [x] Complete two independent read-only specification reviews and resolve all findings: task intent compatibility, policy discriminator, explicit analytics regionRole, primary-operation counting and feedback reason mapping.
+- [x] Complete the five documentation-only repository checks and record their exact results in progress.md.
+- [ ] Implement Phase A/B/C or deploy; explicitly outside this stabilization round.
+- **Status:** complete and awaiting final user document acceptance. All five scoped checks passed; application code, migrations, deployment scripts and production remain untouched. Phase A has not started.
+
+### Phase 35: Phase A Contract Final Closure
+- [x] Re-read the required skills, product/design context, seven Phase Three documents and current Agent task/session/run/evidence/history/purge implementation.
+- [x] Freeze taskContext storage in session version/json/hash fields, canonical hash/idempotency identity, immutable follow-up behavior, API readback, owner boundary, purge and log privacy.
+- [x] Add source_verification sourceId and claim-search modes while preserving controlled tool authorization and non-empty start content.
+- [x] Publish the exact Draft 2020-12 `phase3-structured-result-v1`, six legal placeholder examples, negative seams and sourceIds-only conclusion references.
+- [x] Separate Phase A evidenceVersion from Phase B/C Analytics dataVersion and align report version fields.
+- [x] Align region unavailable/partial/empty states, report automatic purge and feedbackEligible across all seven specifications.
+- [x] Validate the JSON Schema and six examples; pass contract closure assertions, Markdown links, diff whitespace, ignore, added-line credential and Markdown-only scope checks.
+- [ ] Implement Phase A DTOs, migrations, validators, services, UI and tests; explicitly belongs to the next development round.
+- [ ] Access production, run deployment or require commit/push/clean worktree; explicitly outside this specification-only round.
+- **Status:** superseded by Phase 36 after the final read-only review found runtime-budget, evidence-role, example-provenance, comparison-dimension and report-revision P1 conflicts. Phase A itself is not implemented.
+
+### Phase 36: Phase A v1 Structured Result Implementation Gate
+- [x] Reproduce all eight final-review conflicts before editing the specifications.
+- [x] Contract `phase3-structured-result-v1` to the existing 3,200-Token synthesis, 600-character direct-answer, six-ClaimItem, six-citation and 12,000-character Assistant-rendering limits.
+- [x] Give every schema string and array an explicit bound and define the cross-array six-ClaimItem service-semantic budget.
+- [x] Split immutable `taskSelectedEvidence` from server-generated current-Run `authorizedEvidence` and bind both to the existing tool ceilings.
+- [x] Repair all six task fixtures, including complete selected-case source authorization chains for case analysis and comparison.
+- [x] Restrict case comparison to one to three explicit, unique, allowlisted dimensions and require all other tasks to submit none.
+- [x] Unify report trash, restore and permanent-delete compare-and-set around JSON-body `expectedRevision` and one 400/409/error-code contract.
+- [x] Validate the schema, six positive fixtures, service semantics, reason-specific negative mutations, cross-document terminology and scoped repository gates.
+- [ ] Implement Phase A persistence, DTOs, validators, Agent runtime integration, UI and automated application tests; belongs to the next development round.
+- [ ] Deploy or access production; explicitly outside this documentation-only gate.
+- **Status:** superseded. The runtime-budget gate remains valid, but the service-semantic fixture conclusion did not prove case/source relationships or independently recomputable evidenceVersion values. Phase 37 owns the replacement gate; application implementation and deployment have not started.
+
+### Phase 37: Explicit Evidence Selection And Recomputable Fixture Closure
+- [x] Reproduce RED-A `6/6` for the conflicting invalid-selection status/side-effect contract before editing.
+- [x] Reproduce RED-B `6/6` for zero digests, missing Run evidence records, absent case-source links and non-recomputable evidenceVersion examples.
+- [x] Freeze invalid selected cases/sources as pre-persistence HTTP 400 with `PHASE3_CASE_NOT_ELIGIBLE` / `PHASE3_SOURCE_NOT_ELIGIBLE` and zero research/Token side effects.
+- [x] Reserve `evidence_insufficient` for valid, successfully accepted Runs whose controlled research later lacks, loses or only partially obtains eligible evidence.
+- [x] Add the test-only `phase3-run-evidence-fixture-v1` to all six examples and validate entity records, links, selected/authorized equality, authorization subsets and citation metadata.
+- [x] Define fixed-order canonical evidenceVersion input and compact UTF-8 SHA-256 serialization; independently recompute all six non-zero digests.
+- [x] Pass Draft 2020-12 meta-validation, Schema `6/6`, full service semantics `6/6`, evidenceVersion recomputation `6/6`, positive assertions `28/28`, original negatives `19/19` and new reason-specific negatives `20/20`.
+- [x] Synchronize the API, product, backend handoff, evaluation, readiness, roadmap and four work records without changing Analytics scope or runtime budgets.
+- [ ] Implement Phase A persistence, DTOs, validators, runtime integration, UI and application tests; explicitly starts in the next development round.
+- [ ] Access production or deploy; explicitly outside this documentation-only closure.
+- **Status:** complete. Phase A v1 specifications are formally frozen with no remaining P0/P1. Phase A runtime implementation, migrations, application tests and deployment have not started.
+
+### Phase 38: Start Transaction, Policy Provenance And Evidence Uniqueness Patch
+- [x] Reproduce RED-1 `3/3` for authoritative eligibility outside the transaction, ambiguous exact replay ordering and the revocation TOCTOU window.
+- [x] Reproduce RED-2 `5/5` for the vacuous policy_lookup policy/source/link/citation chain.
+- [x] Reproduce RED-3 `4/4` for missing entity/link uniqueness and duplicate-sensitive naive hashing.
+- [x] Freeze locked idempotency resolution before evidence qualification; exact successful replay returns its original receipt, mismatches return 409, and only a miss proceeds to locked qualification and atomic creation.
+- [x] Freeze revocation-before-lock rollback, revocation-while-locked waiting and execution-time `evidence_insufficient` semantics.
+- [x] Replace the policy_lookup fixture with a non-empty policy-source-fact-citation chain and independently recomputed evidenceVersion.
+- [x] Reject duplicate entity IDs and duplicate link pairs before canonical sorting/hashing while retaining legal many-to-many links.
+- [x] Pass Draft 2020-12, Schema/semantics/hash `6/6`, transaction `8/8`, policy-source `10/10`, uniqueness `9/9`, original negatives `19/19`, existing reason-specific negatives `20/20` and new targeted negatives `9/9`.
+- [x] Pass cross-document drift, Markdown links, diff whitespace, ignore, added-line credential and Markdown-only scope checks after the final work-record update.
+- [ ] Implement Phase A runtime code, migrations, UI and application tests; explicitly starts in the next development round.
+- [ ] Access production or deploy; explicitly outside this documentation-only patch.
+- **Status:** complete. Phase A v1 specifications are formally frozen with no remaining P0/P1; no further specification revision round is required. Phase A runtime implementation, migrations, application tests and deployment have not started.
+
+### Phase 39: Phase Three Productization Delivery Audit
+- [x] Reconcile the current Phase Three delivery documents with the actual local implementation rather than the earlier specification-only state
+- [x] Record the executed local verification matrix: Spring `444` (`0` failures, `0` errors, `1` opt-in real DeepSeek smoke skipped), MySQL 8.4 `76/76`, Vitest `119/119`, all frontend npm scripts, Vite production build, and Spring Boot executable JAR packaging
+- [x] Record the implemented branch-material API, report citation allowlist defense, Analytics industry slice boundaries, and the current undeployed status
+- [x] Record Python deployment/migration verification after the command results were rerun and captured in Phase 41
+- [x] Execute the credential-gated deployment workflow and guarded production probes in Phase 41
+- **Status:** superseded by the Phase 41 production-release evidence. The Phase Three user-facing v1 partial release is deployed; the broader product-complete and manual browser-acceptance boundaries remain open.

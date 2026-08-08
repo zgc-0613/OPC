@@ -196,7 +196,12 @@ class AgentGoldenEvaluationTest {
                     progress -> trace.add(progress.stage())
             );
             trace.add(outcome.status());
-            assertTrue(expectedDiagnostic.isBlank(), id + " unexpectedly completed");
+            if (expectedDiagnostic.isBlank()) {
+                assertTrue(outcome.diagnosticCode() == null || outcome.diagnosticCode().isBlank(),
+                        id + " unexpectedly returned a diagnostic code");
+            } else {
+                assertEquals(expectedDiagnostic, outcome.diagnosticCode(), id + " diagnostic");
+            }
             assertEquals(fixture.path("expected").path("status").asText(), outcome.status(), id);
             verifyCitations(fixture, outcome.citations());
             verifyTools(fixture, attemptedTools);

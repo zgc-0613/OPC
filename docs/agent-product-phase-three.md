@@ -1,0 +1,262 @@
+# SoloFirm Agent 产品第三阶段交付记录
+
+## Production release evidence (2026-08-08)
+
+This section supersedes only the former local-only deployment status in this document. It records a successful Phase Three user-facing v1 / partial production release, not a claim that every longer-term Phase Three specification item is complete.
+
+| Boundary | Executed evidence | Result |
+|---|---|---|
+| Frontend acceptance | `npx vitest run`, all eight repository frontend test scripts, `npm run build` | Passed: 26 files / 157 tests, all scripts, and Vite production build. |
+| Backend acceptance | `PhaseOneMySqlIntegrationTest`, full Maven test, `-DskipTests package` | Passed: MySQL 8.4 `80/80`; Spring `509` with 0 failures/errors and one expected opt-in provider smoke skip; executable JAR built. |
+| Deployment-script acceptance | Python syntax, migration test, deployment-hardening test, `git diff --check` | Passed: syntax, `17/17`, `103/103`, and whitespace validation. |
+| Candidate gate | Guarded production script, before release switch | Policy, case comparison, and source verification completed with authorized citations and settled usage. |
+| Production migration and switch | `.codex_deploy_opc.py deploy` | Precheck, additive migration, postcheck, timestamped backup, and atomic release switch passed. Current: `/opt/opc/releases/20260808-162621`; previous: `/opt/opc/releases/20260807-173031`. |
+| Guarded production probes | Same deployment command | Authorized research, reports/export, cross-user isolation, preference consent/delete, feedback CAS, Analytics snapshot ownership, and administrator quality authorization passed; probe data was cleaned. |
+
+Backup: `/opt/opc/backups/20260808-162621`; database dump: `/opt/opc/backups/20260808-162621/opc_platform.sql.gz`; backend rollback: `/opt/opc-backend.rollback.20260808-162621`.
+
+The honesty boundary remains unchanged: `overview` and `industry.case_count` are the released Analytics slice. Technology and revenue remain unavailable rather than drawing synthetic charts because their formal data-quality threshold is not satisfied. Final browser checks of desktop, tablet, mobile, keyboard navigation, and assistive technology remain manual acceptance work.
+
+## Verification correction (2026-08-06)
+
+This dated note supersedes only the numerical command evidence recorded earlier in section 7.2. It does not claim a production deployment, production probe, real DeepSeek request, completed database migration, or browser-based visual acceptance.
+
+| Boundary | Command evidence from this correction | Result |
+|---|---|---|
+| Assistant terminal-detail synchronization | `npm exec -- vitest run --reporter=dot` | Passed: 25 test files, 148 tests. The focused AssistantView suite passed 60 tests; RunProgress and Conversation passed 13 tests. |
+| Frontend production artifact | `npm run build` in `opc-frontend` | Passed: Vite 7.3.6 built 1,819 modules. |
+| Agent runtime regression | Maven focused Agent suite | Passed: 50 tests across `AgentOrchestratorTest`, `AgentRunFinalizerTest`, `AgentRunLifecycleServiceTest`, and `AgentRunDispatcherTest`. |
+| All Agent tests | Maven `-Dtest='*Agent*Test' test -DfailIfNoTests=false` | Passed: 163 run, 0 failures, 0 errors; 1 expected opt-in `AgentDeepSeekSmokeTest` skip. No real provider request was made. |
+| Spring Boot artifact | Maven `-DskipTests package` | Passed: executable JAR produced locally. |
+| Python migration/deployment checks | `python scripts/test_ai_stabilization_migration.py`; `python scripts/test_deployment_hardening.py`; `python -m py_compile ...` | Passed: 17 migration checks, 94 deployment-hardening checks, and Python syntax compilation. |
+| MySQL 8.4 Testcontainers | `-Dtest=PhaseOneMySqlIntegrationTest test -DfailIfNoTests=false` | Not accepted as passing: 1 startup error because Docker Desktop Linux Engine was stopped and `//./pipe/dockerDesktopLinuxEngine` did not exist. The test itself remains enabled and unchanged. |
+
+The terminal-detail recovery slice adds a run-bound `terminalSync` state. A server terminal status is retained while session detail synchronization is pending or failed; a failed detail fetch is neither rewritten as `failed` nor retried indefinitely. The user can explicitly synchronize the existing run result, and success refreshes the session messages, usage, and history without creating a new run, model request, token reservation, or session. Generation/request gates discard responses after session changes or component unmount.
+
+The earlier `444 / 76 / 119` values remain historical records from a prior execution; they are not the acceptance evidence for this 2026-08-06 correction. MySQL integration acceptance remains blocked until Docker is started and `PhaseOneMySqlIntegrationTest` can run against MySQL 8.4.
+
+> 记录日期：2026-08-01
+>
+> 证据截点：本仓库当前工作树中的实现、迁移脚本、测试源码与既有 Phase Three 文档。本文件不把未执行的迁移、未运行的命令、未完成的人工检查或未部署的服务写成既成事实。
+
+## 1. 结论与口径
+
+当前工作树包含 Phase Three 的一组可追溯本地实现：研究任务边界、结构化结果元数据、分支复用材料、显式偏好、报告生命周期、Run 反馈、质量聚合、受控的 Analytics 总览与行业切片，以及 Analytics 到研究的服务器快照桥接。它不是“Phase Three product complete”的证明，也不是生产部署证明。
+
+阅读本文件时使用以下证据等级：
+
+| 标记 | 含义 |
+|---|---|
+| 已实现（源码） | 已在当前工作树定位到服务、控制器、前端或迁移代码。 |
+| 已本地验证 | 除源码存在外，本次交付已记录实际命令通过结果。 |
+| 已有测试源码 | 对应测试类/组件测试存在；不等同于本次命令已经通过。 |
+| 已执行 | 只在第 7 节记录实际命令与结果。 |
+| 契约目标 | 来自规格或 API 契约的目标，除非有源码和命令证据，不应表述为当前已交付能力。 |
+
+既有规格将最终完成定义为：正式行业聚合与下钻、已审核技术 taxonomy 和至少一个技术图、收入规范化及可比样本门槛、图表到 AI、报告/反馈、40 题评测和性能/Token 门槛共同达成。当前工作树已经实现本地可运行的研究闭环、报告、反馈、分支复用与 Analytics 快照桥接，但技术与收入正式统计、完整统计端点族、40 题质量评测、Python 部署验证和生产上线证据均不在本次交付结论中。
+
+## 2. 八层交付边界
+
+| 层 | 当前工作树可确认的交付 | 状态与边界 | 主要源码证据 |
+|---|---|---|---|
+| 1. 任务入口与身份 | 新研究可携带 `phase3-task-v1 taskContext`；会话和 Run 存储版本、规范 JSON 与哈希。 | 已实现（源码）。仅首次 start 接收；后续消息拒绝携带 taskContext。 | `AgentSessionStartDTO`、`PhaseThreeTaskContextValidator`、`AgentResearchService`、`AgentSessionService` |
+| 2. 选择证据与结构化结果 | 显式案例/来源在创建前校验；Orchestrator 为结构化结果写入 `schemaVersion`、`taskType`、`evidenceVersion`、服务端派生的覆盖信息。 | 已实现（源码），但不据此认证完整 Draft 2020-12 契约或全部六类任务语义。 | `PhaseThreeSelectedEvidenceValidator`、`AgentToolContext`、`AgentOrchestrator` |
+| 3. 显式研究偏好 | 用户可读、改、删一份偏好；未开启 `memoryEnabled` 时不会作为研究上下文返回。 | 已实现（源码）。偏好是用户显式选择，不是自动记忆。 | `ResearchPreferenceService`、`ResearchPreferenceController`、`AssistantResearchPreferences.vue` |
+| 4. 报告与保留 | 已完成 Run 可保存为报告，固化结果、citation manifest、evidence/data version；支持 CAS 更新、回收站、恢复、永久清除和 Markdown/HTML 导出。 | 已实现（源码）。当前没有 PDF 导出实现证据。 | `AgentResearchReportService`、`AgentResearchReportPurgeScheduler`、`AgentResearchReportController` |
+| 5. 用户反馈与质量聚合 | 受控 rating/reason 的 owner feedback upsert；管理员质量服务仅聚合运行、延迟、Token、失败和反馈计数。 | 已实现（源码）；管理员端鉴权必须在上线前单独复核，见第 8 节。 | `AgentRunFeedbackService`、`AdminAgentQualityService`、相应控制器和前端组件 |
+| 6. Analytics 总览与行业切片 | 认证用户可读取三个已核验证据总数、一个明确不可用的技术 taxonomy 卡，以及 `industry.case_count` 行业切片；服务端生成 `analytics-v1:` 数据版本。 | 已实现（源码）并已本地验证，但当前仅有 overview + industry 两个切片，不是完整的七类 Analytics API。`industry.case_count` 仍是 `Yellow`。 | `AnalyticsOverviewService`、`AnalyticsIndustryService`、`AnalyticsController`、`AnalyticsDashboardView.vue` |
+| 7. Analytics 到研究桥接 | 前端先保存本地草稿，用户显式发送后才调用后端；后端重建、保存 30 分钟快照，再绑定普通 Agent Run。 | 已实现（源码）并已本地验证。仅允许当前 overview/industry 指标的受控语义；不接受客户端聚合、SQL、URL、引用或实体 ID。 | `useAnalyticsResearchHandoff.js`、`AnalyticsSnapshotService`、`AnalyticsResearchStartService` |
+| 8. 结果呈现、分支复用与工作台衔接 | Assistant 识别 `phase3-structured-result-v1`、显示证据/数据版本和 Analytics 快照来源；报告、偏好、反馈、总览、分支研究和管理员质量视图已有路由/组件接线。 | 已实现（源码）；本地组件/视图测试已通过。浏览器、读屏器和移动端人工验收仍待执行。 | `AssistantStructuredResult.vue`、`AssistantReportsPanel.vue`、`AssistantRunFeedback.vue`、`AssistantView.vue`、路由与视图测试 |
+
+### 2.1 任务边界与幂等语义
+
+- `taskContext` 的允许字段、任务类型、比较维度、长度、未知字段和规范化哈希由 `PhaseThreeTaskContextValidator` 控制。该类固定版本为 `phase3-task-v1`，允许 `case_analysis`、`case_comparison`、`technology_assessment`、`policy_lookup`、`source_verification`、`general_research`。
+- `AgentResearchService.start` 在创建新 session 之前调用 `PhaseThreeSelectedEvidenceValidator`；该校验器对显式案例要求存在、`published`、`verified` 且有合格来源链，对显式来源要求安全的 HTTP(S) provenance。失败码为 `PHASE3_CASE_NOT_ELIGIBLE` 或 `PHASE3_SOURCE_NOT_ELIGIBLE`。
+- 迁移将 `task_context_version`、`task_context_json`、`task_context_hash` 分别写入 `ai_agent_sessions` 与 `ai_analysis_runs`。当前查询服务会把这些字段回传给 session/run 视图。
+- 已有测试源码覆盖正常规范化、未知字段/intent 不一致、重复比较案例/维度，以及已选择案例或来源的资格失败路径。
+
+需保留的契约差异：`phase-three-api-contract.md` 要求 taskContext 非空时 `requestedIntent` 不能是 `auto`；当前 `AgentResearchService.start` 对 `auto` 会读取 taskType 后重新规范化。因此本记录不认证此处已与冻结契约完全一致。
+
+### 2.2 证据与结构化结果语义
+
+- `AgentOrchestrator` 在模型结果通过既有结构校验后写入 `phase3-structured-result-v1`、`taskType`、UTC `generatedAt` 和由服务端计算的 `evidenceVersion`，并把证据覆盖统计标为 `derivedByServer`。
+- `AgentToolContext.evidenceVersion()` 的当前实现以 Run 内收集到的 evidence hash 和授权 source ID 的有序材料作 SHA-256；它不采信模型输出或用户问题文本。
+- `AssistantConversation` 仅在结果的 `schemaVersion` 为 `phase3-structured-result-v1` 且存在 `directAnswer` 时交给 `AssistantStructuredResult` 渲染；其他形状保留现有兼容展示路径。
+- 当前源码中未定位到 literal `taskSelectedEvidence` 或 `authorizedEvidence` 的完整结果字段实现，也未定位到 Draft 2020-12 的服务器端 schema validator。因此不能声称已满足 API 契约中关于六个夹具、实体/link 规范输入和证据版本重算的全部要求。
+- 另有待对齐项：现有 `AgentOrchestratorTest` 断言运行时 `taskType=mixed_research`，而冻结 taskContext 契约列出六个 Phase Three taskType。应在完整契约测试前确认二者的兼容映射或修正实现。
+
+### 2.3 显式偏好
+
+- `ai_research_preferences` 以 `user_id` 唯一存储偏好；`memory_enabled` 默认 `false`。
+- 只有该字段为 `true` 时，`ResearchPreferenceService.contextForResearch` 才返回受控的偏好上下文。删除接口删除当前用户记录。
+- 前端组件仅在用户主动打开后读取，在用户确认后删除；已有测试源码覆盖未显式开启时不应用、保存以及删除确认。
+
+### 2.4 报告、证据快照与保留
+
+- 只允许当前用户的 `completed` Run 及其 final message 保存报告。保存时复制 `structuredResult.evidenceVersion`、可空 `dataVersion`、Run result 和由当时 citation/source 构造的 manifest。
+- 报告保存与导出读取都受当前 Run/报告 manifest 的引用边界约束。事实性引用必须落在该 Run 的合法 citation/source allowlist 内；当前交付不接受客户端伪造或扩写 report citation。
+- 报告状态为 `active`、`trash`、`permanently_purged`；更新、trash、restore、permanent 均使用 `expectedRevision` 进行 compare-and-set，冲突码为 `REPORT_REVISION_CONFLICT`。
+- trash 会设置 `purge_after=trashed_at+30 days`。`AgentResearchReportPurgeScheduler` 默认启用，初始延迟 90 秒、之后每小时调用 `purgeDue()`；服务按当前 revision 清除正文、notes、结果、manifest 和版本字段。
+- `exportMarkdown` 和 `exportHtml` 从持久化结果及 manifest 生成内容，并对 HTML、Markdown 文本和 URL 做限制/转义。当前控制器只实现 `format=markdown|html`；PDF 是既有契约目标而非已确认交付。
+- 报告读取会重新评估 manifest 中来源的当前可用性，返回 `current`、`evidence_changed`、`source_unavailable` 或 `evidence_insufficient`。这不会重写保存时的结果或版本。
+
+### 2.5 反馈与质量观测
+
+- `ai_agent_run_feedback` 对 `(user_id, run_id)` 唯一。rating 只允许 `helpful|not_helpful`，reason 受 rating 对应 allowlist 约束，评论清理 HTML 后最大 500 code points。
+- 可评价性由服务端计算：`completed` 可评价；`evidence_insufficient` 只有拥有用户可见且已完成 Assistant final message 时可评价；其他终态不可评价。Run 查询把该布尔值回传，前端只在其为 true 时显示入口。
+- 管理质量聚合返回样本、完成/失败/取消/超时/证据不足、反馈汇总、按 task/model 的分解、平均延迟和 Token；服务本身不返回问题正文、回答正文、comment 或模型原始响应。
+
+### 2.6 Analytics 总览与行业切片的当前范围
+
+- `GET /api/analytics/overview` 返回四张卡：已核验案例、政策、来源三张 green 卡，以及一张写明“正式技术 taxonomy 尚未完成审核”的 red 卡。
+- `GET /api/analytics/industries` 返回 `industry.case_count` 切片，包括服务端样本量、缺失数、总合格数、bucket 列表与 caveat；前端同时渲染文本表和可比时的柱状图。
+- 总览计数来自各 mapper 的 `countEligibleAnalyticsRecords()`；`dataVersion` 是 counts 加三类已合格记录版本戳的排序材料经 SHA-256 得到的 `analytics-v1:<hex>`。已有测试源码确认即使计数不变，合格证据 revision 改变也会改变 dataVersion。
+- `industry.case_count` 当前仍是 `Yellow`：低于展示门槛的 bucket 只能保留在文本表中标“低样本”；canonical business-case 去重尚未完成，因此该切片不能被表述为正式去重后的行业事实总量。
+- `rebuildSnapshot` 仅允许当前已实现的 overview 与 `industry.case_count` metric、受控 filters 和与 metric 相同的 bucket ID；拒绝未知 metric、不在 allowlist 的筛选和不匹配 bucket。
+- 这与 `phase-three-api-contract.md` 规划的 overview/industries/technologies/revenue/regions/trends/drilldown 七个 GET 端点不同。当前实现只能作为 overview + industry 切片的交付证明，不能替代技术、收入、地区、趋势、下钻、ETag 或完整 data-governance ledger。
+
+### 2.7 dataVersion 与 Analytics 快照边界
+
+- 前端 Analytics 页面只将 `metricId`、`dataVersion`、空筛选、bucket、问题和幂等键保留为当前用户的 `sessionStorage` 草稿；进入 Assistant 本身不会创建 session、Run 或调用模型。用户发送后才调用 `POST /api/ai/research/from-analytics`。
+- `AnalyticsSnapshotService` 严格拒绝客户端 aggregate、total、percentage、evidence、citations、SQL、URL 及 case/policy/source ID。它在服务器端重新生成可用 metric，比较客户端 dataVersion；不一致返回 `ANALYTICS_DATA_VERSION_STALE`，不会自动替换用户确认的版本。
+- 同一用户的快照使用 `(user_id,idempotency_key)` 唯一约束；相同请求重放同一快照，复用键但请求不同返回 `ANALYTICS_IDEMPOTENCY_CONFLICT`。新研究要求快照属于当前用户且未过期；TTL 固定为 30 分钟。历史读取可保留已接受快照。
+- `AnalyticsResearchStartService` 把服务器创建的 `analyticsSnapshotId`、metric、dataVersion、filters 和 snapshot JSON 绑定到普通 Agent start；`AgentRunFinalizer` 再将其写入完成结果的 `dataVersion` 与 `analyticsSnapshot` provenance。
+- 普通 Phase A Run 不会因这套代码自动取得 dataVersion；只有绑定 Analytics snapshot 的 Run 才有非空 analytics dataVersion。当前控制器拒绝传入 `sessionId` 并返回 `ANALYTICS_SESSION_LINK_UNAVAILABLE`，因此尚未实现契约中“复用既有 session”的可选路径。
+
+### 2.8 前端衔接与可访问性待验收项
+
+- 已有受保护的 `/analytics` 路由、主导航入口、工作台内报告/偏好/反馈组件，以及管理员质量页面路由。组件测试包含显式打开、缓存草稿、服务端可评价性和结构化结果来源展示等场景。
+- `GET /api/ai/research/runs/{runId}/branch-material` 现已作为分支研究入口的一部分使用：前端读取 taskContext、taskContext hash/version、resultSummary、citations、evidenceVersion 和 source Run/session 标识，仅写入本地 branch draft；首次有效发送前不会创建新 session/Run。
+- 代码包含加载、错误、空状态和 `role=status|alert` 等基础声明，但这不能取代实际屏幕阅读器、键盘、缩放和移动浏览器检查。
+- 所有前端交互的最终可用性以第 8 节人工清单为准。
+
+## 3. 当前 API 清单
+
+下表仅列当前控制器或前端 API 客户端明确接线的接口。身份和 owner 语义仍须经过实际 HTTP 测试。
+
+| 方法与路径 | 当前语义 | 状态 |
+|---|---|---|
+| `POST /api/ai/research/sessions/start` | 既有新研究入口扩展了 `taskContext`；服务创建 session/message/run 并持久化任务身份。 | 已实现（源码） |
+| `GET /api/ai/research/runs/{runId}/branch-material` | 返回可本地复用的分支材料：任务边界、摘要、引用、证据版本与 source Run/session 标识；不复制运行中状态。 | 已实现（源码） |
+| `GET/PATCH/DELETE /api/ai/research/preferences` | 读取、更新、删除当前用户的显式研究偏好。 | 已实现（源码） |
+| `POST /api/ai/research/sessions/{sessionId}/reports` | 保存 owned completed final message 对应的报告。 | 已实现（源码） |
+| `GET /api/ai/research/reports`、`GET /reports/{reportId}`、`PATCH /reports/{reportId}` | 列表、读取、修改 title/notes。 | 已实现（源码） |
+| `POST /api/ai/research/reports/{reportId}/trash|restore`、`DELETE /reports/{reportId}/permanent` | revision CAS 的生命周期操作。 | 已实现（源码） |
+| `GET /api/ai/research/reports/{reportId}/export?format=markdown|html` | 服务器生成 Markdown 或 HTML 下载。 | 已实现（源码）；无 PDF 实现证据 |
+| `GET/PUT /api/ai/research/runs/{runId}/feedback` | owner 读取和 upsert 反馈。 | 已实现（源码） |
+| `GET /api/admin/ai/research/quality` | 汇总质量、成本、失败和反馈信号。 | 已实现（源码）；管理员鉴权待确认 |
+| `GET /api/analytics/overview` | 三个 verified count 与一个 technology red 状态卡。 | 已实现（源码） |
+| `GET /api/analytics/industries` | 返回 `industry.case_count` 的 bucket、样本与 caveat。 | 已实现（源码） |
+| `POST /api/ai/research/from-analytics` | 接收严格受限的 chart context，服务器重建并保存 snapshot，再启动研究。成功响应为 202。 | 已实现（源码） |
+
+明确不应从本表推断已存在：`/api/analytics/technologies`、`revenue`、`regions`、`trends`、`drilldown`，完整 filters/cursor/ETag，以及 PDF 报告导出。
+
+## 4. 迁移与执行顺序
+
+| 顺序 | 主迁移 | 变更 | 配套脚本 | 执行状态 |
+|---|---|---|---|---|
+| 1 | `deploy/sql/20260801_phase_three_task_context.sql` | 为 session 和 Run 添加 task context version/json/hash 及哈希索引。 | `*_precheck.sql`、`*_postcheck.sql` | 脚本存在；本文件未执行数据库迁移。 |
+| 2 | `deploy/sql/20260801_phase_three_preferences.sql` | 创建 `ai_research_preferences`，`user_id` 唯一，memory 默认关闭。 | 对应 pre/postcheck | 同上。 |
+| 3 | `deploy/sql/20260801_phase_three_reports.sql` | 创建 `ai_research_reports`、状态/revision 检查、owner/idempotency、状态和 purge 索引。 | 对应 pre/postcheck | 同上。 |
+| 4 | `deploy/sql/20260801_phase_three_feedback.sql` | 创建 owner+run 唯一的反馈表和 rating/revision 约束。 | 对应 pre/postcheck | 同上。 |
+| 5 | `deploy/sql/20260801_phase_three_analytics_snapshots.sql` | 创建用户拥有、带 dataVersion/TTL/idempotency 的快照表，并扩展 `ai_analysis_runs` 的 Analytics 绑定字段和索引。 | 对应 pre/postcheck | 同上。 |
+
+建议在非生产环境按上表顺序执行，每一步都先跑对应 precheck、执行主脚本、再跑 postcheck，并保留输出。当前 SQL 采用存在性检查/条件 DDL 以尽量支持重复执行，但这不替代备份、回滚演练、锁影响评估或真实数据兼容性验证。
+
+## 5. 证据、报告与版本的可审计语义
+
+| 对象 | 保存的事实 | 运行时/读取语义 |
+|---|---|---|
+| task context | canonical JSON、`task_context_hash`、版本。 | 任务边界只在 start 冻结；新消息不能重写它。 |
+| Run evidence version | `AgentToolContext` 以运行时 evidence hash 与授权 source ID 计算 SHA-256。 | 用于结果与报告的证据版本标识；本文件不将其等同于规划中完整实体/link Canonical evidence ledger。 |
+| Analytics dataVersion | Analytics overview 的 counts + eligible version stamps SHA-256。 | 只绑定 Analytics snapshot Run；普通研究没有被自动赋予该版本。 |
+| Analytics snapshot | metric、空 filters、bucket、payload、hash、owner、TTL、idempotency key、run link。 | 用户拥有、服务端重建；过期后不能新建研究，但已接受的历史记录可读取。 |
+| 报告 | frozen result、citation manifest、evidenceVersion、可空 dataVersion、revision、状态、删除计划。 | 读取时重新检测证据漂移，不修改冻结内容；回收站 30 天后由调度器尝试永久清除。 |
+| 反馈 | owner、run、rating/reason、已清理 comment、revision。 | owner-bound upsert；管理员聚合只读聚合行，设计上不返回用户自由文本。 |
+
+## 6. 与规格的未完成或未认证项目
+
+下列内容来自现有规格/契约，但当前工作树或本次检查不足以把它们标为完成：
+
+- 以 canonical case/source、正式 taxonomy、地区角色、业务日期和收入规范化为基础的完整 Analytics 数据模型。
+- 除 `overview` 与 `industries` 之外的 Analytics GET 端点、下钻、cursor、ETag、复杂筛选、完整 Green/Yellow/Red 指标集和 SQL 黄金集。
+- `industry.case_count` 的 `Yellow` 限制仍未解除：在 canonical business-case 去重、完整行业口径和更强的样本门槛到位前，当前切片不能作为最终正式行业统计闭环。
+- 完整 `phase3-structured-result-v1` Draft 2020-12 验证、taskSelected/authorized evidence 对象、所有六类任务的语义夹具、完整 evidence link/version 重算证明。
+- PDF 导出、既有 session 的 Analytics 复用路径、完整的 snapshot/session/message/run 原子性集成验证。
+- 40 题真实评测、引用/工具/延迟/Token 门槛及生产规模性能证据。
+- 生产迁移、预发布演练、部署、上线监控和用户试点数据。
+
+这些并非实现失败的断言；它们是为了避免把“规格内目标”或“源码存在”误写成“已验收上线”。
+
+## 7. 自动化验证、构建与部署状态
+
+### 7.1 已定位的测试源码
+
+后端新增/扩展测试覆盖 task context、显式证据资格、报告、反馈、质量聚合、Analytics version/snapshot/start/finalizer 等，例如：
+
+- `PhaseThreeTaskContextValidatorTest`
+- `PhaseThreeSelectedEvidenceValidatorTest`
+- `AgentResearchReportServiceTest`
+- `AgentRunFeedbackServiceTest`
+- `AdminAgentQualityServiceTest`
+- `AnalyticsOverviewServiceTest`
+- `AnalyticsSnapshotServiceTest`
+- `AnalyticsResearchStartServiceTest`
+- `AnalyticsResearchControllerTest`
+- `AgentRunFinalizerTest`
+
+前端已有 `AssistantStructuredResult`、`AssistantReportsPanel`、`AssistantResearchPreferences`、`AssistantRunFeedback`、`AnalyticsDashboardView`、Analytics 路由和管理员质量视图的 Vitest 源码。
+
+### 7.2 本记录的命令证据
+
+本节只应填写在本工作树实际执行过的命令。若命令尚未执行或因并行开发导致结果不稳定，应明确记为未验证，而不估算测试数。
+
+| 命令/操作 | 结果 | 说明 |
+|---|---|---|
+| 后端 Maven 测试 | 本轮聚焦 Agent `50/50` 通过；全部 `*Agent*Test` 为 `163` 项，`0` failures / `0` errors / `1` skipped real DeepSeek smoke。 | Maven 项目位于 `opc-backend`；跳过项未发起真实 Provider 请求。 |
+| MySQL 8.4 Testcontainers | 本轮已执行但被环境阻塞：`PhaseOneMySqlIntegrationTest` 在 Testcontainers 初始化阶段失败。 | Docker Desktop Linux engine 不可用（pipe 不存在，`com.docker.service` 为 stopped）；不得记为通过或跳过。 |
+| 前端 Vitest | 已执行：25 个文件、`148/148` 通过。 | 包含 Assistant 终态详情同步、deadline/退避/终态停止与可访问性回归。 |
+| 现有前端 npm 脚本 | 已执行：全部通过。 | 仅记录仓库实际存在的脚本，不推断未运行脚本。 |
+| 前端生产构建 | 已执行：通过。 | 命令为 `npm run build`。 |
+| Spring Boot JAR 打包 | 已执行：通过。 | 本地可生成可部署后端工件。 |
+| Python 部署/迁移测试与语法检查 | 已执行：迁移 `17/17`、部署 hardening `94/94`，`py_compile` 通过。 | 仅为本地静态/脚本验证，不代表远程部署或生产探针。 |
+| 数据库迁移 | 未执行。 | 只确认 SQL 与 pre/postcheck 文件存在。 |
+| 部署/发布 | 未执行。 | 本文件不声称任何环境已部署。 |
+
+### 7.3 上线前必须补齐的验证
+
+1. 在临时 MySQL 环境按第 4 节运行五组迁移和 postcheck；对报告 purge、snapshot TTL、idempotency 和 owner boundary 做集成测试。
+2. 本轮已补录 Python 部署/迁移测试和语法检查的真实命令结果：迁移 `17/17`、部署 hardening `94/94`，并通过 `py_compile`；这些结果仍只代表本地脚本验证。
+3. 在预发布环境验证认证与鉴权：Analytics 必须到达 `UserAuthInterceptor`；所有 `/api/admin/ai/research/quality` 请求必须在真实权限模型中确认只有管理员可读。
+4. 使用固定证据题集执行质量、引用、延迟和 Token 指标；40 题门槛未通过前不得标记为 Phase Three product complete。
+5. 凭据可用时执行一次受控部署与真实探针，单独记录备份、回滚路径和生产结果。
+
+## 8. 人工核查清单
+
+以下步骤尚不是完成证据；应由有权限的测试人员在已部署的测试环境执行并记录结果。
+
+1. 使用匿名、普通用户、禁用用户和管理员分别访问 `/analytics`、研究接口和质量接口，确认 401/403/owner/admin 边界符合预期。特别注意当前 `AiWebMvcConfig` 只将 `UserAuthInterceptor` 加到 `/api/ai/**` 与 `/api/analytics/**`，而 `SecurityConfig` 对 `/api/admin/**` 使用 `permitAll`；在确认实际管理员保护前，不能把质量接口称为管理员专属。
+2. 创建单案例、比较、技术评估、政策、来源核验和普通研究，检查 taskContext 规范化后回读一致；以相同和不同内容复用幂等键，确认 receipt 与冲突行为。
+3. 提交不存在、未发布、未核验或不具备安全来源链的显式 case/source，确认失败不会创建 session/message/Run，也不会产生 Token 预留。
+4. 完成一条带引用的研究，核对结构化结果展示、`evidenceVersion`、引用抽屉和非结构化兼容回退；随后改变或撤销来源，检查报告 evidence state 的变化不会改写历史正文。
+5. 保存、编辑、trash、restore、permanent 报告；用两个浏览器窗口模拟 stale revision，确认 CAS 冲突；核对 Markdown 和 HTML 导出仅含受控内容。PDF 不应在当前版本的验收项中视为已支持。
+6. 对 completed、可见的 `evidence_insufficient` 和其他终态分别检查反馈入口；验证 rating/reason 组合、500 code point 边界和跨用户 Run 访问。
+7. 在 `/analytics` 从三种已核验卡创建草稿，确认仅显式发送才创建研究；修改数据版本后确认 stale 被拒绝并保留用户问题；尝试注入 aggregate、SQL、URL、citation 或实体 ID，确认后端拒绝。
+8. 检查 Analytics 快照在 30 分钟内可创建、过期后无法用于新研究、历史结果仍显示当时的 server-owned provenance；普通研究不应伪装有 Analytics dataVersion。
+9. 在桌面、320px、375px、768px 宽度和 200% 缩放下执行 Assistant、Reports、Preferences、Feedback、Analytics；使用键盘完成打开、提交、关闭、焦点返回和错误提示，并用真实屏幕阅读器检查状态/错误通告。
+10. 预发布执行迁移 precheck/main/postcheck，记录数据库版本、执行人、时间、输出和回滚方案；完成后再进行一次完整 API/浏览器 smoke test。
+
+## 9. 证据索引
+
+| 证据类型 | 文件 |
+|---|---|
+| 规格与验收门槛 | `docs/phase-three-product-spec.md`、`docs/phase-three-evaluation-plan.md`、`docs/phase-three-roadmap.md` |
+| API 目标与差异基线 | `docs/phase-three-api-contract.md` |
+| 数据 readiness 与指标口径 | `docs/phase-three-readiness-audit.md`、`docs/analytics-metric-dictionary.md` |
+| 后端责任与迁移约束 | `docs/phase-three-backend-handoff.md` |
+| 当前 API/服务实现 | `opc-backend/src/main/java/com/opc/platform/ai/controller/`、`service/`、`dto/`、`entity/`、`mapper/` |
+| 当前前端实现 | `opc-frontend/src/api/ai.js`、`opc-frontend/src/api/analytics.js`、`src/components/assistant/`、`src/views/AnalyticsDashboardView.vue`、`src/composables/useAnalyticsResearchHandoff.js` |
+| 当前迁移 | `deploy/sql/20260801_phase_three_{task_context,preferences,reports,feedback,analytics_snapshots}.sql` 及各自 precheck/postcheck |
+| 当前测试 | `opc-backend/src/test/java/com/opc/platform/ai/` 与 `opc-frontend/src/**/__tests__/` |
+
+本文件的完成条件是“交付边界和证据来源已被准确记录”，而不是替代上面列出的测试、迁移、权限和上线验收。

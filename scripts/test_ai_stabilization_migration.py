@@ -21,6 +21,65 @@ ASSISTANT_WORKSPACE_POSTCHECK = (
     ROOT / "deploy" / "sql" / "20260725_assistant_workspace_postcheck.sql"
 )
 SCHEMA = ROOT / "opc-backend" / "src" / "main" / "resources" / "db" / "schema.sql"
+PHASE_THREE_TASK_CONTEXT_PRECHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_task_context_precheck.sql"
+PHASE_THREE_TASK_CONTEXT_MIGRATION = ROOT / "deploy" / "sql" / "20260801_phase_three_task_context.sql"
+PHASE_THREE_TASK_CONTEXT_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_task_context_postcheck.sql"
+PHASE_THREE_ANALYTICS_SNAPSHOTS_PRECHECK = (
+    ROOT / "deploy" / "sql" / "20260801_phase_three_analytics_snapshots_precheck.sql"
+)
+PHASE_THREE_ANALYTICS_SNAPSHOTS_MIGRATION = (
+    ROOT / "deploy" / "sql" / "20260801_phase_three_analytics_snapshots.sql"
+)
+PHASE_THREE_ANALYTICS_SNAPSHOTS_POSTCHECK = (
+    ROOT / "deploy" / "sql" / "20260801_phase_three_analytics_snapshots_postcheck.sql"
+)
+PHASE_THREE_REPORTS_PRECHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_reports_precheck.sql"
+PHASE_THREE_REPORTS_MIGRATION = ROOT / "deploy" / "sql" / "20260801_phase_three_reports.sql"
+PHASE_THREE_REPORTS_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_reports_postcheck.sql"
+PHASE_THREE_FEEDBACK_PRECHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_feedback_precheck.sql"
+PHASE_THREE_FEEDBACK_MIGRATION = ROOT / "deploy" / "sql" / "20260801_phase_three_feedback.sql"
+PHASE_THREE_FEEDBACK_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_feedback_postcheck.sql"
+PHASE_THREE_PREFERENCES_PRECHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_preferences_precheck.sql"
+PHASE_THREE_PREFERENCES_MIGRATION = ROOT / "deploy" / "sql" / "20260801_phase_three_preferences.sql"
+PHASE_THREE_PREFERENCES_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_preferences_postcheck.sql"
+
+PHASE_THREE_BUNDLES = (
+    (
+        "TASK_CONTEXT",
+        "task-context",
+        PHASE_THREE_TASK_CONTEXT_PRECHECK,
+        PHASE_THREE_TASK_CONTEXT_MIGRATION,
+        PHASE_THREE_TASK_CONTEXT_POSTCHECK,
+    ),
+    (
+        "REPORTS",
+        "reports",
+        PHASE_THREE_REPORTS_PRECHECK,
+        PHASE_THREE_REPORTS_MIGRATION,
+        PHASE_THREE_REPORTS_POSTCHECK,
+    ),
+    (
+        "ANALYTICS_SNAPSHOTS",
+        "analytics-snapshots",
+        PHASE_THREE_ANALYTICS_SNAPSHOTS_PRECHECK,
+        PHASE_THREE_ANALYTICS_SNAPSHOTS_MIGRATION,
+        PHASE_THREE_ANALYTICS_SNAPSHOTS_POSTCHECK,
+    ),
+    (
+        "FEEDBACK",
+        "feedback",
+        PHASE_THREE_FEEDBACK_PRECHECK,
+        PHASE_THREE_FEEDBACK_MIGRATION,
+        PHASE_THREE_FEEDBACK_POSTCHECK,
+    ),
+    (
+        "PREFERENCES",
+        "preferences",
+        PHASE_THREE_PREFERENCES_PRECHECK,
+        PHASE_THREE_PREFERENCES_MIGRATION,
+        PHASE_THREE_PREFERENCES_POSTCHECK,
+    ),
+)
 
 
 class AiStabilizationMigrationTest(unittest.TestCase):
@@ -262,6 +321,208 @@ class AiStabilizationMigrationTest(unittest.TestCase):
 
         self.assertIn("ai_agent_content_purge_audits", sql)
         self.assertIn("existing_purge_audit_tables", sql)
+
+    def test_phase_three_task_context_migration_is_forward_only_and_wired(self):
+        precheck = PHASE_THREE_TASK_CONTEXT_PRECHECK.read_text(encoding="utf-8")
+        migration = PHASE_THREE_TASK_CONTEXT_MIGRATION.read_text(encoding="utf-8")
+        postcheck = PHASE_THREE_TASK_CONTEXT_POSTCHECK.read_text(encoding="utf-8")
+        for column in ("task_context_version", "task_context_json", "task_context_hash"):
+            self.assertIn("table_name='ai_agent_sessions'", precheck)
+            self.assertIn(f"column_name='{column}'", precheck)
+            self.assertIn("table_name='ai_agent_sessions'", migration)
+            self.assertIn(f"column_name='{column}'", migration)
+        self.assertNotIn("table_name='ai_analysis_runs'", migration)
+        self.assertIn("JSON_VALID", postcheck)
+        self.assertNotRegex(migration, r"(?im)^\\s*(DROP|TRUNCATE|DELETE)\\b")
+        self.assertIn("phase_three_task_context.sql", DEPLOY_SCRIPT.read_text(encoding="utf-8"))
+
+    def test_phase_three_analytics_snapshot_artifacts_are_guarded_and_forward_only(self):
+        precheck = PHASE_THREE_ANALYTICS_SNAPSHOTS_PRECHECK.read_text(encoding="utf-8")
+        migration = PHASE_THREE_ANALYTICS_SNAPSHOTS_MIGRATION.read_text(encoding="utf-8")
+        postcheck = PHASE_THREE_ANALYTICS_SNAPSHOTS_POSTCHECK.read_text(encoding="utf-8")
+
+        self.assertTrue(PHASE_THREE_ANALYTICS_SNAPSHOTS_PRECHECK.exists())
+        self.assertTrue(PHASE_THREE_ANALYTICS_SNAPSHOTS_MIGRATION.exists())
+        self.assertTrue(PHASE_THREE_ANALYTICS_SNAPSHOTS_POSTCHECK.exists())
+        self.assertIn("information_schema.tables", migration)
+        self.assertIn("table_name='ai_analytics_snapshots'", migration)
+
+        snapshot_columns = {
+            "id": "BIGINT PRIMARY KEY AUTO_INCREMENT",
+            "user_id": "BIGINT NOT NULL",
+            "metric_id": "VARCHAR(80) NOT NULL",
+            "normalized_filters_json": "JSON NOT NULL",
+            "selected_dimension": "VARCHAR(80) NULL",
+            "selected_bucket_ids_json": "JSON NOT NULL",
+            "data_version": "VARCHAR(128) NOT NULL",
+            "snapshot_json": "JSON NOT NULL",
+            "snapshot_hash": "CHAR(64) NOT NULL",
+            "idempotency_key": "VARCHAR(64) NOT NULL",
+            "request_hash": "CHAR(64) NOT NULL",
+            "run_id": "BIGINT NULL",
+            "expires_at": "DATETIME(6) NOT NULL",
+            "created_at": "DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)",
+            "updated_at": (
+                "DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) "
+                "ON UPDATE CURRENT_TIMESTAMP(6)"
+            ),
+        }
+        for column, definition in snapshot_columns.items():
+            self.assertIn(column, precheck)
+            self.assertIn(f"{column} {definition}", migration)
+            self.assertIn(column, postcheck)
+        for column, definition in (
+            ("idempotency_key", "VARCHAR(64) NOT NULL"),
+            ("request_hash", "CHAR(64) NOT NULL"),
+        ):
+            self.assertRegex(
+                migration,
+                rf"table_name='ai_analytics_snapshots'\s+AND\s+column_name='{column}'",
+            )
+            self.assertEqual(1, len(re.findall(rf"ADD COLUMN {column}\b", migration)))
+            self.assertIn(f"ADD COLUMN {column} {definition}", migration)
+
+        run_columns = {
+            "analytics_snapshot_id": "BIGINT NULL",
+            "analytics_metric_id": "VARCHAR(80) NULL",
+            "analytics_data_version": "VARCHAR(128) NULL",
+            "analytics_filters_json": "JSON NULL",
+            "analytics_snapshot_json": "JSON NULL",
+        }
+        for column, definition in run_columns.items():
+            self.assertRegex(
+                migration,
+                rf"table_name='ai_analysis_runs'\s+AND\s+column_name='{column}'",
+            )
+            self.assertEqual(1, len(re.findall(rf"ADD COLUMN {column}\b", migration)))
+            self.assertIn(f"ADD COLUMN {column} {definition}", migration)
+            self.assertIn(column, precheck)
+            self.assertIn(column, postcheck)
+
+        snapshot_indexes = {
+            "idx_ai_analytics_snapshots_owner_expiry": "(user_id, expires_at, id)",
+            "idx_ai_analytics_snapshots_expiry": "(expires_at, id)",
+            "idx_ai_analytics_snapshots_run": "(run_id)",
+        }
+        snapshot_unique_indexes = {
+            "uk_ai_analytics_snapshots_owner_idempotency": "(user_id, idempotency_key)",
+        }
+        run_indexes = {
+            "idx_ai_runs_analytics_snapshot": "(analytics_snapshot_id)",
+            "idx_ai_runs_analytics_data_version": "(analytics_data_version)",
+        }
+        for index in (*snapshot_indexes, *snapshot_unique_indexes, *run_indexes):
+            self.assertIn(index, precheck)
+            self.assertIn(index, migration)
+            self.assertIn(index, postcheck)
+        for index, definition in snapshot_indexes.items():
+            self.assertIn(f"KEY {index} {definition}", migration)
+            self.assertRegex(
+                migration,
+                rf"table_name='ai_analytics_snapshots'\s+AND\s+index_name='{index}'",
+            )
+            self.assertIn(f"ADD INDEX {index} {definition}", migration)
+        for index, definition in snapshot_unique_indexes.items():
+            self.assertIn(f"UNIQUE KEY {index} {definition}", migration)
+            self.assertRegex(
+                migration,
+                rf"table_name='ai_analytics_snapshots'\s+AND\s+index_name='{index}'",
+            )
+            self.assertIn(f"ADD UNIQUE INDEX {index} {definition}", migration)
+        for index, definition in run_indexes.items():
+            self.assertRegex(
+                migration,
+                rf"table_name='ai_analysis_runs'\s+AND\s+index_name='{index}'",
+            )
+            self.assertIn(f"ADD INDEX {index} {definition}", migration)
+
+        self.assertIn("COUNT(DISTINCT index_name)", precheck)
+        self.assertIn("COUNT(DISTINCT index_name)", postcheck)
+        self.assertNotIn("FOREIGN KEY", migration)
+        self.assertNotRegex(migration, r"(?im)^\s*(DROP|TRUNCATE|DELETE)\b")
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        for token in (
+            "PHASE_THREE_ANALYTICS_SNAPSHOTS_PRECHECK",
+            "PHASE_THREE_ANALYTICS_SNAPSHOTS_MIGRATION",
+            "PHASE_THREE_ANALYTICS_SNAPSHOTS_POSTCHECK",
+            "phase-three-analytics-snapshots-precheck.sql",
+            "phase-three-analytics-snapshots.sql",
+            "phase-three-analytics-snapshots-postcheck.sql",
+            '"1\\t15\\t4\\t5\\t2"',
+        ):
+            self.assertIn(token, deploy)
+        self.assertIn("analytics_snapshot_postcheck_output", deploy)
+        self.assertIn("Phase Three analytics snapshots database postcheck failed", deploy)
+
+    def test_all_phase_three_migration_bundles_are_forward_only_and_deployment_wired(self):
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        required_artifacts = deploy[
+            deploy.index("    required = ["): deploy.index("    for path in required:")
+        ]
+        upload_section = deploy[
+            deploy.index("    sftp = client.open_sftp()", deploy.index("def deploy(")):
+            deploy.index("    sftp.close()", deploy.index("def deploy("))
+        ]
+        checksum_section = deploy[
+            deploy.index("    local_files = {"): deploy.index("    for remote_path, local_hash in local_files.items():")
+        ]
+        candidate_migrations = deploy[
+            deploy.index("def apply_candidate_release_migrations("):
+            deploy.index("\ndef candidate_runtime_unit(")
+        ]
+        production_phase_three_migrations = deploy[
+            deploy.index("        _, multiround_postcheck_output, _ = run("):
+            deploy.index("        run(\n            client,\n            \"set -euo pipefail\\n\"\n            \"if ! grep -q '^OPC_AI_SETTINGS_MASTER_KEY='", deploy.index("def deploy("))
+        ]
+
+        for constant_suffix, remote_stem, precheck, migration, postcheck in PHASE_THREE_BUNDLES:
+            artifacts = (
+                ("PRECHECK", precheck, f"phase-three-{remote_stem}-precheck.sql"),
+                ("MIGRATION", migration, f"phase-three-{remote_stem}.sql"),
+                ("POSTCHECK", postcheck, f"phase-three-{remote_stem}-postcheck.sql"),
+            )
+            candidate_positions = []
+            production_positions = []
+            for artifact_kind, path, remote_name in artifacts:
+                constant = f"PHASE_THREE_{constant_suffix}_{artifact_kind}"
+                self.assertTrue(path.exists(), f"Missing Phase Three artifact: {path}")
+                self.assertNotRegex(
+                    path.read_text(encoding="utf-8"),
+                    r"(?im)^\\s*(DROP|TRUNCATE|DELETE)\\b",
+                    f"Phase Three artifact must be forward-only: {path.name}",
+                )
+                self.assertIn(constant, required_artifacts)
+                self.assertIn(
+                    f'sftp.put(str({constant}), f"{{release}}/{remote_name}")',
+                    upload_section,
+                )
+                self.assertIn(
+                    f'f"{{release}}/{remote_name}": sha256({constant})',
+                    checksum_section,
+                )
+                candidate_positions.append(candidate_migrations.index(f'source("{remote_name}")'))
+                production_positions.append(
+                    production_phase_three_migrations.index(f"< '{{release}}/{remote_name}'")
+                )
+
+            self.assertLess(candidate_positions[0], candidate_positions[1])
+            self.assertLess(candidate_positions[1], candidate_positions[2])
+            self.assertLess(production_positions[0], production_positions[1])
+            self.assertLess(production_positions[1], production_positions[2])
+
+        for output_variable, expected_output, failure_message in (
+            ("phase_three_task_context_postcheck_output", '"3\\t0\\t1\\t0"',
+             "Phase Three task context database postcheck failed"),
+            ("phase_three_reports_postcheck_output", '"1\\t9\\t2\\t4\\t0"',
+             "Phase Three reports database postcheck failed"),
+            ("phase_three_feedback_postcheck_output", '"1\\t8\\t2\\t2\\t0\\t0"',
+             "Phase Three feedback database postcheck failed"),
+            ("phase_three_preferences_postcheck_output", '["1", "1"]',
+             "Phase Three preferences database postcheck failed"),
+        ):
+            self.assertIn(output_variable, production_phase_three_migrations)
+            self.assertIn(expected_output, production_phase_three_migrations)
+            self.assertIn(failure_message, production_phase_three_migrations)
 
 
 if __name__ == "__main__":

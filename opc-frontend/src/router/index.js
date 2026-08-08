@@ -3,6 +3,7 @@ import MainLayout from '@/layouts/MainLayout.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import HomeView from '@/views/HomeView.vue'
 import AnalysisOverviewView from '@/views/AnalysisOverviewView.vue'
+import AnalyticsDashboardView from '@/views/AnalyticsDashboardView.vue'
 import LoginView from '@/views/LoginView.vue'
 import UserAccountView from '@/views/UserAccountView.vue'
 import AdminLoginView from '@/views/AdminLoginView.vue'
@@ -20,6 +21,7 @@ import SourceAdminView from '@/views/admin/SourceAdminView.vue'
 import TagAdminView from '@/views/admin/TagAdminView.vue'
 import AdminSettingsView from '@/views/admin/AdminSettingsView.vue'
 import EvidenceReviewAdminView from '@/views/admin/EvidenceReviewAdminView.vue'
+import AdminAgentQualityView from '@/views/admin/AdminAgentQualityView.vue'
 import { isAdminAuthenticated, isUserAuthenticated } from '@/api/auth'
 import { recordVisit } from '@/api/visit'
 
@@ -37,6 +39,14 @@ export const routes = [
         path: 'analysis',
         name: 'analysis-overview',
         component: AnalysisOverviewView,
+      },
+      {
+        path: 'analytics',
+        name: 'analytics-dashboard',
+        component: AnalyticsDashboardView,
+        meta: {
+          requiresUser: true,
+        },
       },
       {
         path: 'regions',
@@ -155,6 +165,11 @@ export const routes = [
         name: 'admin-evidence-reviews',
         component: EvidenceReviewAdminView,
       },
+      {
+        path: 'agent-quality',
+        name: 'admin-agent-quality',
+        component: AdminAgentQualityView,
+      },
     ],
   },
 ]
@@ -170,7 +185,7 @@ router.beforeEach((to) => {
       path: '/login',
       query: {
         redirect: to.fullPath,
-        reason: ['case-analysis', 'assistant'].includes(to.name) ? 'ai-login-required' : undefined,
+        reason: ['case-analysis', 'assistant', 'analytics-dashboard'].includes(to.name) ? 'ai-login-required' : undefined,
       },
     }
   }
@@ -224,6 +239,13 @@ function buildVisitPayload(route) {
     }
   }
 
+  if (route.name === 'analytics-dashboard') {
+    return {
+      ...basePayload,
+      targetType: 'site',
+    }
+  }
+
   if (route.name === 'policy-detail') {
     return {
       ...basePayload,
@@ -261,6 +283,7 @@ function getPageTitle(route) {
   const titleMap = {
     home: 'OPC 信息平台首页',
     'analysis-overview': '资料分析',
+    'analytics-dashboard': '研究数据看板',
     'region-directory': '地区目录',
     'policy-list': '政策索引',
     'policy-detail': `政策详情 #${route.params.id}`,

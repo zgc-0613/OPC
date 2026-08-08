@@ -1,5 +1,24 @@
 # Progress Log
 
+## Session: 2026-08-08 - Phase Three user-facing v1 release
+
+- Repaired the direct Python deployment-hardening test entry point so repository-local `scripts.deployment_hardening` is selected consistently. `python scripts/test_deployment_hardening.py` passed `103/103`; migration tests passed `17/17`; Python syntax compilation and `git diff --check` passed.
+- Re-ran the final local acceptance matrix: all frontend Vitest tests passed `157/157`; all eight repository frontend contract scripts passed; Vite production build and Spring Boot executable JAR packaging passed.
+- MySQL 8.4 Testcontainers passed `80/80` with Docker Desktop Linux Engine running. Full Spring Boot regression passed `509` tests with zero failures/errors and one expected opt-in real-provider smoke skip.
+- Ran `.codex_deploy_opc.py deploy` only after local acceptance. Its candidate gate completed policy, case-comparison, and source-verification scenarios; production migration prechecks, additive migrations, postchecks, atomic switch, health/auth checks, and guarded probes all completed.
+- Production now points to `/opt/opc/releases/20260808-162621`; backup `/opt/opc/backups/20260808-162621`, database dump `/opt/opc/backups/20260808-162621/opc_platform.sql.gz`, previous release `/opt/opc/releases/20260807-173031`, and backend rollback `/opt/opc-backend.rollback.20260808-162621` are retained.
+- No commit or push was performed. The release remains a partial Phase Three v1 release: technology/revenue formal statistics and user browser-based responsive/accessibility acceptance remain outside this automated deployment evidence.
+
+## Session: 2026-08-06 - Assistant terminal synchronization recovery and evidence correction
+
+- Added and verified a run-bound terminal-detail synchronization state in `AssistantView`. A terminal server result remains visible when `getResearchSession` fails; the UI states that the research is terminal but session content is still synchronizing, exposes a keyboard-accessible `同步研究结果` command, and disables the composer until successful synchronization.
+- Manual synchronization re-reads the existing run and session, then refreshes messages, usage, and history. It does not create a new session, Run, model invocation, or token reservation. Session-change and unmount request gates discard late responses.
+- New terminal-sync behavior was driven through completed, failed, session-switch, and unmount cases. Full frontend Vitest passed `25` files / `148` tests; Vite production build passed.
+- Maven focused Agent tests passed `50/50`; all `*Agent*Test` passed `163` run / `0` failures / `0` errors with one expected opt-in `AgentDeepSeekSmokeTest` skip; executable JAR packaging passed.
+- Python migration tests passed `17/17`; deployment-hardening tests passed `94/94`; Python syntax compilation passed. `git diff --check` passed during local validation.
+- Docker preflight found Docker Desktop Linux Engine stopped. `PhaseOneMySqlIntegrationTest` was deliberately run once and failed at Testcontainers initialization because the Docker named pipe was unavailable. The integration test was not disabled, skipped, or altered. No test process remained.
+- No deployment, commit, push, remote access, or real provider request was performed.
+
 ## Session: 2026-07-18
 
 ### Phase 1: Baseline, Requirements, and Product Context
@@ -539,9 +558,73 @@
 
 ## 2026-07-29 Phase Three Specification Preparation
 - Loaded all eleven required skills and the Impeccable product register after reading PRODUCT.md and DESIGN.md.
-- Synchronized the ignored CodeGraph index, then audited current Assistant/public frontend, AI/domain backend, 27 deployment SQL files, production schemas and the MySQL 8.4 integration fixture path.
+- Synchronized the ignored CodeGraph index, then audited current Assistant/public frontend, AI/domain backend, 26 deployment SQL files, production schemas and the MySQL 8.4 integration fixture path.
 - Reused `.codex_deploy_opc.py` secret loading, pinned SSH fingerprint and remote database credentials without printing secrets. Ran only SELECT/SHOW against production business tables; no user/admin/session content was queried.
 - Recorded the production audit window `2026-07-29 01:08–01:10 CST`, MySQL `8.0.46`, UTC+08:00 and release `/opt/opc/releases/20260728-130142`.
 - Quantified 105 eligible case rows, 57 eligible policies and 121 eligible sources; measured coverage, policy time distribution, evidence rates, policy applicability, multi-industry cardinality and duplicate candidates.
 - Froze metric definitions, revenue prohibition, taxonomy forward plan, product IA, analytics API, backend handoff, evaluation gates and A/B/C roadmap in seven new documents under `docs/`.
 - No application source, database migration, production data, service, symlink or deployment was changed. Scoped documentation/repository checks are the only verification required for this round.
+
+## 2026-07-29 Phase Three Specification Stabilization
+- Read the eight required skills, PRODUCT.md, DESIGN.md, all seven Phase Three specifications, current SecurityConfig/AiWebMvcConfig/UserAuthInterceptor, Agent start/message/profile policies, requestedIntent, tool authorization, structured result and citation contracts.
+- Stabilized Analytics auth wiring, phase3-task-v1 and structured results, region roles, technology response states, report/feedback lifecycles, completion naming, completeness macro averages, revenue algorithms, command colors and the 26-file SQL inventory fact.
+- Completed two independent read-only specification reviews. Resolved all reported conflicts around starter auto fallback, policy_lookup schema naming, explicit from-analytics regionRole, approved-primary operation counting and feedback rating/reason pairing.
+- Markdown relative-link check: PASS across all 7 Phase Three documents; no missing local targets.
+- `git diff --check`: PASS with no whitespace errors.
+- High-confidence secret scan: PASS; no AWS/GitHub/OpenAI-style token or private-key matches in changed Markdown.
+- Ignore checks: PASS for both `.codegraph/` and `.local-secrets/`.
+- Change-scope check: PASS for 11 Markdown files (`AI_READINESS.md`, `task_plan.md`, `findings.md`, `progress.md`, and 7 Phase Three docs); no Java, Vue, SQL migration, deployment-script or other application changes.
+- Per the stabilization scope, Spring Boot, Testcontainers, Vitest, Vite build, JAR packaging, production database/SSH access and deployment were not run.
+
+## 2026-07-29 Phase A Contract Final Closure
+
+- Re-read the seven Phase Three specifications and the current Agent start/session/history/run/result/evidence/purge paths; confirmed current Run evidence_hash is enqueue identity, not a completion-time evidence version.
+- Froze taskContext session version/json/hash storage, canonical hashing, four-part idempotency identity, immutable follow-up behavior, owner-only start/detail/run readback, summary-only history, purge erasure and free-text log redaction.
+- Added source_verification selected-source and claim-search modes without opening arbitrary URL fetching or text-derived ID authorization; retained non-empty start content.
+- Added a closed Draft 2020-12 phase3 structuredResult schema, six placeholder examples and negative seams. Python jsonschema 4.26.0 validated the schema and all 6 examples.
+- Separated mandatory Phase A evidenceVersion from nullable Analytics dataVersion, fixed report version fields, region unavailable/partial/empty behavior, automatic 30-day report purge and the single feedbackEligible matrix.
+- Phase A contract closure assertions: PASS; the previous seven RED categories are closed and no conclusion-level legacy reference name remains.
+- Markdown relative-link check: PASS across all 11 modified Markdown files; no missing local targets.
+- `git diff --check`: PASS. `.codegraph/` and `.local-secrets/` ignore checks: PASS. Added-line high-confidence credential scan: PASS. Scope check: PASS, Markdown only.
+- No Java, Vue, CSS, SQL migration, deployment script, generated artifact or production state was changed. Spring Boot, Testcontainers, Vitest, Vite, JAR, Playwright, SSH, database access and deployment were intentionally not run.
+
+## 2026-07-29 Phase A v1 Structured Result Implementation Gate
+
+- The initial read-only gate reproduced all `8/8` final-review conflicts before the contract was edited.
+- Contracted the v1 result to the existing runtime: synthesis `3200` Tokens, directAnswer `600` characters, aggregate ClaimItem count `6`, citations `6`, and compatible Assistant rendering `12000` characters. Every schema string and array now has an explicit bound.
+- Split immutable taskContext-derived `taskSelectedEvidence` from server-only current-Run `authorizedEvidence`. The latter is capped at `120` per ID type and `120` combined case/policy IDs from the existing `12 x 10` tool/search ceiling.
+- Repaired all six placeholder fixtures and froze one-to-three explicit comparison dimensions plus JSON-body report lifecycle compare-and-set.
+- The former Schema-only `6/6` result remains valid, but the former service-semantic `6/6` conclusion is superseded because those fixtures did not encode case/source links or independently recomputable evidenceVersion inputs.
+- Cross-document field/number assertions: `11/11`. Markdown relative links: PASS for all `11` changed Markdown files. `git diff --check`: PASS.
+- Added-line high-confidence credential scan: PASS across seven patterns. `.codegraph/` and `.local-secrets/` ignore checks: PASS. Worktree scope: PASS for `11` changed paths, all Markdown.
+- No Spring, Testcontainers, Vitest, Vite, JAR, Playwright, SSH, production database, Provider or deployment command was run. Phase A implementation and deployment have not started; the specification freeze awaits the replacement evidence-fixture gate.
+
+## 2026-07-29 Phase A v1 Explicit Evidence And Recomputable Fixture Closure
+
+- Ran the pre-edit deterministic gates: RED-A failed on all `6/6` explicit-selection conflict signals and RED-B failed on all `6/6` evidence-fixture/recomputation signals.
+- Froze pre-persistence rejection for invalid explicit case/source selections as HTTP 400 `PHASE3_CASE_NOT_ELIGIBLE` / `PHASE3_SOURCE_NOT_ELIGIBLE`, with no session, message, Run, Token reservation or evidence projection. Reserved `evidence_insufficient` for accepted Runs that become insufficient during controlled research.
+- Added a test-only `phase3-run-evidence-fixture-v1` to every one of the six examples, including entity revision/content hashes/eligibility and machine-checkable case-source/policy-source links. It is explicitly outside the production Schema, API and persistence contract.
+- Replaced all zero evidenceVersion placeholders with independently calculated SHA-256 values over the fixed-order canonical authorized-evidence object. Reordering normalizes to the same digest; changes to IDs, revisions, content hashes, eligibility or links invalidate the prior digest.
+- Final contract gate: Draft 2020-12 meta-validation PASS; structuredResult Schema `6/6`; complete service-semantic fixtures `6/6`; evidenceVersion independent recomputation `6/6`; positive contract/document assertions `28/28`; original reason-specific negatives `19/19`; new reason-specific negatives `20/20`.
+- Final repository gates: Markdown relative links PASS for all 11 changed Markdown paths in the current worktree; `git diff --check` PASS; added-line high-confidence credential scan PASS across 7 patterns; `.codegraph/` and `.local-secrets/` ignore checks PASS; scope PASS with 11 changed Markdown paths and no untracked or non-Markdown path.
+- The replacement gate closes both reproduced P1s and restores the formal Phase A v1 specification freeze. No Phase A runtime code, application test, migration, production access, Provider request or deployment was performed.
+
+## 2026-07-29 Phase A v1 Final Targeted Contract Patch
+
+- Ran the pre-edit deterministic gates: RED-1 failed `3/3` start transaction/idempotency ordering conditions, RED-2 failed `5/5` non-vacuous policy-source conditions, and RED-3 failed `4/4` fixture uniqueness conditions. A duplicate fixture entity also changed the naive pre-validation evidence hash.
+- Froze the start order so the transaction resolves a locked `userId + idempotencyKey` record before any authoritative evidence check. Exact successful replay returns the original receipt; mismatch returns `409`; only a miss locks and revalidates evidence and relations before atomically creating all research records, reserving Token and saving the receipt.
+- Froze revocation races: a revocation before the evidence lock causes `400` and a full rollback; a revocation while start holds the lock waits, after which the accepted Run may become `evidence_insufficient` only through execution-time revalidation.
+- Replaced the vacuous `policy_lookup` example with the non-empty `policy 2001 -> source 9004 -> fact -> citation` fixture and independently recomputed evidenceVersion `sha256:8491a7a0ad58ec5c91ef9a7d90553817d7d0049ae40f3f0e99a91f96bd4317aa`.
+- Froze per-entity-type ID uniqueness and per-link-type pair uniqueness before canonical sorting/hashing, while retaining legal many-to-many evidence relationships. No runtime code, migration, UI, production access, Provider request or deployment was performed.
+- Final targeted gate: Draft 2020-12 meta-validation PASS; structuredResult Schema `6/6`; complete fixture semantics `6/6`; evidenceVersion recomputation `6/6`; start transaction/idempotency `8/8`; policy-source `10/10`; fixture uniqueness `9/9`; original negatives `19/19`; existing reason-specific negatives `20/20`; new targeted negatives `9/9`; frozen budgets, report CAS and legacy-field checks PASS.
+- Final repository gates: cross-document forbidden-pattern and legacy-field scans PASS; Markdown relative links PASS for all 11 changed Markdown paths; `git diff --check` PASS; `.codegraph/` and `.local-secrets/` ignore checks PASS; added-line high-confidence credential scan PASS across 7 patterns; Markdown-only scope PASS. No application test, production access or deployment command was run.
+
+## 2026-08-01 Phase Three Productization Delivery Audit
+
+- Reconciled the delivery documents with the actual current worktree. Phase Three is no longer documentation-only: the repository now contains implemented taskContext persistence, structured results, branch material reuse, preferences, reports, run feedback, admin quality aggregation, Analytics snapshots, and the protected Analytics workspace.
+- Recorded the current branch-research boundary: `branch-material` returns sanitized `taskContext`, taskContext version/hash, result summary, citations, evidenceVersion, source session/run IDs and intent hints; the frontend stores only a local branch draft and still waits for the first valid send before creating the new session/Run.
+- Recorded the current report/export boundary: report creation is tied to the completed Run/final-message path and keeps the saved citation manifest as the export/read boundary; this round does not claim PDF export or production report probes.
+- Recorded the current Analytics boundary: overview plus `industry.case_count` are implemented, but the industry slice remains `Yellow`, low-sample buckets degrade to textual treatment, and canonical business-case de-duplication is not yet available.
+- Local verification passed: Spring Boot `444` tests (`0` failures, `0` errors, `1` opt-in real DeepSeek smoke skipped), MySQL 8.4 `76/76`, frontend Vitest `119/119`, all existing frontend npm scripts, Vite production build, and Spring Boot executable JAR packaging.
+- This closeout deliberately does not claim Python deployment/migration command results, SSH preflight, rollout, rollback, or production probes. Those results were not appended in this round because they were not rerun here as authoritative command evidence.
+- **Status:** local Phase Three implementation, local verification, and delivery-document audit complete. Deployment remains unexecuted in this round.

@@ -14,6 +14,7 @@ public record AgentRunStatusVO(
         Integer stepCount,
         Integer toolCallCount,
         String visibleProgress,
+        List<String> researchPlan,
         AgentMessageVO finalMessage,
         JsonNode citations,
         List<AgentToolCallSummaryVO> tools,
@@ -26,7 +27,12 @@ public record AgentRunStatusVO(
         String requestId,
         Long latencyMs,
         JsonNode structuredResult,
+        JsonNode analyticsSnapshot,
         LocalDateTime createdAt,
-        LocalDateTime completedAt
+        LocalDateTime completedAt,
+        String taskType,
+        String taskContextHash,
+        boolean feedbackEligible,
+        LocalDateTime deadlineAt
 ) {
 }

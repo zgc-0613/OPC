@@ -349,6 +349,39 @@ class AgentToolRegistryTest {
     }
 
     @Test
+    void compactRecoverySchemaHasABoundedSinglePassOutput() throws Exception {
+        AgentToolRegistry registry = new AgentToolRegistry(
+                List.of(), new ObjectMapper(), Validation.buildDefaultValidatorFactory().getValidator(),
+                mock(AiAgentToolCallMapper.class)
+        );
+
+        var properties = new ObjectMapper()
+                .readTree(registry.jsonCompactResearchRecoverySchemaV2(Set.of(41L, 42L, 43L, 44L)))
+                .path("oneOf").get(0).path("properties");
+        var statementBranches = properties.path("keyFindings").path("items").path("oneOf");
+        var recommendation = properties.path("recommendations").path("items").path("properties");
+        var coverageLimitations = properties.path("evidenceCoverage").path("properties").path("limitations");
+
+        assertEquals(8, properties.size());
+        assertEquals(300, properties.path("directAnswer").path("maxLength").asInt());
+        assertEquals(1, properties.path("keyFindings").path("maxItems").asInt());
+        statementBranches.forEach(branch -> {
+            assertEquals(240, branch.path("properties").path("text").path("maxLength").asInt());
+            assertEquals(3, branch.path("properties").path("sourceIds").path("maxItems").asInt());
+        });
+        assertEquals(1, properties.path("recommendations").path("maxItems").asInt());
+        assertEquals(160, recommendation.path("reason").path("maxLength").asInt());
+        assertEquals(160, recommendation.path("nextAction").path("maxLength").asInt());
+        assertEquals(3, recommendation.path("sourceIds").path("maxItems").asInt());
+        assertEquals(3, properties.path("citations").path("maxItems").asInt());
+        assertEquals(120, properties.path("citations").path("items").path("properties")
+                .path("claim").path("maxLength").asInt());
+        assertEquals(1, coverageLimitations.path("maxItems").asInt());
+        assertEquals(160, coverageLimitations.path("items").path("maxLength").asInt());
+        assertFalse(properties.has("caseInsights"));
+    }
+
+    @Test
     void researchFinalSchemaRequiresEveryFactToCarryASourceId() throws Exception {
         AgentToolRegistry registry = new AgentToolRegistry(
                 List.of(), new ObjectMapper(), Validation.buildDefaultValidatorFactory().getValidator(),

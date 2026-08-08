@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
 import AssistantRunProgress from '@/components/assistant/AssistantRunProgress.vue'
+import source from '@/components/assistant/AssistantRunProgress.vue?raw'
 
 describe('AssistantRunProgress retry state', () => {
   it('exposes the running stop action as a bordered danger command', async () => {
@@ -23,5 +24,42 @@ describe('AssistantRunProgress retry state', () => {
 
     const purged = mount(AssistantRunProgress, { props: { run: { status, retryContent: '' } } })
     expect(purged.text()).not.toContain('安全重试')
+  })
+
+  it('offers a keyboard-operable result synchronization action before retry when terminal details are missing', async () => {
+    const wrapper = mount(AssistantRunProgress, {
+      props: {
+        run: { status: 'failed', currentStage: 'failed', retryContent: '关联问题' },
+        terminalSyncStatus: 'failed',
+      },
+    })
+
+    expect(wrapper.text()).toContain('会话内容仍在同步')
+    expect(wrapper.text()).not.toContain('安全重试')
+    const sync = wrapper.get('button[aria-label="同步研究结果"]')
+    expect(sync.text()).toContain('同步结果')
+    expect(sync.attributes('disabled')).toBeUndefined()
+    await sync.trigger('click')
+    expect(wrapper.emitted('resume')).toHaveLength(1)
+    expect(source).toMatch(/\.text-command,.danger-command\{min-height:44px\}/)
+  })
+
+  it('renders the server-owned research plan as a concise ordered task list', () => {
+    const wrapper = mount(AssistantRunProgress, {
+      props: {
+        run: {
+          status: 'running',
+          currentStage: 'planning',
+          researchPlan: ['理解研究目标与适用条件', '检索匹配政策', '核验政策来源与时效'],
+        },
+      },
+    })
+
+    const plan = wrapper.get('[data-testid="research-plan"]')
+    expect(plan.findAll('li').map((item) => item.text())).toEqual([
+      '理解研究目标与适用条件',
+      '检索匹配政策',
+      '核验政策来源与时效',
+    ])
   })
 })

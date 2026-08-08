@@ -1,5 +1,6 @@
 package com.opc.platform.ai.dto;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.opc.platform.ai.contract.AgentResearchContract;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -8,6 +9,8 @@ import lombok.Data;
 
 @Data
 public class AgentMessageCreateDTO {
+
+    private JsonNode taskContext;
 
     @NotBlank
     @Size(max = 2000)

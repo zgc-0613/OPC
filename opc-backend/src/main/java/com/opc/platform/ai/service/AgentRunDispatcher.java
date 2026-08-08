@@ -11,15 +11,17 @@ import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.userauth.AuthenticatedUser;
 import com.opc.platform.userauth.entity.PlatformUser;
 import com.opc.platform.userauth.mapper.PlatformUserMapper;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class AgentRunDispatcher {
 
     private final AgentRunQueueService queueService;
@@ -30,7 +32,31 @@ public class AgentRunDispatcher {
     private final AiAgentSessionMapper sessionMapper;
     private final AiAgentMessageMapper messageMapper;
     private final PlatformUserMapper userMapper;
+    private final TaskExecutor taskExecutor;
     private final String workerOwner = "agent-worker-" + UUID.randomUUID();
+
+    @Autowired
+    public AgentRunDispatcher(
+            AgentRunQueueService queueService,
+            AgentRunLifecycleService lifecycle,
+            AgentResearchWorker worker,
+            AgentClarificationPolicy clarificationPolicy,
+            AgentRuntimeConfigProvider configProvider,
+            AiAgentSessionMapper sessionMapper,
+            AiAgentMessageMapper messageMapper,
+            PlatformUserMapper userMapper,
+            @Qualifier("agentTaskExecutor") TaskExecutor taskExecutor
+    ) {
+        this.queueService = queueService;
+        this.lifecycle = lifecycle;
+        this.worker = worker;
+        this.clarificationPolicy = clarificationPolicy;
+        this.configProvider = configProvider;
+        this.sessionMapper = sessionMapper;
+        this.messageMapper = messageMapper;
+        this.userMapper = userMapper;
+        this.taskExecutor = taskExecutor;
+    }
 
     @Value("${opc.ai.agent.worker-enabled:true}")
     private boolean scheduledWorkerEnabled;
@@ -42,7 +68,11 @@ public class AgentRunDispatcher {
     public void scheduledTick() {
         if (scheduledWorkerEnabled) {
             queueService.finalizeUnrecoverable();
-            processNext();
+            try {
+                taskExecutor.execute(this::processNext);
+            } catch (TaskRejectedException ignored) {
+                // The durable received run remains available for the next scheduled tick.
+            }
         }
     }
 
@@ -71,6 +101,18 @@ public class AgentRunDispatcher {
                 storedUser.getId(), storedUser.getUsername(), storedUser.getEmail());
         String profileJson = clarificationPolicy.runtimeProfile(
                 session.getProfileJson(), session.getResearchContextJson());
-        worker.execute(lease, user, profileJson, message.getContent());
+        worker.execute(lease, user, profileJson, message.getContent(), modelResearchBoundary(run, session));
+    }
+
+    private String modelResearchBoundary(AiAnalysisRun run, AiAgentSession session) {
+        if (run.getAnalyticsSnapshotId() == null || run.getAnalyticsSnapshotJson() == null) {
+            return session.getTaskContextJson();
+        }
+        String taskContext = session.getTaskContextJson();
+        return "{\"taskContext\":" + (taskContext == null ? "null" : taskContext)
+                + ",\"analyticsSnapshot\":" + run.getAnalyticsSnapshotJson()
+                + ",\"analyticsMetricId\":\"" + run.getAnalyticsMetricId()
+                + "\",\"analyticsDataVersion\":\"" + run.getAnalyticsDataVersion()
+                + "\",\"analyticsFilters\":" + run.getAnalyticsFiltersJson() + "}";
     }
 }

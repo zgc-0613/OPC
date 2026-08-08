@@ -15,6 +15,6 @@ public class AiWebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(userAuthInterceptor)
-                .addPathPatterns("/api/ai/**");
+                .addPathPatterns("/api/ai/**", "/api/analytics/**");
     }
 }

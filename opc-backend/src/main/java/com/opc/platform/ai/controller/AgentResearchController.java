@@ -6,6 +6,7 @@ import com.opc.platform.ai.dto.AgentSessionStartDTO;
 import com.opc.platform.ai.dto.AgentSessionUpdateDTO;
 import com.opc.platform.ai.service.AgentResearchReceipt;
 import com.opc.platform.ai.service.AgentResearchQueryService;
+import com.opc.platform.ai.service.AgentResearchBranchService;
 import com.opc.platform.ai.service.AgentResearchService;
 import com.opc.platform.ai.service.AgentResearchStartReceipt;
 import com.opc.platform.ai.service.AgentSessionHistoryService;
@@ -17,6 +18,7 @@ import com.opc.platform.ai.vo.AgentSessionHistoryPageVO;
 import com.opc.platform.ai.vo.AgentMessagePageVO;
 import com.opc.platform.ai.vo.AgentUsageVO;
 import com.opc.platform.ai.vo.AgentRunEvidenceVO;
+import com.opc.platform.ai.vo.AgentResearchBranchMaterialVO;
 import com.opc.platform.common.result.Result;
 import com.opc.platform.userauth.AuthenticatedUser;
 import jakarta.validation.Valid;
@@ -43,6 +45,7 @@ import java.util.List;
 public class AgentResearchController {
 
     private final AgentResearchService researchService;
+    private final AgentResearchBranchService branchService;
     private final AgentResearchQueryService queryService;
     private final AgentSessionHistoryService historyService;
     private final AgentRunEvidenceService evidenceService;
@@ -188,6 +191,14 @@ public class AgentResearchController {
             @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user
     ) {
         return Result.success(evidenceService.read(user, runId));
+    }
+
+    @GetMapping("/runs/{runId}/branch-material")
+    public Result<AgentResearchBranchMaterialVO> branchMaterial(
+            @PathVariable Long runId,
+            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user
+    ) {
+        return Result.success(branchService.material(user, runId));
     }
 
     @PostMapping("/runs/{runId}/cancel")

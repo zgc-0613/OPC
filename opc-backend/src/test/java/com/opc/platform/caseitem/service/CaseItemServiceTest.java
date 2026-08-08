@@ -8,12 +8,16 @@ import com.opc.platform.caseitem.dto.CaseItemQueryDTO;
 import com.opc.platform.caseitem.dto.CaseItemUpdateDTO;
 import com.opc.platform.caseitem.entity.CaseItem;
 import com.opc.platform.caseitem.mapper.CaseItemMapper;
+import com.opc.platform.casetag.entity.CaseTag;
+import com.opc.platform.casetag.mapper.CaseTagMapper;
 import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.region.mapper.RegionMapper;
 import com.opc.platform.source.mapper.SourceMapper;
 import com.opc.platform.source.entity.Source;
 import com.opc.platform.region.entity.Region;
+import com.opc.platform.tag.entity.Tag;
+import com.opc.platform.tag.mapper.TagMapper;
 import com.opc.platform.adminauth.AuthenticatedAdmin;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -36,6 +40,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class CaseItemServiceTest {
@@ -45,6 +50,10 @@ class CaseItemServiceTest {
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), "case-item-test"),
                 CaseItem.class
+        );
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), "case-tag-test"),
+                CaseTag.class
         );
     }
 
@@ -57,6 +66,12 @@ class CaseItemServiceTest {
     @Mock
     private SourceMapper sourceMapper;
 
+    @Mock
+    private TagMapper tagMapper;
+
+    @Mock
+    private CaseTagMapper caseTagMapper;
+
     private CaseItemService service;
 
     @BeforeEach
@@ -65,8 +80,8 @@ class CaseItemServiceTest {
                 caseItemMapper,
                 regionMapper,
                 sourceMapper,
-                org.mockito.Mockito.mock(com.opc.platform.tag.mapper.TagMapper.class),
-                org.mockito.Mockito.mock(com.opc.platform.casetag.mapper.CaseTagMapper.class),
+                tagMapper,
+                caseTagMapper,
                 org.mockito.Mockito.mock(com.opc.platform.ai.service.EvidenceReviewService.class)
         );
     }
@@ -90,6 +105,54 @@ class CaseItemServiceTest {
 
         assertEquals(1, result.size());
         assertEquals("published", result.get(0).getStatus());
+    }
+
+    @Test
+    void publicListFiltersByExactIndustryTag() {
+        CaseItemQueryDTO query = new CaseItemQueryDTO();
+        query.setIndustryTagId(7L);
+        Tag industry = new Tag();
+        industry.setId(7L);
+        industry.setIsIndustry(true);
+        CaseTag link = new CaseTag();
+        link.setCaseId(11L);
+        link.setTagId(7L);
+        CaseItem published = new CaseItem();
+        published.setId(11L);
+        published.setRegionId(1L);
+        published.setSourceId(2L);
+        published.setStatus("published");
+
+        when(tagMapper.selectById(7L)).thenReturn(industry);
+        when(caseTagMapper.selectList(argThat(wrapper -> hasParameter(wrapper, 7L))))
+                .thenReturn(List.of(link));
+        when(caseItemMapper.selectList(argThat(wrapper -> hasParameter(wrapper, 11L)
+                && hasParameter(wrapper, "published"))))
+                .thenReturn(List.of(published));
+        when(regionMapper.selectBatchIds(anyCollection())).thenReturn(Collections.emptyList());
+        when(sourceMapper.selectBatchIds(anyCollection())).thenReturn(Collections.emptyList());
+
+        var result = service.listPublicCaseItems(query);
+
+        assertEquals(List.of(11L), result.stream().map(item -> item.getId()).toList());
+    }
+
+    @Test
+    void publicListRejectsNonIndustryTag() {
+        CaseItemQueryDTO query = new CaseItemQueryDTO();
+        query.setIndustryTagId(7L);
+        Tag ordinaryTag = new Tag();
+        ordinaryTag.setId(7L);
+        ordinaryTag.setIsIndustry(false);
+        when(tagMapper.selectById(7L)).thenReturn(ordinaryTag);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.listPublicCaseItems(query)
+        );
+
+        assertEquals(ErrorCode.BAD_REQUEST, exception.getErrorCode());
+        verifyNoInteractions(caseTagMapper);
     }
 
     @Test
@@ -205,7 +268,7 @@ class CaseItemServiceTest {
         return dto;
     }
 
-    private boolean hasParameter(Wrapper<CaseItem> wrapper, String value) {
+    private boolean hasParameter(Wrapper<?> wrapper, Object value) {
         if (!(wrapper instanceof AbstractWrapper<?, ?, ?> abstractWrapper)) {
             return false;
         }

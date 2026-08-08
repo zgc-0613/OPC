@@ -25,5 +25,7 @@ public class EntrepreneurshipAdviceVO {
     private String model;
     private String promptVersion;
     private LocalDateTime generatedAt;
+    private Boolean limitedResult = false;
+    private String diagnosticCode;
     private AiTokenUsageVO tokenUsage = new AiTokenUsageVO();
 }

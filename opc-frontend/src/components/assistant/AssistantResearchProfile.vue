@@ -5,7 +5,7 @@
         <span class="caption">RESEARCH BOUNDARY</span>
         <h2 id="research-profile-title">{{ editable ? '确定本次研究边界' : '本次研究条件' }}</h2>
       </div>
-      <button v-if="!editable" class="secondary-command" type="button" aria-label="基于当前研究条件新建研究" @click="emit('fork')"><CopyPlus :size="15" />基于这些条件新建研究</button>
+      <button v-if="!editable" class="secondary-command" type="button" aria-label="基于当前研究条件新建研究" :disabled="forking" @click="emit('fork')"><CopyPlus :size="15" />{{ forking ? '正在创建分支' : '基于这些条件新建研究' }}</button>
     </header>
 
     <div v-if="!editable" class="profile-summary">
@@ -40,7 +40,7 @@
                 @input="updateIndustry($event.target.value)"
                 @keydown="handleIndustryKeydown"
               />
-              <button class="industry-combobox-toggle" type="button" :aria-label="industryOpen ? '收起行业选项' : '展开行业选项'" tabindex="-1" @click.stop="toggleIndustryOptions">
+              <button class="industry-combobox-toggle" type="button" :aria-label="industryOpen ? '收起行业选项' : '展开行业选项'" @click.stop="toggleIndustryOptions">
                 <ChevronDown :size="16" aria-hidden="true" />
               </button>
             </div>
@@ -51,6 +51,7 @@
                 :key="item.tagId"
                 type="button"
                 role="option"
+                tabindex="-1"
                 :aria-selected="String(modelValue.industryTagId || '') === String(item.tagId)"
                 :class="{ active: index === activeIndustryIndex }"
                 @mousedown.prevent
@@ -104,6 +105,7 @@ const props = defineProps({
   industryResolutionRejected: { type: String, default: '' },
   industrySuggestion: { type: Object, default: null },
   providerLabel: { type: String, default: '等待管理员配置' },
+  forking: Boolean,
 })
 const emit = defineEmits(['update:modelValue', 'fork', 'confirm-industry', 'reject-industry'])
 const profileStartsOpen = !globalThis.matchMedia?.('(max-width: 720px)').matches
@@ -219,17 +221,18 @@ function regionName(id) { return props.regions.find((item) => String(item.id) ==
 }
 .research-profile > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .research-profile h2 { margin: 4px 0 0; font-family: 'Noto Serif SC', STSong, SimSun, serif; font-size: 1rem; font-weight: 500; }
-.caption { color: #747a73; font-family: 'Bookman Old Style', Georgia, serif; font-size: .63rem; font-weight: 700; }
+.caption { color: #5f665f; font-family: 'Bookman Old Style', Georgia, serif; font-size: .63rem; font-weight: 700; }
 .secondary-command { display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 11px; border: 1px solid #b9bfb8; border-radius: 3px; background: #fbfbf7; color: #303630; }
 .secondary-command:is(:hover,:focus-visible) { border-color: #747b74; background: #eceee8; }
 .secondary-command:focus-visible { outline: 2px solid rgba(74,82,74,.34); outline-offset: 2px; }
 .secondary-command:active { background: #e1e4dc; }
+.secondary-command:disabled { cursor: wait; opacity: .62; }
 .profile-summary { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 13px; }
 .profile-summary span { display: grid; gap: 2px; color: #303630; font-size: .78rem; }
-.profile-summary small { color: #777d76; font-size: .62rem; }
+.profile-summary small { color: #5f665f; font-size: .62rem; }
 .profile-editor { margin-top: 13px; }
 .profile-editor summary { display: flex; align-items: center; gap: 7px; min-height: 40px; cursor: pointer; color: #3c423c; font-size: .76rem; font-weight: 700; }
-.profile-editor summary span { margin-left: auto; color: #777d76; font-size: .65rem; font-weight: 400; }
+.profile-editor summary span { margin-left: auto; color: #5f665f; font-size: .65rem; font-weight: 400; }
 .profile-fields { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 11px; margin-top: 9px; }
 .profile-fields label { display: grid; gap: 5px; min-width: 0; }
 .profile-fields :is(.field-venture,.field-region,.field-industry){grid-column:span 2}
@@ -285,7 +288,7 @@ function regionName(id) { return props.regions.find((item) => String(item.id) ==
 .industry-listbox > [role=option] { min-height: 40px; padding: 8px 10px; border: 0; background: transparent; color: var(--assistant-field-color); text-align: left; }
 .industry-listbox > [role=option]:is(.active, :hover) { background: #e7e9e4; }
 .industry-listbox > [role=option][aria-selected=true] { font-weight: 700; }
-.industry-empty { margin: 0; padding: 12px; color: #737a73; font-size: .69rem; line-height: 1.5; }
+.industry-empty { margin: 0; padding: 12px; color: #5f665f; font-size: .69rem; line-height: 1.5; }
 .industry-resolution { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 11px; padding-top: 10px; border-top: 1px solid #d4d7d1; color: #555b55; font-size: .72rem; }
 .industry-resolution p { margin: 0; }
 .industry-resolution-rejected { color: #6d674e; }
@@ -298,7 +301,7 @@ function regionName(id) { return props.regions.find((item) => String(item.id) ==
 .profile-status .ready i { background: #3f684a; }
 .profile-status .partial i { background: #806731; }
 .profile-status strong { font-size: .7rem; }
-.profile-status small { color: #777d76; font-size: .62rem; }
+.profile-status small { color: #5f665f; font-size: .62rem; }
 @container research-profile (min-width:521px) and (max-width:680px) {
   .profile-fields { grid-template-columns: 1fr 1fr; }
   .profile-fields :is(.field-venture,.field-region,.field-stage,.field-budget,.field-goal,.field-resources) { grid-column: span 1; }

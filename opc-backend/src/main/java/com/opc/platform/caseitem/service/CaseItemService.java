@@ -132,6 +132,7 @@ public class CaseItemService {
         if (query != null) {
             publicQuery.setKeyword(query.getKeyword());
             publicQuery.setRegionId(query.getRegionId());
+            publicQuery.setIndustryTagId(query.getIndustryTagId());
             publicQuery.setCategory(query.getCategory());
         }
         publicQuery.setStatus(PUBLISHED_STATUS);
@@ -274,6 +275,25 @@ public class CaseItemService {
         }
         if (query.getRegionId() != null) {
             wrapper.eq(CaseItem::getRegionId, query.getRegionId());
+        }
+        if (query.getIndustryTagId() != null) {
+            Tag industry = tagMapper.selectById(query.getIndustryTagId());
+            if (industry == null || !Boolean.TRUE.equals(industry.getIsIndustry())) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "Industry tag not found");
+            }
+            List<CaseTag> links = caseTagMapper.selectList(
+                    new LambdaQueryWrapper<CaseTag>().eq(CaseTag::getTagId, query.getIndustryTagId())
+            );
+            List<Long> caseIds = (links == null ? List.<CaseTag>of() : links).stream()
+                    .map(CaseTag::getCaseId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+            if (caseIds.isEmpty()) {
+                wrapper.eq(CaseItem::getId, -1L);
+            } else {
+                wrapper.in(CaseItem::getId, caseIds);
+            }
         }
         if (StringUtils.hasText(query.getCategory())) {
             wrapper.eq(CaseItem::getCategory, query.getCategory());

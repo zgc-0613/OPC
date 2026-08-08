@@ -1,5 +1,23 @@
 # Findings and Decisions
 
+## 2026-08-08: Phase Three User-Facing v1 Release Findings
+
+- The direct `python scripts/test_deployment_hardening.py` path could import an unrelated external `scripts` package when launched outside the repository. The fix computes the repository root before imports and prepends it to `sys.path`; it does not change deployment behavior. The direct command now passes `103/103` tests.
+- Docker Desktop Linux Engine was available for final acceptance. `PhaseOneMySqlIntegrationTest` passed `80/80` against MySQL 8.4. The complete Spring suite passed `509` tests with `0` failures and `0` errors; one explicitly opt-in real-provider smoke remained skipped.
+- The guarded production deploy completed successfully. Release `/opt/opc/releases/20260808-162621` is current, `/opt/opc/releases/20260807-173031` remains the prior target, the timestamped backup is `/opt/opc/backups/20260808-162621`, the database dump is `/opt/opc/backups/20260808-162621/opc_platform.sql.gz`, and the backend rollback artifact is `/opt/opc-backend.rollback.20260808-162621`.
+- The candidate gate completed controlled policy, case-comparison, and source-verification research before the production switch. Each retained only authorized citations and settled Token usage. One case-comparison final response reported `finish_reason=length` while still completing the guarded result contract; no raw response or unauthorized source was recorded.
+- The post-switch Phase Three probe validated report save/export, cross-user ownership isolation, preference consent/delete, feedback revision/CAS, user-owned Analytics snapshot linkage, and administrator quality authorization. Temporary probe data was cleaned by the deployment script.
+- The release is accurately named "Phase Three user-facing v1 / partial release". Formal technology and revenue statistics remain unavailable because their data readiness threshold is not met; browser-based responsive and assistive-technology acceptance remains a user-facing manual check.
+
+## 2026-08-06: Assistant terminal synchronization and local evidence correction
+
+- Root `AGENTS.md` is absent; the applicable instructions were supplied by the active task. `.codegraph/` and `.local-secrets/` remain ignored. CodeGraph MCP was unavailable, so structural work used focused source reads and `rg`.
+- `AssistantView` previously treated a terminal run and its session-detail refresh as one polling outcome. A transient `getResearchSession` failure after a server `completed`/other terminal status could leave no safe recovery path because `activeRun` had already been cleared.
+- The worktree now separates the server run state from `terminalSync` detail state. Terminal detail failure preserves the returned terminal run, keeps the composer disabled, hides misleading safe retry, stops automatic polling, and exposes a run-bound synchronization action. The action re-reads the same run and session only; it does not submit a question or reserve tokens.
+- Current local evidence: frontend Vitest `148/148`; focused Agent tests `50/50`; all `*Agent*Test` `163` run with `0` failures/errors and `1` expected opt-in real-provider skip; frontend production build and Spring Boot JAR packaging pass; Python migration `17/17`, deployment hardening `94/94`, and syntax checks pass.
+- `PhaseOneMySqlIntegrationTest` was executed and remains enabled. It failed before business assertions because Docker Desktop Linux Engine was stopped (`dockerDesktopLinuxEngine` named pipe unavailable); no Maven/Surefire/Java process from this run remained afterward. This is an environment blocker, not a passing MySQL result.
+- No deployment, commit, push, production connection, or real DeepSeek request occurred in this correction round.
+
 ## Requirements
 - Work in `C:\Users\ACha_\Documents\GitHub\OPC`.
 - Preserve all existing core functionality, including public behavior and integrations.
@@ -120,6 +138,15 @@
 - This repository tracks `dist` and two `node_modules` metadata files. Build/install updated those generated files; they require an explicit final diff decision rather than being mistaken for unrelated user changes.
 - Home pointer-trail code and hardcoded blue trend/source colors have now been removed or replaced with the cream/neutral target palette.
 - The original browser tab was cleaned up by the browser host between checks. A fresh tab was created from the existing browser binding; its empty snapshot output now requires screenshot and console inspection for a possible runtime render issue.
+
+## 2026-08-01 Phase Three Productization Delivery Findings
+
+- The repository is no longer in a specification-only Phase Three state. The current worktree includes executable Phase Three code for taskContext persistence, structured-result rendering, branch reuse, explicit preferences, report lifecycle, feedback, admin quality aggregation, Analytics snapshots, and the protected `/analytics` workspace.
+- Local verification already completed for the current Phase Three implementation: Spring Boot `444` tests (`0` failures, `0` errors, `1` skipped opt-in real DeepSeek smoke), MySQL 8.4 Testcontainers `76/76`, frontend Vitest `119/119`, all existing frontend npm test scripts, Vite production build, and Spring Boot executable JAR packaging.
+- The current Analytics implementation includes a formal `industry.case_count` slice in addition to the overview cards. Its boundary is intentionally narrower than the full Phase Three specification: the slice is still `Yellow`, low-sample buckets fall back to table-only semantics, and canonical business-case de-duplication is not yet available.
+- The current Assistant branch flow is server-seeded but client-started. `branch-material` returns sanitized taskContext, taskContext hash/version, source session/run IDs, result summary, citations, and evidenceVersion; the frontend stores only a local branch draft and still creates the new session only on the first valid send.
+- Report persistence includes a citation allowlist defense in addition to owner checks: user-visible report content is saved only from the completed Run/final-message path, and report/export reads stay bounded to the saved result plus the recorded citation manifest rather than arbitrary client citations.
+- This delivery closeout must not imply deployment. The current evidence supports local implementation and local verification only. Python deployment/migration command results and any production deployment/probe facts must be appended later from real executions, not inferred here.
 
 ## Issues Encountered
 | Issue | Resolution |
@@ -580,3 +607,58 @@ Update this file after every two repository or browser inspection operations.
 - Green: verified policy count, policy publish trend, verification/source-chain rates and field-completeness quality metrics. Yellow: industry/region distributions, covered industry/region, source count and composite completeness. Red: canonical case total, case trend, policy-industry, all technology business metrics and all revenue business metrics.
 - Information architecture is one Assistant workspace plus one Data Insights route with tabs, existing history, and a saved-report view only after persistence exists. No empty route farm or second chat shell.
 - Phase order is A case/technology research, B analytics, C safe analytics-to-AI/report/export closure. This round added documentation only and did not authorize migrations or deployment.
+
+## Phase Three Specification Stabilization Decisions
+
+- Current code requires two explicit Analytics auth changes in the future implementation: Spring Security must permit `/api/analytics/**` so MVC receives it, while UserAuthInterceptor must cover the same path and enforce the platform user session. Admin tokens never substitute for user tokens.
+- Current AgentSessionStartDTO has no task selection payload. The frozen compatible extension is optional `taskContext.version=phase3-task-v1`; it is accepted only on first session start, must agree with requestedIntent, is fingerprinted/frozen, and cannot be changed through follow-up text.
+- Selected case IDs are untrusted inputs until the server re-reads each case, verifies the double published+verified source chain, projects taskSelectedEvidence and creates current-Run authorizedEvidence. They do not belong in profile.
+- `structuredResult.schemaVersion=phase3-structured-result-v1` adds task-specific result objects inside the existing agent-research-v2 Run envelope; legacy results remain readable without rewriting.
+- Structured Phase A starters keep requestedIntent aligned with taskContext.taskType when the user edits the research question; only legacy requests without taskContext retain the old auto fallback. The policy result discriminator is uniformly `policy_lookup`.
+- Case geography is now explicit: formal default is primary operation region, registration is separate, source geography is excluded, current case.region_id is legacy_related_region, and current Yellow charts must say “相关地区分布”. Policy geography is applicability; country policies are not copied to provinces.
+- Analytics-to-AI requests must explicitly carry normalized regionRole. Default case-region aggregation counts approved primary operation relations only; secondary operation relations are reserved for explicit footprint detail or a future metric.
+- Technology behavior is one contract: no explicit filter + taxonomy unavailable gives 200 unavailable; explicit unapproved/unavailable IDs give 409; ready taxonomy + no matches gives 200 empty.
+- Reports use active/trash/permanently_purged, 30-day trash retention, explicit restore/permanent endpoints and independent survival after source session purge. Feedback is one revisioned helpful/not_helpful record per user/run; administrators see only controlled aggregates.
+- Feedback reasons are closed by rating: positive reasons cannot accompany not_helpful and negative reasons cannot accompany helpful; invalid combinations have a dedicated 400 contract and test seam.
+- Data completeness is component macro averaging with separate caseScore and policyScore, never a mixed marketing score. Revenue uses value_status only, explicit interval bins and Type 7 percentiles over actual point values.
+- Phase B may be a partial production release. Phase Three product complete additionally requires formal technology and revenue visualizations, safe AI linkage, reports, feedback and the complete 40-question/performance gates.
+- DESIGN.md wins over generic accent advice: commands are ink/white/gray; green is semantic and never fills ordinary command buttons. The repository currently contains 26 deploy SQL files, not 27.
+
+## Phase A Contract Closure Findings (2026-07-29)
+
+- `AgentSessionStartDTO.content` is already non-blank and bounded at 2,000 characters. Phase A keeps that compatibility contract: the UI may prefill a question, but the backend never infers a goal from empty content.
+- `research_context_json` is mutable clarification state, so it cannot hold a frozen task boundary. The sole forward model is nullable session `task_context_version/task_context_json/task_context_hash`, atomically written on first start, included in idempotency identity, immutable afterward and erased by permanent session purge.
+- Existing Agent Run `evidence_hash` is generated at enqueue from session/message/idempotency identity and is not updated by `settleAgentCompleted`; it cannot be renamed into evidenceVersion. The authoritative Phase A evidenceVersion lives in `result_json.structuredResult` and reports copy it.
+- source_verification currently reaches get_source only through controlled authorization. The compatible extension is an optional positive sourceId used only by that task; absence selects claim-search mode, and neither content IDs nor arbitrary URLs authorize evidence.
+- The API contract now contains one closed Draft 2020-12 schema plus six schema-valid placeholder examples. `sourceIds` is the only conclusion-level reference key; Run allowlist membership, comparison set equality and recomputed evidence coverage remain mandatory service-level validation.
+- Phase A evidenceVersion and Analytics dataVersion are different ledgers. Every new Phase A result has evidenceVersion; ordinary Phase A has null dataVersion; from-analytics requires both.
+- Case region responses are no longer inferred from array length: unready operation/registration is unavailable, explicit legacy is partial, and only a ready normalized relation with no matches is empty. A 0% Green completeness value does not unlock a business distribution.
+- Report purge_after requires an automatic consumer with bounded batches, multi-instance locking, revision-aware restore competition and idempotent retries. Feedback eligibility is completed, or evidence_insufficient with a persisted user-visible result; all other Run states are ineligible and administrators cannot submit on a user's behalf.
+
+## 2026-07-29 Phase A v1 Structured Result Implementation Gate
+
+- The remaining P1 root cause was specification expansion past stable runtime limits: the prior schema allowed a direct-answer ceiling above the runtime, independently budgeted ClaimItem arrays and a citation ceiling above the runtime despite stable limits of 600 characters, six aggregate claims and six citations.
+- The former single evidence field also conflated immutable user task selection with mutable current-Run authorization. It is replaced by `taskSelectedEvidence` (exact normalized taskContext projection) and server-only `authorizedEvidence` (the full current-Run allowlist).
+- Existing runtime limits determine the v1 authorization ceiling: at most 12 configured tool calls and at most 10 results from each evidence-producing case/policy search yield no more than 120 case IDs, 120 policy IDs or 120 source IDs, with case IDs plus policy IDs no more than 120. `compare_cases` and `get_source` can only consume already authorized IDs and cannot expand the set.
+- The six placeholder contract fixtures now pair normalized taskContext with structuredResult. Case analysis and comparison include selected cases, authorized case/source chains, matching citation metadata and at least one supported fact; selected-source verification uses one selected and authorized source.
+- Comparison planning is explicitly narrower than the current tool: one to three unique allowlisted dimensions are required for case comparison, and every other task has an empty dimension array. The service never adds hidden defaults.
+- All user-triggered report lifecycle mutations use JSON-body compare-and-set. Invalid expectedRevision is 400, stale revision is 409 `REPORT_REVISION_CONFLICT`, a successful state change increments once, current target state plus current revision is a no-change response, and an old-revision replay remains a conflict.
+- Phase A evidenceVersion remains mandatory and independent of nullable Analytics dataVersion. The documentation gate does not imply the DTOs, persistence, validators, UI or runtime behavior have been implemented.
+
+## 2026-07-29 Phase A v1 Explicit Evidence Closure Findings
+
+- RED-A reproduced all `6/6` ambiguity signals: pre-persistence eligibility failure, post-acceptance insufficiency, product behavior, no-half-product evaluation wording, the missing case error code and non-unique side effects. The sole v1 boundary is now HTTP 400 before persistence for an invalid explicit selection, using `PHASE3_CASE_NOT_ELIGIBLE` or `PHASE3_SOURCE_NOT_ELIGIBLE`; a successfully accepted Run alone may later become `evidence_insufficient`.
+- RED-B reproduced all `6/6` fixture defects: zero digests, no Run evidence records, no case-source relation, missing revision/contentHash/eligibility, no independent digest calculation and incomplete prior semantic assertions.
+- The contract-test-only `runEvidenceFixture` closes that gap with `fixtureVersion`, cases, policies, sources, caseSourceLinks and policySourceLinks. It is neither accepted by production APIs nor persisted in user results.
+- `evidenceVersion` hashes a fixed-order compact UTF-8 JSON object containing schemaVersion and only authorized evidence records/links. Entity inputs use ID, evidenceRevision, contentHash and eligibility; stable sorting and fixed field order make the digest portable across Java and JavaScript implementations.
+- The six recomputed values are: case analysis `sha256:9d7a818ff4f57a7dec741fb8d58f4686f7f2b2ccce3604971bd3318689430ee2`; case comparison `sha256:aa512915e31bfdf3be5d0cc242ca058f1a54dd7155614e0d01736b1efb97f38f`; source verification `sha256:8be41268f7949faf0da1d76402363a9011e3f6c61a1b5a34975f541fdf7c17b0`; technology assessment and general research share the canonical empty-evidence digest `sha256:d93e8851c631b2eca793eeda59b20eff593db61e95168526bed0f9b9ee2f58df`. The policy lookup digest is superseded by the non-empty policy-source fixture recorded below.
+- The replacement gate passed Schema `6/6`, full service semantics `6/6`, evidenceVersion recomputation `6/6`, positive assertions `28/28`, original negatives `19/19` and new reason-specific negatives `20/20`. No P0/P1 remains in the Phase A v1 specification. Runtime implementation and deployment remain unstarted.
+
+## 2026-07-29 Phase A v1 Start Transaction, Policy Provenance And Evidence Uniqueness Findings
+
+- RED-1 reproduced all `3/3` ordering defects: authoritative eligibility was described before the start transaction, exact successful replay did not clearly precede revalidation, and a revocation between precheck and persistence could leave the contract ambiguous. The sole order is now idempotency resolution under the start transaction first; only a miss locks and revalidates selected evidence before atomic creation.
+- Exact successful replay returns the original `202` receipt without revalidating current evidence, recreating research objects or reserving Token again. A same-key identity mismatch returns `409 PHASE3_IDEMPOTENCY_CONFLICT` before evidence lookup. On a miss, selected evidence and required relation rows are locked and revalidated inside the same transaction; any eligibility or creation failure rolls everything back.
+- RED-2 reproduced all `5/5` vacuous policy-provenance signals. The `policy_lookup` fixture now proves `policy 2001 -> source 9004 -> fact -> citation`, with policy content hash `sha256:25c69d0d7334e552312f82cbb39d898039fc1a15763d803641c8d0a69be82f47`, source content hash `sha256:57867082282ca54c2d4f6d48d2e1d9faf28bb1e2effb2347620cf2f623a4dd46` and evidenceVersion `sha256:8491a7a0ad58ec5c91ef9a7d90553817d7d0049ae40f3f0e99a91f96bd4317aa`.
+- RED-3 reproduced all `4/4` uniqueness defects and demonstrated that an unvalidated duplicate changed the naive evidence hash. Entity IDs are unique within each entity type and link pairs are unique within each link type. Valid many-to-many relationships remain allowed, but duplicates fail before sorting or hashing and are never silently deduplicated.
+- The final targeted gate passed Draft 2020-12 meta-validation, structuredResult Schema `6/6`, complete fixture semantics `6/6`, evidenceVersion recomputation `6/6`, start transaction/idempotency assertions `8/8`, policy-source assertions `10/10`, fixture uniqueness assertions `9/9`, original negatives `19/19`, existing reason-specific negatives `20/20` and new targeted negatives `9/9`. No P0/P1 remains in the Phase A v1 specification.
+- These findings freeze documentation and implementation seams only. They do not state that the Phase A runtime, migrations, UI or deployment exist.

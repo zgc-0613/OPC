@@ -195,10 +195,11 @@
     "providerRounds": [
       {"content": "{\"action\":\"plan\"", "finishReason": "length"},
       {"content": "{\"action\":\"plan\"", "finishReason": "length"},
-      {"content": "{\"action\":\"plan\"", "finishReason": "length"}
+      {"content": "{\"action\":\"plan\"", "finishReason": "length"},
+      {"content": "{\"action\":\"evidence_insufficient\",\"answer\":\"bounded evidence result\",\"citations\":[],\"confidence\":0.1}"}
     ],
     "toolResults": {},
-    "expected": {"status": "failed", "diagnosticCode": "TRUNCATED_RESPONSE", "stateTrace": ["waiting_for_model", "synthesizing", "synthesizing", "failed"], "tools": [], "allowedCitations": [], "forbiddenCitations": [999], "claimEvidence": {}}
+    "expected": {"status": "evidence_insufficient", "diagnosticCode": "PLANNING_RESPONSE_TRUNCATED_FALLBACK", "stateTrace": ["waiting_for_model", "synthesizing", "synthesizing", "tool_requested", "tool_running", "synthesizing", "synthesizing", "evidence_insufficient"], "tools": [{"name": "search_cases", "arguments": {"scope": "selected", "limit": 5}}], "allowedCitations": [], "forbiddenCitations": [999], "claimEvidence": {}}
   },
   {
     "id": "provider-content-filter",

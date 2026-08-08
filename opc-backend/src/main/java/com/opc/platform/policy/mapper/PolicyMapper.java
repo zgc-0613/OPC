@@ -7,8 +7,37 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface PolicyMapper extends BaseMapper<Policy> {
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM policies item
+            INNER JOIN sources source ON source.id=item.source_id
+            WHERE item.status='published' AND item.ai_evidence_status='verified'
+              AND source.status='published' AND source.ai_evidence_status='verified'
+              AND source.title IS NOT NULL AND TRIM(source.title)<>''
+              AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
+              AND source.url IS NOT NULL
+              AND (LOWER(TRIM(source.url)) LIKE 'http://%' OR LOWER(TRIM(source.url)) LIKE 'https://%')
+            """)
+    long countEligibleAnalyticsRecords();
+
+    @Select("""
+            SELECT CONCAT(item.id, ':', COALESCE(item.evidence_revision,0), ':',
+                          source.id, ':', COALESCE(source.evidence_revision,0))
+            FROM policies item
+            INNER JOIN sources source ON source.id=item.source_id
+            WHERE item.status='published' AND item.ai_evidence_status='verified'
+              AND source.status='published' AND source.ai_evidence_status='verified'
+              AND source.title IS NOT NULL AND TRIM(source.title)<>''
+              AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
+              AND source.url IS NOT NULL
+              AND (LOWER(TRIM(source.url)) LIKE 'http://%' OR LOWER(TRIM(source.url)) LIKE 'https://%')
+            ORDER BY item.id, source.id
+            """)
+    List<String> selectEligibleAnalyticsVersionStamps();
 
     @Select("SELECT * FROM policies WHERE id = #{id} FOR UPDATE")
     Policy selectByIdForUpdate(@Param("id") Long id);

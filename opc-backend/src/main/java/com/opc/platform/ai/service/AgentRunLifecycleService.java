@@ -17,6 +17,7 @@ import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.userauth.AuthenticatedUser;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,17 +25,25 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class AgentRunLifecycleService {
+
+    private static final Duration FINALIZATION_RESERVE = Duration.ofSeconds(8);
+    private static final Duration MIN_PROVIDER_WINDOW = Duration.ofSeconds(1);
 
     private final AiAnalysisRunMapper runMapper;
     private final AiClient aiClient;
     private final AiRuntimeSettingsProvider settingsProvider;
     private final AiAgentProviderCallMapper providerCallMapper;
     private final AgentProviderSettlementService settlementService;
+    private final ScheduledExecutorService leaseScheduler;
 
     @Autowired
     public AgentRunLifecycleService(
@@ -42,13 +51,15 @@ public class AgentRunLifecycleService {
             AiClient aiClient,
             AiRuntimeSettingsProvider settingsProvider,
             AiAgentProviderCallMapper providerCallMapper,
-            AgentProviderSettlementService settlementService
+            AgentProviderSettlementService settlementService,
+            @Qualifier("agentLeaseScheduler") ScheduledExecutorService leaseScheduler
     ) {
         this.runMapper = runMapper;
         this.aiClient = aiClient;
         this.settingsProvider = settingsProvider;
         this.providerCallMapper = providerCallMapper;
         this.settlementService = settlementService;
+        this.leaseScheduler = leaseScheduler;
     }
 
     public AgentRunLifecycleService(
@@ -58,7 +69,19 @@ public class AgentRunLifecycleService {
             AiAgentProviderCallMapper providerCallMapper
     ) {
         this(runMapper, aiClient, settingsProvider, providerCallMapper,
-                providerCallMapper == null ? null : new AgentProviderSettlementService(runMapper, providerCallMapper));
+                providerCallMapper == null ? null : new AgentProviderSettlementService(runMapper, providerCallMapper),
+                null);
+    }
+
+    /** Compatibility constructor for integration fixtures without a lease scheduler. */
+    public AgentRunLifecycleService(
+            AiAnalysisRunMapper runMapper,
+            AiClient aiClient,
+            AiRuntimeSettingsProvider settingsProvider,
+            AiAgentProviderCallMapper providerCallMapper,
+            AgentProviderSettlementService settlementService
+    ) {
+        this(runMapper, aiClient, settingsProvider, providerCallMapper, settlementService, null);
     }
 
     public AgentRunLifecycleService(
@@ -66,7 +89,7 @@ public class AgentRunLifecycleService {
             AiClient aiClient,
             AiRuntimeSettingsProvider settingsProvider
     ) {
-        this(runMapper, aiClient, settingsProvider, null, null);
+        this(runMapper, aiClient, settingsProvider, null, null, null);
     }
 
     public AgentRunLease begin(
@@ -116,13 +139,23 @@ public class AgentRunLifecycleService {
             throw new BusinessException(ErrorCode.CONFLICT, "Agent provider configuration changed before execution");
         }
         LocalDateTime now = LocalDateTime.now();
-        if (runMapper.renewAgentLease(
-                run.getId(), run.getLeaseOwner(), now, now.plus(config.timeout())) != 1) {
+        if (run.getDeadlineAt() != null && !run.getDeadlineAt().isAfter(now)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Agent run deadline expired before execution");
+        }
+        Duration leaseWindow = leaseWindow(run, config);
+        LocalDateTime proposedExpiry = capLeaseExpiry(now, leaseWindow, run.getDeadlineAt());
+        int renewed = run.getExecutionAttempts() != null && run.getExecutionAttempts() > 0
+                ? runMapper.renewAgentLeaseFenced(
+                        run.getId(), run.getLeaseOwner(), run.getExecutionAttempts(), now, proposedExpiry)
+                : runMapper.renewAgentLease(run.getId(), run.getLeaseOwner(), now, proposedExpiry);
+        if (renewed != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "Agent run lease expired before execution");
         }
         run.setHeartbeatAt(now);
-        run.setLeaseExpiresAt(now.plus(config.timeout()));
-        return new AgentRunLease(run, runtime, descriptor, config);
+        run.setLeaseExpiresAt(proposedExpiry);
+        int existingProviderCalls = providerCallMapper == null ? 0
+                : Math.max(0, providerCallMapper.selectMaxRoundNo(run.getId()));
+        return new AgentRunLease(run, runtime, descriptor, config, existingProviderCalls);
     }
 
     private AgentRunLease reserve(
@@ -156,6 +189,12 @@ public class AgentRunLifecycleService {
         run.setRequestContentHash(identity == null ? null : identity.contentHash());
         run.setStartProfileHash(identity == null ? null : identity.profileHash());
         run.setSessionContentGeneration(identity == null ? 0L : identity.sessionContentGeneration());
+        AgentAnalyticsSnapshotBinding analyticsSnapshot = identity == null ? null : identity.analyticsSnapshot();
+        run.setAnalyticsSnapshotId(analyticsSnapshot == null ? null : analyticsSnapshot.snapshotId());
+        run.setAnalyticsMetricId(analyticsSnapshot == null ? null : analyticsSnapshot.metricId());
+        run.setAnalyticsDataVersion(analyticsSnapshot == null ? null : analyticsSnapshot.dataVersion());
+        run.setAnalyticsFiltersJson(analyticsSnapshot == null ? null : analyticsSnapshot.filtersJson());
+        run.setAnalyticsSnapshotJson(analyticsSnapshot == null ? null : analyticsSnapshot.snapshotJson());
         run.setStatus(initialStatus);
         run.setProvider(descriptor.provider());
         run.setModelId(descriptor.model());
@@ -187,27 +226,45 @@ public class AgentRunLifecycleService {
     }
 
     public AiProviderResponse invoke(AgentRunLease lease, AiProviderRequest request) {
+        LocalDateTime dispatchedAt = LocalDateTime.now();
+        AiRuntimeSettings boundedRuntime = boundedRuntime(lease, dispatchedAt);
         if (providerCallMapper != null) {
-            return invokeAudited(lease, request);
+            return invokeAudited(lease, request, boundedRuntime, dispatchedAt);
         }
-        AiProviderResponse response = aiClient.generate(request, lease.runtime());
+        AiProviderResponse response = aiClient.generate(request, boundedRuntime);
         int total = Math.max(Math.max(0, response.totalTokens()),
                 Math.max(0, response.promptTokens()) + Math.max(0, response.completionTokens()));
         LocalDateTime now = LocalDateTime.now();
-        int updated = runMapper.recordAgentUsage(
-                lease.run().getId(), Math.max(0, response.promptTokens()), Math.max(0, response.completionTokens()),
-                total, Math.max(0, response.latencyMs()), response.requestId(), response.finishReason(), now
-        );
+        int updated = fenced(lease)
+                ? runMapper.recordAgentUsageFenced(
+                        lease.run().getId(), lease.leaseOwner(), lease.executionAttempt(),
+                        Math.max(0, response.promptTokens()), Math.max(0, response.completionTokens()), total,
+                        Math.max(0, response.latencyMs()), response.requestId(), response.finishReason(), now)
+                : runMapper.recordAgentUsage(
+                        lease.run().getId(), Math.max(0, response.promptTokens()), Math.max(0, response.completionTokens()),
+                        total, Math.max(0, response.latencyMs()), response.requestId(), response.finishReason(), now);
         if (updated != 1) {
+            lease.markLeaseLost();
+            if (lease.leaseLost()) throw leaseLost(lease, now);
             throw new BusinessException(ErrorCode.CONFLICT, "研究运行已取消、失败或过期，迟到结果已丢弃");
         }
         lease.add(response);
         return response;
     }
 
-    private AiProviderResponse invokeAudited(AgentRunLease lease, AiProviderRequest request) {
-        LocalDateTime dispatchedAt = LocalDateTime.now();
-        if (runMapper.markAgentProviderDispatched(lease.run().getId(), dispatchedAt) != 1) {
+    private AiProviderResponse invokeAudited(
+            AgentRunLease lease,
+            AiProviderRequest request,
+            AiRuntimeSettings boundedRuntime,
+            LocalDateTime dispatchedAt
+    ) {
+        int marked = fenced(lease)
+                ? runMapper.markAgentProviderDispatchedFenced(
+                        lease.run().getId(), lease.leaseOwner(), lease.executionAttempt(), dispatchedAt)
+                : runMapper.markAgentProviderDispatched(lease.run().getId(), dispatchedAt);
+        if (marked != 1) {
+            lease.markLeaseLost();
+            if (lease.leaseLost()) throw leaseLost(lease, dispatchedAt);
             throw new BusinessException(ErrorCode.CONFLICT, "Agent run was cancelled before provider dispatch");
         }
         AiAgentProviderCall call = new AiAgentProviderCall();
@@ -221,11 +278,26 @@ public class AgentRunLifecycleService {
         call.setTotalTokens(0);
         call.setLatencyMs(0L);
         call.setDispatchedAt(dispatchedAt);
-        providerCallMapper.insert(call);
+        int inserted = fenced(lease)
+                ? providerCallMapper.insertGuardedFenced(
+                        call, lease.leaseOwner(), lease.executionAttempt(), dispatchedAt)
+                : providerCallMapper.insert(call);
+        if (inserted != 1) {
+            lease.markLeaseLost();
+            throw leaseLost(lease, dispatchedAt);
+        }
 
-        AiProviderResponse response = aiClient.generate(request, lease.runtime());
-        if (settlementService.settleActual(call.getId(), response)) {
+        AiProviderResponse response = aiClient.generate(request, boundedRuntime);
+        boolean settled = fenced(lease)
+                ? settlementService.settleActual(
+                        call.getId(), response, lease.leaseOwner(), lease.executionAttempt())
+                : settlementService.settleActual(call.getId(), response);
+        if (settled) {
             lease.add(response);
+        } else if (fenced(lease)) {
+            lease.markLeaseLost();
+            if (lease.leaseLost()) throw leaseLost(lease, LocalDateTime.now());
+            throw new BusinessException(ErrorCode.CONFLICT, "Agent run lease was lost before provider response settlement");
         }
         return response;
     }
@@ -235,27 +307,61 @@ public class AgentRunLifecycleService {
     }
 
     public void updateStage(AgentRunLease lease, String stage, int stepCount, int toolCallCount) {
-        if (runMapper.updateAgentStage(
-                lease.run().getId(), stage, visibleProgress(stage), stepCount, toolCallCount, LocalDateTime.now()) != 1) {
+        LocalDateTime now = LocalDateTime.now();
+        int updated = fenced(lease)
+                ? runMapper.updateAgentStageFenced(
+                        lease.run().getId(), lease.leaseOwner(), lease.executionAttempt(), stage,
+                        visibleProgress(stage), stepCount, toolCallCount, now)
+                : runMapper.updateAgentStage(
+                        lease.run().getId(), stage, visibleProgress(stage), stepCount, toolCallCount, now);
+        if (updated != 1) {
+            lease.markLeaseLost();
             throw new BusinessException(ErrorCode.CONFLICT, "研究运行已取消、失败或过期");
         }
         lease.updateProgress(stepCount, toolCallCount);
     }
 
     public void complete(AgentRunLease lease, AgentOrchestratorOutcome outcome, String resultJson) {
-        if (runMapper.settleAgentCompleted(
-                lease.run().getId(), outcome.status(), outcome.promptTokens(), outcome.completionTokens(),
-                outcome.totalTokens(), outcome.latencyMs(), outcome.requestId(), outcome.finishReason(),
-                outcome.modelRounds(), outcome.toolCallCount(), resultJson, LocalDateTime.now()) != 1) {
+        LocalDateTime completedAt = LocalDateTime.now();
+        int settled = fenced(lease)
+                ? runMapper.settleAgentCompletedFenced(
+                        lease.run().getId(), lease.leaseOwner(), lease.executionAttempt(), outcome.status(),
+                        outcome.promptTokens(), outcome.completionTokens(), outcome.totalTokens(), outcome.latencyMs(),
+                        outcome.requestId(), outcome.finishReason(), outcome.modelRounds(), outcome.toolCallCount(),
+                        resultJson, outcome.diagnosticCode(), completedAt)
+                : runMapper.settleAgentCompleted(
+                        lease.run().getId(), outcome.status(), outcome.promptTokens(), outcome.completionTokens(),
+                        outcome.totalTokens(), outcome.latencyMs(), outcome.requestId(), outcome.finishReason(),
+                        outcome.modelRounds(), outcome.toolCallCount(), resultJson, outcome.diagnosticCode(), completedAt);
+        if (settled != 1) {
+            lease.markLeaseLost();
             throw new BusinessException(ErrorCode.CONFLICT, "研究运行已取消、失败或过期，完成结果未写入");
         }
     }
 
     public void fail(AgentRunLease lease, String status, ErrorCode errorCode, String diagnosticCode) {
+        LocalDateTime now = LocalDateTime.now();
+        String terminalStatus = fenced(lease) && lease.deadlineReached(now) ? "expired" : status;
+        String terminalDiagnostic = "expired".equals(terminalStatus) ? "AGENT_TIMEOUT" : diagnosticCode;
         if (settlementService != null) {
-            settlementService.settleFailure(
-                    lease.run().getId(), status, errorCode.name(), diagnosticCode,
-                    lease.modelRounds(), lease.toolCallCount());
+            boolean settled = fenced(lease)
+                    ? settlementService.settleFailure(
+                            lease.run().getId(), terminalStatus, errorCode.name(), terminalDiagnostic,
+                            lease.modelRounds(), lease.toolCallCount(),
+                            lease.leaseOwner(), lease.executionAttempt())
+                    : settleLegacyFailure(lease, terminalStatus, errorCode, terminalDiagnostic);
+            if (!settled) lease.markLeaseLost();
+            return;
+        }
+        if (fenced(lease)) {
+            int settled = "expired".equals(terminalStatus)
+                    ? runMapper.expireAgentRunFenced(
+                            lease.run().getId(), lease.leaseOwner(), lease.executionAttempt(), now)
+                    : runMapper.settleAgentFailedFenced(
+                            lease.run().getId(), lease.leaseOwner(), lease.executionAttempt(), terminalStatus,
+                            "研究运行未完成", errorCode.name(), diagnosticCode,
+                            lease.modelRounds(), lease.toolCallCount(), now);
+            if (settled != 1) lease.markLeaseLost();
             return;
         }
         LocalDateTime failedAt = LocalDateTime.now();
@@ -269,6 +375,117 @@ public class AgentRunLifecycleService {
         if (estimatedCalls > 0) {
             runMapper.reconcileAgentProviderUsage(lease.run().getId(), failedAt);
         }
+    }
+
+    private boolean settleLegacyFailure(
+            AgentRunLease lease,
+            String status,
+            ErrorCode errorCode,
+            String diagnosticCode
+    ) {
+        settlementService.settleFailure(
+                lease.run().getId(), status, errorCode.name(), diagnosticCode,
+                lease.modelRounds(), lease.toolCallCount());
+        return true;
+    }
+
+    public LeaseHeartbeat startLeaseHeartbeat(AgentRunLease lease) {
+        if (!fenced(lease) || leaseScheduler == null) return LeaseHeartbeat.NOOP;
+        Duration window = lease.leaseWindow();
+        long intervalMillis = Math.max(250L, Math.min(10_000L, Math.max(1L, window.toMillis() / 3)));
+        ScheduledFuture<?> future = leaseScheduler.scheduleAtFixedRate(() -> renewLease(lease),
+                intervalMillis, intervalMillis, TimeUnit.MILLISECONDS);
+        return () -> future.cancel(false);
+    }
+
+    public boolean renewLease(AgentRunLease lease) {
+        if (!fenced(lease)) return true;
+        LocalDateTime now = LocalDateTime.now();
+        if (lease.deadlineReached(now)) {
+            lease.markLeaseLost();
+            return false;
+        }
+        LocalDateTime leaseExpiresAt = capLeaseExpiry(now, lease.leaseWindow(), lease.run().getDeadlineAt());
+        int renewed = runMapper.renewAgentLeaseFenced(
+                lease.run().getId(), lease.leaseOwner(), lease.executionAttempt(), now, leaseExpiresAt);
+        if (renewed != 1) {
+            lease.markLeaseLost();
+            return false;
+        }
+        lease.run().setHeartbeatAt(now);
+        lease.run().setLeaseExpiresAt(leaseExpiresAt);
+        return true;
+    }
+
+    private AiRuntimeSettings boundedRuntime(AgentRunLease lease, LocalDateTime now) {
+        if (lease.run().getDeadlineAt() != null && !lease.run().getDeadlineAt().isAfter(now)) {
+            lease.markLeaseLost();
+            throw new AgentOrchestratorException(
+                    ErrorCode.UPSTREAM_ERROR, "AGENT_TIMEOUT", "Agent run deadline elapsed before provider dispatch");
+        }
+        if (fenced(lease) && !lease.isCurrentAt(now)) {
+            lease.markLeaseLost();
+            throw new AgentOrchestratorException(
+                    ErrorCode.CONFLICT, "AGENT_LEASE_LOST", "Agent run lease is no longer current");
+        }
+        Duration timeout = lease.runtime().timeout() == null ? Duration.ofSeconds(1) : lease.runtime().timeout();
+        if (lease.run().getDeadlineAt() != null) {
+            Duration remaining = Duration.between(now, lease.run().getDeadlineAt());
+            if (remaining.isZero() || remaining.isNegative()) {
+                lease.markLeaseLost();
+                throw new AgentOrchestratorException(
+                        ErrorCode.UPSTREAM_ERROR, "AGENT_TIMEOUT", "Agent run deadline elapsed before provider dispatch");
+            }
+            Duration providerWindow = remaining.minus(FINALIZATION_RESERVE);
+            if (providerWindow.compareTo(MIN_PROVIDER_WINDOW) < 0) {
+                throw new AgentOrchestratorException(
+                        ErrorCode.UPSTREAM_ERROR, AgentResearchContract.AGENT_DEADLINE_FALLBACK,
+                        "Agent run has insufficient time for another provider request and final settlement");
+            }
+            if (providerWindow.compareTo(timeout) < 0) timeout = providerWindow;
+        }
+        return new AiRuntimeSettings(
+                lease.runtime().provider(), lease.runtime().apiFormat(), lease.runtime().apiBaseUrl(),
+                lease.runtime().model(), lease.runtime().apiKey(), lease.runtime().temperature(),
+                lease.runtime().maxOutputTokens(), timeout, lease.runtime().retryCount(), lease.runtime().enabled());
+    }
+
+    private Duration leaseWindow(AiAnalysisRun run, AgentRuntimeConfig config) {
+        if (run.getHeartbeatAt() != null && run.getLeaseExpiresAt() != null
+                && run.getLeaseExpiresAt().isAfter(run.getHeartbeatAt())) {
+            return Duration.between(run.getHeartbeatAt(), run.getLeaseExpiresAt());
+        }
+        return config == null || config.timeout() == null ? Duration.ofSeconds(45) : config.timeout();
+    }
+
+    private LocalDateTime capLeaseExpiry(
+            LocalDateTime now,
+            Duration requestedWindow,
+            LocalDateTime deadlineAt
+    ) {
+        LocalDateTime requested = now.plus(requestedWindow.isNegative() || requestedWindow.isZero()
+                ? Duration.ofSeconds(1) : requestedWindow);
+        return deadlineAt != null && deadlineAt.isBefore(requested) ? deadlineAt : requested;
+    }
+
+    private boolean fenced(AgentRunLease lease) {
+        return lease != null && lease.executionAttempt() > 0 && lease.leaseOwner() != null;
+    }
+
+    private AgentOrchestratorException leaseLost(AgentRunLease lease, LocalDateTime now) {
+        if (lease != null && lease.deadlineReached(now)) {
+            return new AgentOrchestratorException(
+                    ErrorCode.UPSTREAM_ERROR, "AGENT_TIMEOUT", "Agent run deadline elapsed before response settlement");
+        }
+        return new AgentOrchestratorException(
+                ErrorCode.CONFLICT, "AGENT_LEASE_LOST", "Agent run lease is no longer current");
+    }
+
+    public interface LeaseHeartbeat extends AutoCloseable {
+        LeaseHeartbeat NOOP = () -> { };
+
+        @Override
+        void close();
     }
 
     @Transactional

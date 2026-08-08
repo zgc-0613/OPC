@@ -16,10 +16,13 @@
     <article v-for="message in messages" :key="message.messageId" class="message" :class="`is-${message.role}`">
       <header><span>{{ message.role === 'user' ? '你的问题' : 'SOLOFIRM 智能体' }}</span><time>{{ formatDate(message.createdAt) }}</time></header>
       <p v-if="message.role === 'user'">{{ message.content }}</p>
-      <div v-else class="assistant-markdown" v-html="renderMessage(message)"></div>
+      <template v-else>
+        <AssistantStructuredResult v-if="structuredResult(message)" :result="structuredResult(message)" @citations="$emit('citations', citationMessage(message))" />
+        <div v-else class="assistant-markdown" v-html="renderMessage(message)"></div>
+      </template>
       <footer v-if="message.role === 'assistant'">
         <button type="button" @click="copyMessage(message)"><Check v-if="copiedId === message.messageId" :size="15" /><Copy v-else :size="15" />{{ copiedId === message.messageId ? '已复制' : '复制回答' }}</button>
-        <button v-if="message.citations?.length" class="citation-trigger" type="button" @click="$emit('citations', message)"><BookOpen :size="15" />{{ message.citations.length }} 条引用</button>
+        <button v-if="messageCitations(message).length" class="citation-trigger" type="button" @click="$emit('citations', citationMessage(message))"><BookOpen :size="15" />{{ messageCitations(message).length }} 条引用</button>
         <button v-if="message.runId" type="button" @click="$emit('process', message)"><ListTree :size="15" />研究过程</button>
         <span>AI 生成内容，请核对原始来源</span>
       </footer>
@@ -38,7 +41,7 @@
       </span>
       <b>查看资料</b>
     </button>
-    <AssistantRunProgress :run="run" :network-status="networkStatus" :cancelling="cancelling" @cancel="$emit('cancel')" @retry="$emit('retry')" @resume="$emit('resume')" />
+    <AssistantRunProgress :run="run" :network-status="networkStatus" :terminal-sync-status="terminalSyncStatus" :cancelling="cancelling" @cancel="$emit('cancel')" @retry="$emit('retry')" @resume="$emit('resume')" />
     <div ref="bottom"></div>
     <button v-if="showJump" class="jump-bottom" type="button" @click="scrollToEnd('smooth')"><ArrowDown :size="17" />回到底部</button>
   </div>
@@ -48,6 +51,7 @@
 import { nextTick, ref } from 'vue'
 import { ArrowDown, ArrowUp, BookOpen, BriefcaseBusiness, Check, Copy, FileCheck2, FileSearch, GitCompareArrows, Landmark, ListTree, LoaderCircle } from 'lucide-vue-next'
 import AssistantRunProgress from './AssistantRunProgress.vue'
+import AssistantStructuredResult from './AssistantStructuredResult.vue'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 
 const props = defineProps({
@@ -56,7 +60,7 @@ const props = defineProps({
   evidenceSummary: { type: Object, default: null },
   evidenceLoading: Boolean, evidenceError: { type: String, default: '' },
   hasMore: Boolean, loadingOlder: Boolean, draftMode: Boolean,
-  networkStatus: { type: String, default: 'connected' }, cancelling: Boolean,
+  networkStatus: { type: String, default: 'connected' }, terminalSyncStatus: { type: String, default: '' }, cancelling: Boolean,
 })
 defineEmits(['load-older', 'prefill', 'citations', 'process', 'evidence', 'cancel', 'retry', 'resume'])
 const transcript = ref(null)
@@ -78,6 +82,19 @@ function renderMessage(message) {
       .filter((item) => item?.available && item?.citationId)
       .map((item) => item.sourceId),
   } : {})
+}
+function structuredResult(message) {
+  const candidates = [message?.structuredResult, message?.result?.structuredResult, message?.result]
+  return candidates.find((candidate) => candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+    && candidate.schemaVersion === 'phase3-structured-result-v1' && typeof candidate.directAnswer === 'string' && candidate.directAnswer.trim()) || null
+}
+function messageCitations(message) {
+  if (Array.isArray(message?.citations) && message.citations.length) return message.citations
+  return Array.isArray(structuredResult(message)?.citations) ? structuredResult(message).citations : []
+}
+function citationMessage(message) {
+  const citations = messageCitations(message)
+  return Array.isArray(message?.citations) && message.citations.length ? message : { ...message, citations }
 }
 function availableGroupCount(type) {
   return Number(props.evidenceSummary?.availableGroups?.[type] || 0)

@@ -33,15 +33,17 @@ public class AgentResearchWorker {
             AgentRunLease lease,
             AuthenticatedUser user,
             String profileJson,
-            String userMessage
+            String userMessage,
+            String taskContextJson
     ) {
-        try {
+        try (AgentRunLifecycleService.LeaseHeartbeat ignored = lifecycle.startLeaseHeartbeat(lease)) {
             List<AiProviderMessage> history = history(user, lease.run().getSessionId(), lease.run().getUserMessageId(),
                     lease.config().historyWindow());
             AgentOrchestratorOutcome outcome = orchestrator.execute(
                     new AgentOrchestratorInput(
                             lease.run().getId(), user.userId(), profileJson, userMessage, history,
-                            lease.run().getLeaseOwner(), lease.config(), lease.run().getRequestedIntent()
+                            lease.leaseOwner(), lease.executionAttempt(), lease.config(),
+                            lease.run().getRequestedIntent(), taskContextJson
                     ),
                     request -> lifecycle.invoke(lease, request),
                     progress -> lifecycle.updateStage(
@@ -60,6 +62,17 @@ public class AgentResearchWorker {
         } catch (RuntimeException exception) {
             lifecycle.fail(lease, "failed", ErrorCode.INTERNAL_ERROR, "AGENT_RUNTIME_FAILURE");
         }
+    }
+
+    /** Compatibility overload used by existing runtime fixtures. */
+    public void execute(
+            AgentRunLease lease,
+            AuthenticatedUser user,
+            String profileJson,
+            String userMessage
+    ) {
+        execute(lease, user, profileJson, userMessage,
+                sessionService.requireOwned(user, lease.run().getSessionId()).getTaskContextJson());
     }
 
     private List<AiProviderMessage> history(

@@ -511,18 +511,34 @@ public class AiSettingsService implements AiRuntimeSettingsProvider, AgentRuntim
     }
 
     private void validateConnectionAcknowledgement(AiProviderResponse response) {
-        try {
-            JsonNode root = response == null || !StringUtils.hasText(response.content())
-                    ? null
-                    : objectMapper.readTree(response.content());
-            if (root == null || !root.isObject() || !root.path("ok").isBoolean() || !root.path("ok").asBoolean()) {
-                throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "连接测试响应校验失败");
-            }
-        } catch (BusinessException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "连接测试响应校验失败");
+        if (response == null || !StringUtils.hasText(response.content())) {
+            throw connectionAcknowledgementFailure("AI_CONNECTION_ACK_EMPTY");
         }
+
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(response.content());
+        } catch (Exception exception) {
+            throw connectionAcknowledgementFailure("AI_CONNECTION_ACK_INVALID_JSON");
+        }
+        if (root == null || !root.isObject()) {
+            throw connectionAcknowledgementFailure("AI_CONNECTION_ACK_NOT_OBJECT");
+        }
+
+        JsonNode acknowledgement = root.get("ok");
+        if (acknowledgement == null || !acknowledgement.isBoolean()) {
+            throw connectionAcknowledgementFailure("AI_CONNECTION_ACK_MISSING_OK");
+        }
+        if (!acknowledgement.asBoolean()) {
+            throw connectionAcknowledgementFailure("AI_CONNECTION_ACK_FALSE");
+        }
+    }
+
+    private BusinessException connectionAcknowledgementFailure(String diagnosticCode) {
+        return new BusinessException(
+                ErrorCode.SERVICE_UNAVAILABLE,
+                "连接测试响应校验失败 [" + diagnosticCode + "]"
+        );
     }
 
     private String trimToNull(String value) {

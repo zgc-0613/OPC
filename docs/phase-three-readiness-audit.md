@@ -32,7 +32,7 @@
 - 产品与历史：`PRODUCT.md`、`DESIGN.md`、`AI_READINESS.md`、三份工作记录和要求指定的五份基线文档。
 - 前端：路由、`AssistantView`、Assistant 布局/组件/composables/API、安全 Markdown、公开案例/政策/来源/地区/标签页面、旧分析页及依赖。
 - 后端：案例、政策、来源、地区、标签的 Entity、DTO、VO、Mapper、Service、Controller；AI capabilities、单案例分析、创业建议、Agent session/message/run/tool/citation/evidence/history；用户鉴权拦截器和错误处理。
-- 数据库：`schema.sql`、全部 27 个部署 SQL 文件、`opc_platform.sql`、生产 `SHOW COLUMNS`、Testcontainers MySQL 8.4 夹具和契约路径。
+- 数据库：`schema.sql`、全部 26 个部署 SQL 文件、`opc_platform.sql`、生产 `SHOW COLUMNS`、Testcontainers MySQL 8.4 夹具和契约路径。26 来自当前 `deploy/sql` 的实际文件清单，不把目录外 SQL 重复计入。
 - 生产访问：受保护的 `.local-secrets/opc-deploy.env` 文件名、现有 SSH 指纹固定和数据库凭据远端加载逻辑；未输出任何秘密。
 
 CodeGraph 索引先执行了同步；结构查询可用时优先使用索引，SQL、字符串和样式用 `rg`。`.codegraph/` 仍被 Git 忽略。
@@ -49,14 +49,14 @@ CodeGraph 索引先执行了同步；结构查询可用时优先使用索引，S
 |---|---|---|
 | 综合创业研究 | ready | Agent runtime 和创业建议接口均存在；复用 session/run/evidence |
 | 单案例分析 | partial | `/api/ai/case-analysis` 有摘要、商业模式、技术评估、机会、风险、行动、引用和模型元数据；缺少第三阶段完整结构 |
-| 多案例比较 | partial | `compare_cases` 可比较 2–3 个案例和 6 个受控维度；收入、政策环境和逐结论引用需扩展 |
+| 多案例比较 | partial | `compare_cases` 工具可比较 2–3 个案例和最多 6 个受控维度，但 Phase A v1 规划/结果契约收缩为用户显式提交 1–3 个；收入、政策环境和逐结论引用仍需实现 |
 | 技术评估 | partial | `technology_assessment` intent 与结构化研究运行存在；没有专用技术工具、技术分类或评分契约 |
 | 政策适用性研究 | partial | 搜索工具按地区与 applicability 工作；生产 57 个合格政策全为 `unclassified`，无行业关系 |
-| 来源核验 | ready | `get_source`、运行内授权、合法 URL、证据重放和失效检测已实现 |
-| 会话、消息、运行、工具 | ready | 服务器持久化、异步运行、轮询、取消、幂等、配额和审计均存在 |
+| 来源核验 | partial | `get_source`、运行内授权、合法 URL、证据重放和失效检测已实现；首次 start 尚无受控 sourceId 输入 |
+| 会话、消息、运行、工具 | partial | 基础持久化、异步运行、轮询、取消、幂等、配额和审计均存在；尚无冻结 taskContext 专用字段/回读和最终 evidenceVersion |
 | 引用与证据面板 | ready | 仅当前 Run 已授权来源可引用；链接安全和证据状态可追溯 |
 | 研究历史 | ready | active/archive/trash、搜索、游标分页、恢复和永久清理存在 |
-| 保存报告 | blocked_by_backend | 没有报告实体或 API；不能把 session title 当报告 |
+| 保存报告 | blocked_by_backend | 没有报告实体、API 或 purge_after 消费作业；不能把 session title 当报告 |
 | 报告导出 | blocked_by_backend | 仅政策公开 Excel 和管理端案例/来源导出；没有研究报告导出 |
 | 正式统计聚合 API | missing | 只有旧 dashboard/visit 接口，没有 analytics 聚合契约 |
 | 现有 `/analysis` 看板 | partial | 前端拉全量 published 列表后本地聚合，不筛 verified、无数据版本、不能作为正式指标 |
@@ -70,6 +70,10 @@ CodeGraph 索引先执行了同步；结构查询可用时优先使用索引，S
 | 安全 Markdown | ready | `markdown-it + DOMPurify`，含表格白名单和安全引用处理 |
 | 移动端 Assistant | ready | 独立布局、抽屉焦点管理、44px 粗指针目标和 reduced-motion 已覆盖 |
 | 用户权限边界 | ready | `/api/ai/**` 使用 UserAuthInterceptor；无令牌 401、禁用用户 403 |
+
+`phase3-structured-result-v1` 的规格边界已经与现有稳定运行时对齐，但尚未实现：synthesis 3200 tokens、directAnswer 600 字符、全结果 ClaimItem 合计 6、citations 6、Assistant 渲染文本 12000 字符。taskContext 用户选择只进入 `taskSelectedEvidence`；当前 Run 工具授权只进入服务端 `authorizedEvidence`，其单字段上限 120 来自 12 次可配置工具调用乘每次搜索 10 条。这里的“规格已冻结”不得改写为 DTO/校验器/报告 API 已存在。
+
+显式 case/source 的 Phase A 前向契约采用唯一边界：规范化和四项身份 hash 后开启 start 事务，先锁定并处理 `userId + idempotencyKey`；精确成功重放返回原 receipt，不重新验证当前证据。只有幂等 miss 的首次创建才在同一事务内锁定并权威复检实体、revision、provenance 和来源关系；case 失败返回 400 `PHASE3_CASE_NOT_ELIGIBLE`，source 失败返回 400 `PHASE3_SOURCE_NOT_ELIGIBLE`，均为整笔回滚和零持久化/Token 副作用。`evidence_insufficient` 只表示合法受理后的运行期检索不足、证据变化或部分支撑。六个文档夹具使用仅供测试的 `runEvidenceFixture` 验证案例/政策到来源的关系、实体/link 唯一性、citation metadata 与按固定紧凑 UTF-8 JSON 独立重算的 evidenceVersion；policy_lookup 具有非空 policy-source 正向链，该 fixture 不是已实现的生产 API 字段。
 
 公开案例、政策、来源、地区和标签详情当前都可访问；案例/政策列表支持关键词、地区、分类/类型和排序，政策页有公开 Excel 导出。但列表先拉取 published 全量再在浏览器筛选/分页，公开 Service 只强制 published、不强制 verified，因此这些页面可以作为下钻目标，不能作为正式总体统计输入。前端没有图表库或表格库，旧分析页使用自制 HTML/SVG/CSS；Markdown 能力为 `markdown-it + DOMPurify`，研究报告保存/导出均不存在。
 
@@ -88,14 +92,15 @@ CodeGraph 索引先执行了同步；结构查询可用时优先使用索引，S
 
 - 业务时间包括 `publish_date`、`effective_date`，`valid_period` 仍为自由文本。
 - 行业关系表 `policy_industry_tags` 存在，但生产合格政策关系数为 0；57/57 的 `applicability_mode` 均为 `unclassified`。
-- `region_id` 在现有政策检索中作为适用地区；数据库本身没有独立的适用/发布/来源地区列。
+- `region_id` 在现有政策检索中作为政策适用地区；正式政策地区统计沿用这一语义。国家级政策保留 country 层级，不复制成 34 条省级记录。
 
 ### 4.3 标签、地区和来源
 
 - `tags.tag_type` 当前值表示 `case|policy|common`，不是 `industry|technology`；`is_industry` 只能识别行业。
 - 没有标签父子层级、技术类型、主次关系。`tag_aliases` 有 4 行且全部指向同一个行业标签；没有技术别名。
 - 30 个 `industry_tag_review_candidates` 全为 pending，不能进入正式统计。
-- `regions` 有 level/parent_id 层级。案例 `region_id` 仅表示“相关地区”，不能区分注册地、经营地或来源地。
+- `regions` 有 level/parent_id 层级。案例 `region_id` 仅表示“相关地区”，正式命名为 `legacy_related_region`，不能解释为注册地、主要经营/落地地区或来源地区。
+- 案例正式地区统计默认使用“主要经营/落地地区”；注册地是独立维度，来源地区不进入案例地区分布。多经营地区需要规范化关系及 `primary|secondary` role，当前结构尚不具备。
 - 来源保留标题、发布者、原始 URL、访问日。121 个合格来源的三项 provenance 均完整。
 - `evidence_revision` 是乐观并发/证据修订号，不是内容快照。系统没有数据版本账本或历史内容版本。
 
@@ -105,6 +110,9 @@ CodeGraph 索引先执行了同步；结构查询可用时优先使用索引，S
 - 证据状态为 `legacy_unverified|verified|excluded`。正式数据必须满足业务记录和来源的双重 published + verified。
 - 案例、政策、来源删除是带依赖和修订检查的物理删除，没有 deleted/archive 标记。AI session 的 archive/trash 与业务记录无关。
 - 被编辑的证据相关字段会使 verified 失效。历史研究保存 Run 的证据修订信息，但没有全局 analytics dataVersion。
+- 当前 `AgentSessionStartDTO` 没有 taskContext，`ai_agent_sessions.research_context_json` 会被澄清流程更新并在 purge 时清空，不能承担冻结任务边界；Phase A 因此需要独立 session taskContext 三字段，以及进入现有原子 start 前的显式 case/source 资格校验，详见 API 契约。
+- 当前 Agent Run 的 `evidence_hash` 在入队时按 session/message/idempotency 生成，完成更新不重算它；它不是证据集合版本。Phase A 新 `evidenceVersion` 必须在完成时从授权实体、修订、contentHash、eligibility 和合法 links 的规范对象生成，Analytics `dataVersion` 仍属于 Phase B。
+- 当前 source_verification 只能从受控搜索授权后调用 get_source，没有首次请求指定 sourceId 的 DTO seam；Phase A 只增加受控 positive long sourceId，不开放任意 URL。
 
 ## 5. 生产完整度
 
@@ -118,7 +126,7 @@ CodeGraph 索引先执行了同步；结构查询可用时优先使用索引，S
 | 案例地区 | 105 | 105 | 100.0% | Yellow：业务语义不明确 |
 | 案例业务时间 | 105 | 0 | 0.0% | Red；105 个 accessed_at 不可替代 |
 | 案例规范化收入 | 105 | 0 | 0.0% | Red |
-| 政策地区 | 57 | 57 | 100.0% | Yellow：字段语义需固化 |
+| 政策适用地区 | 57 | 57 | 100.0% | Green：正式定义为 policy_applicability |
 | 政策发布时间 | 57 | 57 | 100.0% | Green |
 | 政策行业关系 | 57 | 0 | 0.0% | Red |
 | 有效来源链 | 162 条合格业务记录 | 162 | 100.0% | Green |
@@ -172,6 +180,7 @@ CodeGraph 索引先执行了同步；结构查询可用时优先使用索引，S
 
 - 已核验政策总数
 - 政策发布时间趋势
+- 地区政策数量（按 policy_applicability；country 不向省复制）
 - 已核验比例（案例/政策/来源分别返回）
 - 有效来源覆盖率
 - 行业字段完整率
@@ -182,11 +191,13 @@ CodeGraph 索引先执行了同步；结构查询可用时优先使用索引，S
 ### Yellow
 
 - 已核验来源总数
-- 覆盖地区数量、地区案例数量、地区政策数量、地区行业分布
+- 覆盖地区数量、legacy 相关地区案例数量、地区行业分布
 - 覆盖行业数量、行业案例数量、行业案例占比、行业地区分布
 - 数据完整度综合指标
 
 Yellow 图表必须展示样本量、缺失量、重复候选和字段语义限制；案例分布在 canonical case 完成前不得用作无警示的市场规模结论。
+
+当前案例显式 legacy 地区图只能是 Yellow/partial，命名“相关地区分布”，回显 `regionRole=legacy_related_region` 和 `LEGACY_REGION_SEMANTICS`。operation/registration 规范化关系未建立或未审核时必须是 Red/unavailable + `CASE_REGION_ROLE_NOT_READY`，不是 empty；完成关系后只有当前筛选确实无记录才是 empty/sampleSize=0。收入按地区比较只能使用 `regionRole=operation`，不能使用 legacy related region。`quality.region_completeness` 可以 Green 如实返回 operation 覆盖率 0，但不解锁业务分布。
 
 ### Red
 
@@ -202,7 +213,7 @@ Red 指标不得在正式用户看板显示数据图。可显示解释性空状�
 
 第三阶段当前不允许上线任何收入图表。现有数据不能回答金额、币种、元/万元、月/年周期、营收/利润/个人收入、区间、实际/估算或拒绝披露。`business_model`、`outcome` 或正文中可能出现的数字不构成可比较收入。
 
-后端最小新增模型为 `revenue_min DECIMAL`、`revenue_max DECIMAL`、`currency CHAR(3)`、`revenue_period`、`revenue_type`、`revenue_is_estimated`、`revenue_disclosure_status`、`revenue_as_of_date`、`revenue_source_id`。未知与拒绝披露分别用 `unknown` 和 `withheld`，不能都映射为 null 后丢失语义。历史自由文本进入人工复核队列；AI 只能提出候选，不得批量猜测并自动发布。
+后端最小新增模型为 `revenue_min DECIMAL`、`revenue_max DECIMAL`、`currency CHAR(3)`、`revenue_period`、`revenue_type`、`value_status=actual|estimated|unknown|withheld`、`revenue_as_of_date`、`revenue_source_id`。不再增加与 value_status 重复的 `revenue_is_estimated`。未知与拒绝披露不能都映射为 null 后丢失语义。历史自由文本进入人工复核队列；AI 只能提出候选，不得批量猜测并自动发布。
 
 收入图表解除条件见 [phase-three-backend-handoff.md](phase-three-backend-handoff.md)：至少 30 个同币种、同周期、同 revenue_type 的可比合格案例，覆盖率至少 40%，且异常值规则通过黄金测试。跨币种或通胀换算在第三阶段默认不做。
 
@@ -233,5 +244,7 @@ Red 指标不得在正式用户看板显示数据图。可显示解释性空状�
 | 政策行业适用性 | 内容审核 + 数据后端 | 57 个存量政策完成 general/specific 与关系审核 |
 | analytics dataVersion | 平台后端 | 快照/水位定义、ETag 和 stale 冲突实现 |
 | 报告持久化与导出 | AI 后端 | 报告实体、权限、版本、导出作业契约 |
+
+Phase B 可以先以 Green/Yellow 指标形成“部分生产上线”，但这不等于第三阶段产品完成。最终关闭还要求 technology taxonomy 和至少一个技术可视化、收入规范化与至少 30 个同口径可比案例（覆盖率至少 40%）、至少一个收入可视化、图表到 AI、报告/导出/反馈以及完整 40 题与性能门槛全部通过。
 
 产品、API、交接、评测和实施顺序分别见 [phase-three-product-spec.md](phase-three-product-spec.md)、[phase-three-api-contract.md](phase-three-api-contract.md)、[phase-three-backend-handoff.md](phase-three-backend-handoff.md)、[phase-three-evaluation-plan.md](phase-three-evaluation-plan.md) 和 [phase-three-roadmap.md](phase-three-roadmap.md)。

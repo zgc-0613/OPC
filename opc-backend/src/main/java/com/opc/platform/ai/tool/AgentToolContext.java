@@ -7,18 +7,23 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 
 public final class AgentToolContext {
 
     private final Long runId;
     private final Long userId;
     private final String leaseOwner;
+    private final Integer executionAttempt;
     private final Long primaryRegionId;
     private final Long primaryIndustryTagId;
     private final String primaryIndustry;
     private final boolean enforceRegionAuthorization;
     private final Set<Long> allowedSourceIds = new LinkedHashSet<>();
     private final Set<Long> allowedCaseIds = new LinkedHashSet<>();
+    private final Set<Long> allowedPolicyIds = new LinkedHashSet<>();
     private final Set<Long> allowedRegionIds = new LinkedHashSet<>();
     private final Set<Long> evidenceCaseIds = new LinkedHashSet<>();
     private final Set<Long> evidencePolicyIds = new LinkedHashSet<>();
@@ -27,17 +32,18 @@ public final class AgentToolContext {
     private final Set<String> nationalEvidence = new LinkedHashSet<>();
     private final Set<String> crossRegionEvidence = new LinkedHashSet<>();
     private final Map<String, RequestAuthorization> requestAuthorizations = new LinkedHashMap<>();
+    private PhaseThreeEvidenceBundle evidenceBundle = PhaseThreeEvidenceBundle.empty();
 
     public AgentToolContext(Long runId, Long userId) {
-        this(runId, userId, null, null, null, null, false);
+        this(runId, userId, null, null, null, null, null, false);
     }
 
     public AgentToolContext(Long runId, Long userId, String leaseOwner) {
-        this(runId, userId, leaseOwner, null, null, null, false);
+        this(runId, userId, leaseOwner, null, null, null, null, false);
     }
 
     public AgentToolContext(Long runId, Long userId, String leaseOwner, Long primaryRegionId) {
-        this(runId, userId, leaseOwner, primaryRegionId, null, null, true);
+        this(runId, userId, leaseOwner, null, primaryRegionId, null, null, true);
     }
 
     public AgentToolContext(
@@ -48,13 +54,27 @@ public final class AgentToolContext {
             Long primaryIndustryTagId,
             String primaryIndustry
     ) {
-        this(runId, userId, leaseOwner, primaryRegionId, primaryIndustryTagId, primaryIndustry, true);
+        this(runId, userId, leaseOwner, null, primaryRegionId, primaryIndustryTagId, primaryIndustry, true);
+    }
+
+    public AgentToolContext(
+            Long runId,
+            Long userId,
+            String leaseOwner,
+            Integer executionAttempt,
+            Long primaryRegionId,
+            Long primaryIndustryTagId,
+            String primaryIndustry
+    ) {
+        this(runId, userId, leaseOwner, executionAttempt, primaryRegionId,
+                primaryIndustryTagId, primaryIndustry, true);
     }
 
     private AgentToolContext(
             Long runId,
             Long userId,
             String leaseOwner,
+            Integer executionAttempt,
             Long primaryRegionId,
             Long primaryIndustryTagId,
             String primaryIndustry,
@@ -63,6 +83,7 @@ public final class AgentToolContext {
         this.runId = runId;
         this.userId = userId;
         this.leaseOwner = leaseOwner;
+        this.executionAttempt = executionAttempt;
         this.primaryRegionId = primaryRegionId;
         this.primaryIndustryTagId = primaryIndustryTagId;
         this.primaryIndustry = primaryIndustry;
@@ -82,12 +103,20 @@ public final class AgentToolContext {
         return leaseOwner;
     }
 
+    public Integer executionAttempt() {
+        return executionAttempt;
+    }
+
     public Set<Long> allowedSourceIds() {
         return Set.copyOf(allowedSourceIds);
     }
 
     public Set<Long> allowedCaseIds() {
         return Set.copyOf(allowedCaseIds);
+    }
+
+    public Set<Long> allowedPolicyIds() {
+        return Set.copyOf(allowedPolicyIds);
     }
 
     public Long primaryRegionId() {
@@ -125,6 +154,7 @@ public final class AgentToolContext {
             collectEvidence(output.path("cases"), "case", "caseId", evidenceCaseIds);
         } else if ("search_policies".equals(toolName)) {
             collectEvidence(output.path("items"), "policy", "policyId", evidencePolicyIds);
+            collectIds(output.path("items"), "policyId", allowedPolicyIds);
         }
     }
 
@@ -170,6 +200,33 @@ public final class AgentToolContext {
 
     public Map<String, RequestAuthorization> requestAuthorizations() {
         return Map.copyOf(requestAuthorizations);
+    }
+
+    public void installEvidenceBundle(PhaseThreeEvidenceBundle bundle) {
+        if (bundle == null || !bundle.caseIds().containsAll(allowedCaseIds)
+                || !bundle.policyIds().containsAll(allowedPolicyIds)
+                || !bundle.sourceIds().containsAll(allowedSourceIds)) {
+            throw new AgentToolException("EVIDENCE_MANIFEST_INVALID", "证据清单与运行授权不一致");
+        }
+        evidenceBundle = bundle;
+    }
+
+    public PhaseThreeEvidenceBundle evidenceBundle() {
+        return evidenceBundle;
+    }
+
+    public String evidenceVersion() {
+        if (evidenceBundle.isEmpty()
+                && (!allowedCaseIds.isEmpty() || !allowedPolicyIds.isEmpty() || !allowedSourceIds.isEmpty())) {
+            throw new AgentToolException("EVIDENCE_MANIFEST_MISSING", "运行证据清单尚未建立");
+        }
+        String material = evidenceBundle.canonicalJson();
+        try {
+            return "sha256:" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(material.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("SHA-256 unavailable", exception);
+        }
     }
 
     public boolean completedTool(String toolName) {

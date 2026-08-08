@@ -33,6 +33,17 @@ public class AgentSessionService {
     private final AgentSessionTitlePolicy titlePolicy;
 
     public AiAgentSession create(AuthenticatedUser user, String requestedTitle, String profileJson) {
+        return create(user, requestedTitle, profileJson, null, null, null);
+    }
+
+    public AiAgentSession create(
+            AuthenticatedUser user,
+            String requestedTitle,
+            String profileJson,
+            String taskContextVersion,
+            String taskContextJson,
+            String taskContextHash
+    ) {
         String title = StringUtils.hasText(requestedTitle) ? requestedTitle.trim() : "新研究";
         if (title.length() > 120) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "会话标题不能超过 120 个字符");
@@ -46,6 +57,9 @@ public class AgentSessionService {
         session.setTitleMode(StringUtils.hasText(requestedTitle) ? "manual" : "auto");
         session.setStatus("active");
         session.setProfileJson(profileJson);
+        session.setTaskContextVersion(taskContextVersion);
+        session.setTaskContextJson(taskContextJson);
+        session.setTaskContextHash(taskContextHash);
         session.setVersion(0L);
         sessionMapper.insert(session);
         session.setContentGeneration(0L);

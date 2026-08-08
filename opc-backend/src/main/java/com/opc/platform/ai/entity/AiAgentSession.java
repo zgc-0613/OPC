@@ -20,6 +20,9 @@ public class AiAgentSession {
     private String status;
     private String profileJson;
     private String researchContextJson;
+    private String taskContextVersion;
+    private String taskContextJson;
+    private String taskContextHash;
     private LocalDateTime pinnedAt;
     private LocalDateTime archivedAt;
     private LocalDateTime deletedAt;

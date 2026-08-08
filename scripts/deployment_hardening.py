@@ -391,6 +391,10 @@ def validate_agent_runtime_postcheck(output):
         "ai_agent_sessions.idx_agent_sessions_history_active",
         "ai_agent_sessions.idx_agent_sessions_history_archived",
         "ai_agent_sessions.idx_agent_sessions_purge_due",
+        # Phase Three adds this index after the original Agent Runtime
+        # postcheck was introduced. Keep old postcheck output compatible
+        # while releases are rolled forward across mixed schema versions.
+        "ai_agent_sessions.idx_agent_sessions_task_context_hash",
     }
     reported_unexpected = {item for item in fields[6].split(",") if item}
     unsupported_unexpected = sorted(reported_unexpected - forward_workspace_indexes)

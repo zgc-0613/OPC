@@ -8,6 +8,7 @@ import com.opc.platform.ai.mapper.AiAgentMessageMapper;
 import com.opc.platform.ai.mapper.AiAgentSessionMapper;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
+import com.opc.platform.ai.mapper.AgentResearchReportMapper;
 import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.ai.vo.AgentMessagePageVO;
 import com.opc.platform.ai.vo.AgentSessionHistoryPageVO;
@@ -40,6 +41,7 @@ class AgentSessionHistoryServiceTest {
     private AiAnalysisRunMapper runs;
     private AiAgentToolCallMapper tools;
     private AiRuntimeSettingsProvider settings;
+    private AgentResearchReportMapper reports;
     private AgentSessionHistoryService service;
 
     @BeforeEach
@@ -49,11 +51,12 @@ class AgentSessionHistoryServiceTest {
         runs = mock(AiAnalysisRunMapper.class);
         tools = mock(AiAgentToolCallMapper.class);
         settings = mock(AiRuntimeSettingsProvider.class);
+        reports = mock(AgentResearchReportMapper.class);
         when(sessions.incrementHistoryRevision(any())).thenReturn(1);
         service = new AgentSessionHistoryService(
                 sessions, messages, runs, tools, settings, new ObjectMapper(),
                 "unit-test-history-cursor-secret-1234567890",
-                mock(AgentContentPurgeAuditService.class));
+                mock(AgentContentPurgeAuditService.class), reports);
     }
 
     @Test
@@ -76,6 +79,7 @@ class AgentSessionHistoryServiceTest {
                 .withBean(AiAgentMessageMapper.class, () -> mock(AiAgentMessageMapper.class))
                 .withBean(AiAnalysisRunMapper.class, () -> mock(AiAnalysisRunMapper.class))
                 .withBean(AiAgentToolCallMapper.class, () -> mock(AiAgentToolCallMapper.class))
+                .withBean(AgentResearchReportMapper.class, () -> mock(AgentResearchReportMapper.class))
                 .withBean(AiRuntimeSettingsProvider.class, () -> mock(AiRuntimeSettingsProvider.class))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(AgentContentPurgeAuditService.class,
@@ -155,6 +159,7 @@ class AgentSessionHistoryServiceTest {
         verify(messages).purgeSessionContent(10L);
         verify(tools).purgeSessionContent(10L);
         verify(runs).purgeSessionContent(10L);
+        verify(reports).markSourceSessionUnavailable(eq(10L), eq(42L), any(LocalDateTime.class));
         verify(sessions).purgeSessionContent(eq(10L), eq("[已删除]"), eq("manual"), any(LocalDateTime.class));
     }
 
@@ -178,6 +183,22 @@ class AgentSessionHistoryServiceTest {
         assertEquals(List.of(13L, 12L), page.items().stream().map(item -> item.sessionId()).toList());
         assertEquals(true, page.hasMore());
         assertEquals(true, page.nextCursor() != null && !page.nextCursor().isBlank());
+    }
+
+    @Test
+    void historyReturnsOnlyTaskTypeInsteadOfTheFrozenFreeTextContext() {
+        AiAgentSession session = activeSession();
+        session.setTaskContextVersion("phase3-task-v1");
+        session.setTaskContextHash("context-hash");
+        session.setTaskContextJson("{\"version\":\"phase3-task-v1\",\"taskType\":\"general_research\",\"constraints\":\"private boundary\"}");
+        when(sessions.selectHistory(eq(42L), eq("active"), eq(null), any(LocalDateTime.class),
+                eq(null), eq(null), eq(null), eq(31))).thenReturn(List.of(session));
+
+        var item = service.history(user, "active", "", null, 30).items().get(0);
+
+        assertEquals("general_research", item.taskType());
+        assertNull(item.taskContext());
+        assertNull(item.taskContextHash());
     }
 
     @Test
@@ -247,12 +268,14 @@ class AgentSessionHistoryServiceTest {
         when(sessions.selectOwned(10L, 42L)).thenReturn(session);
         AiAgentMessage fifth = message(5);
         AiAgentMessage fourth = message(4);
+        fourth.setStructuredResultJson("{\"schemaVersion\":\"phase3-structured-result-v1\",\"directAnswer\":\"Older frozen answer\"}");
         AiAgentMessage third = message(3);
         when(messages.selectMessagePage(10L, null, 3)).thenReturn(List.of(fifth, fourth, third));
 
         AgentMessagePageVO page = service.messages(user, 10L, null, 2);
 
         assertEquals(List.of(4, 5), page.items().stream().map(item -> item.sequenceNo()).toList());
+        assertEquals("Older frozen answer", page.items().get(0).structuredResult().path("directAnswer").asText());
         assertEquals(4, page.nextBeforeSequence());
         assertEquals(true, page.hasMore());
     }

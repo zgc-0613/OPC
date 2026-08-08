@@ -1,5 +1,6 @@
 package com.opc.platform.ai.service;
 
+import com.opc.platform.ai.contract.AgentResearchContract;
 import com.opc.platform.ai.entity.AiAnalysisRun;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
 import com.opc.platform.ai.mapper.AiAgentProviderCallMapper;
@@ -20,6 +21,10 @@ import org.mockito.ArgumentCaptor;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -34,6 +39,37 @@ import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.eq;
 
 class AgentRunLifecycleServiceTest {
+
+    @Test
+    void completePersistsOutcomeDiagnosticCodeForAdminObservation() {
+        AiAnalysisRunMapper runMapper = mock(AiAnalysisRunMapper.class);
+        when(runMapper.settleAgentCompleted(
+                eq(96L), eq("completed"), eq(20), eq(10), eq(30), eq(50L), eq("request-1"),
+                eq("length"), eq(2), eq(1), eq("{\"diagnosticCode\":\"FINAL_RESPONSE_TRUNCATED_FALLBACK\"}"),
+                eq(AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK), any()))
+                .thenReturn(1);
+
+        AiAnalysisRun run = new AiAnalysisRun();
+        run.setId(96L);
+        run.setStatus("running");
+        AgentRunLease lease = new AgentRunLease(
+                run, null, null,
+                new AgentRuntimeConfig(true, 4, 6, 8000, 12, Duration.ofSeconds(120), "json_plan"));
+        AgentOrchestratorOutcome outcome = new AgentOrchestratorOutcome(
+                "completed", "Bounded fallback", java.util.List.of(), 0D, 2, 1,
+                20, 10, 30, 50L, "request-1", "length", null,
+                AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK);
+        AgentRunLifecycleService lifecycle = new AgentRunLifecycleService(
+                runMapper, mock(AiClient.class), mock(AiRuntimeSettingsProvider.class));
+
+        lifecycle.complete(lease, outcome,
+                "{\"diagnosticCode\":\"FINAL_RESPONSE_TRUNCATED_FALLBACK\"}");
+
+        verify(runMapper).settleAgentCompleted(
+                eq(96L), eq("completed"), eq(20), eq(10), eq(30), eq(50L), eq("request-1"),
+                eq("length"), eq(2), eq(1), eq("{\"diagnosticCode\":\"FINAL_RESPONSE_TRUNCATED_FALLBACK\"}"),
+                eq(AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK), any());
+    }
 
     @Test
     void resumeRenewsDatabaseLeaseForTheBoundedRuntimeWindow() {
@@ -198,7 +234,7 @@ class AgentRunLifecycleServiceTest {
         verify(runMapper).settleAgentUsageActual(
                 eq(91L), eq(10), eq(5), eq(15), eq(20L), eq("req-late"), eq("stop"), any());
         verify(runMapper, never()).settleAgentCompleted(anyLong(), any(), anyInt(), anyInt(), anyInt(), anyLong(),
-                any(), any(), anyInt(), anyInt(), any(), any());
+                any(), any(), anyInt(), anyInt(), any(), any(), any());
     }
 
     @Test
@@ -248,6 +284,163 @@ class AgentRunLifecycleServiceTest {
     }
 
     @Test
+    void heartbeatRenewsTheCapturedLeaseGenerationWithoutCrossingTheRunDeadline() throws Exception {
+        AiAnalysisRunMapper runMapper = mock(AiAnalysisRunMapper.class);
+        AiAnalysisRun run = fencedRun(97L, "worker-a", 7);
+        run.setHeartbeatAt(LocalDateTime.now());
+        run.setLeaseExpiresAt(run.getHeartbeatAt().plusNanos(300_000_000));
+        run.setDeadlineAt(run.getHeartbeatAt().plusSeconds(2));
+        AgentRunLease lease = new AgentRunLease(run, runtime(Duration.ofSeconds(20)), null, config());
+        CountDownLatch renewed = new CountDownLatch(1);
+        when(runMapper.renewAgentLeaseFenced(eq(97L), eq("worker-a"), eq(7), any(), any()))
+                .thenAnswer(invocation -> {
+                    renewed.countDown();
+                    return 1;
+                });
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        try {
+            AgentRunLifecycleService lifecycle = new AgentRunLifecycleService(
+                    runMapper, mock(AiClient.class), mock(AiRuntimeSettingsProvider.class), null, null, scheduler);
+            try (AgentRunLifecycleService.LeaseHeartbeat ignored = lifecycle.startLeaseHeartbeat(lease)) {
+                assertTrue(renewed.await(1, TimeUnit.SECONDS));
+            }
+            ArgumentCaptor<LocalDateTime> expiry = ArgumentCaptor.forClass(LocalDateTime.class);
+            verify(runMapper).renewAgentLeaseFenced(eq(97L), eq("worker-a"), eq(7), any(), expiry.capture());
+            assertTrue(!expiry.getValue().isAfter(run.getDeadlineAt()));
+            assertTrue(run.getHeartbeatAt().isBefore(run.getDeadlineAt()));
+        } finally {
+            scheduler.shutdownNow();
+            scheduler.awaitTermination(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void differentWorkerCannotRenewAnotherWorkersGeneration() {
+        AiAnalysisRunMapper runMapper = mock(AiAnalysisRunMapper.class);
+        AiAnalysisRun run = fencedRun(98L, "worker-b", 8);
+        AgentRunLease wrongWorkerLease = new AgentRunLease(run, runtime(Duration.ofSeconds(20)), null, config());
+        when(runMapper.renewAgentLeaseFenced(eq(98L), eq("worker-b"), eq(8), any(), any())).thenReturn(0);
+        AgentRunLifecycleService lifecycle = new AgentRunLifecycleService(
+                runMapper, mock(AiClient.class), mock(AiRuntimeSettingsProvider.class));
+
+        assertEquals(false, lifecycle.renewLease(wrongWorkerLease));
+        assertTrue(wrongWorkerLease.leaseLost());
+        verify(runMapper).renewAgentLeaseFenced(eq(98L), eq("worker-b"), eq(8), any(), any());
+    }
+
+    @Test
+    void staleGenerationCannotWriteUsageProgressOrTerminalResult() {
+        AiAnalysisRunMapper runMapper = mock(AiAnalysisRunMapper.class);
+        AiClient aiClient = mock(AiClient.class);
+        AiAnalysisRun run = fencedRun(99L, "worker-a", 4);
+        AgentRuntimeConfig config = config();
+        AiRuntimeSettings runtime = runtime(Duration.ofSeconds(20));
+        when(aiClient.generate(any(AiProviderRequest.class), any(AiRuntimeSettings.class)))
+                .thenReturn(new AiProviderResponse("{}", 2, 1, 3, 1, "late", "stop"));
+        when(runMapper.recordAgentUsageFenced(eq(99L), eq("worker-a"), eq(4),
+                anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any())).thenReturn(0);
+        when(runMapper.updateAgentStageFenced(eq(99L), eq("worker-a"), eq(4),
+                any(), any(), anyInt(), anyInt(), any())).thenReturn(0);
+        when(runMapper.settleAgentCompletedFenced(eq(99L), eq("worker-a"), eq(4), any(), anyInt(), anyInt(),
+                anyInt(), anyLong(), any(), any(), anyInt(), anyInt(), any(), any(), any())).thenReturn(0);
+        when(runMapper.settleAgentFailedFenced(eq(99L), eq("worker-a"), eq(4), any(), any(), any(), any(),
+                anyInt(), anyInt(), any())).thenReturn(0);
+        AgentRunLifecycleService lifecycle = new AgentRunLifecycleService(
+                runMapper, aiClient, mock(AiRuntimeSettingsProvider.class));
+
+        AgentOrchestratorException usageRejected = assertThrows(AgentOrchestratorException.class,
+                () -> lifecycle.invoke(new AgentRunLease(run, runtime, null, config),
+                        new AiProviderRequest("agent", "v1", "system", "user", "{}")));
+        assertEquals("AGENT_LEASE_LOST", usageRejected.getDiagnosticCode());
+        assertThrows(BusinessException.class, () -> lifecycle.updateStage(
+                new AgentRunLease(run, runtime, null, config), "synthesizing", 4, 1));
+        AgentOrchestratorOutcome outcome = new AgentOrchestratorOutcome(
+                "completed", "late", java.util.List.of(), 0.0, 1, 0,
+                0, 0, 0, 0L, null, "stop", null, null);
+        assertThrows(BusinessException.class, () -> lifecycle.complete(
+                new AgentRunLease(run, runtime, null, config), outcome, "{}"));
+        lifecycle.fail(new AgentRunLease(run, runtime, null, config), "failed", ErrorCode.UPSTREAM_ERROR, "PROVIDER_TIMEOUT");
+
+        verify(runMapper).recordAgentUsageFenced(eq(99L), eq("worker-a"), eq(4),
+                anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any());
+        verify(runMapper).updateAgentStageFenced(eq(99L), eq("worker-a"), eq(4),
+                any(), any(), anyInt(), anyInt(), any());
+        verify(runMapper).settleAgentCompletedFenced(eq(99L), eq("worker-a"), eq(4), any(), anyInt(), anyInt(),
+                anyInt(), anyLong(), any(), any(), anyInt(), anyInt(), any(), any(), any());
+        verify(runMapper).settleAgentFailedFenced(eq(99L), eq("worker-a"), eq(4), any(), any(), any(), any(),
+                anyInt(), anyInt(), any());
+    }
+
+    @Test
+    void providerTimeoutIsBoundedByRemainingRunDeadlineAndLateResponseIsRejected() {
+        AiAnalysisRunMapper runMapper = mock(AiAnalysisRunMapper.class);
+        AiClient aiClient = mock(AiClient.class);
+        AiAnalysisRun run = fencedRun(100L, "worker-a", 9);
+        run.setDeadlineAt(LocalDateTime.now().plusSeconds(10));
+        AiRuntimeSettings runtime = runtime(Duration.ofSeconds(20));
+        AgentRuntimeConfig config = config();
+        when(aiClient.generate(any(AiProviderRequest.class), any(AiRuntimeSettings.class))).thenAnswer(invocation -> {
+            run.setDeadlineAt(LocalDateTime.now().minusNanos(1_000_000));
+            return new AiProviderResponse("ignored", 1, 1, 2, 1, "late", "stop");
+        });
+        when(runMapper.recordAgentUsageFenced(eq(100L), eq("worker-a"), eq(9),
+                anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any())).thenReturn(0);
+        AgentRunLifecycleService lifecycle = new AgentRunLifecycleService(
+                runMapper, aiClient, mock(AiRuntimeSettingsProvider.class));
+
+        AgentOrchestratorException timeout = assertThrows(AgentOrchestratorException.class,
+                () -> lifecycle.invoke(new AgentRunLease(run, runtime, null, config),
+                        new AiProviderRequest("agent", "v1", "system", "user", "{}")));
+
+        assertEquals("AGENT_TIMEOUT", timeout.getDiagnosticCode());
+        ArgumentCaptor<AiRuntimeSettings> bounded = ArgumentCaptor.forClass(AiRuntimeSettings.class);
+        verify(aiClient).generate(any(AiProviderRequest.class), bounded.capture());
+        assertTrue(bounded.getValue().timeout().compareTo(Duration.ofSeconds(3)) < 0);
+        verify(runMapper).recordAgentUsageFenced(eq(100L), eq("worker-a"), eq(9),
+                anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void elapsedDeadlinePreventsAnyNewProviderRequest() {
+        AiAnalysisRunMapper runMapper = mock(AiAnalysisRunMapper.class);
+        AiClient aiClient = mock(AiClient.class);
+        AiAnalysisRun run = fencedRun(101L, "worker-a", 10);
+        run.setDeadlineAt(LocalDateTime.now().minusSeconds(1));
+        AgentRunLifecycleService lifecycle = new AgentRunLifecycleService(
+                runMapper, aiClient, mock(AiRuntimeSettingsProvider.class));
+
+        AgentOrchestratorException timeout = assertThrows(AgentOrchestratorException.class,
+                () -> lifecycle.invoke(new AgentRunLease(run, runtime(Duration.ofSeconds(20)), null, config()),
+                        new AiProviderRequest("agent", "v1", "system", "user", "{}")));
+
+        assertEquals("AGENT_TIMEOUT", timeout.getDiagnosticCode());
+        verify(aiClient, never()).generate(any(AiProviderRequest.class), any(AiRuntimeSettings.class));
+        verify(runMapper, never()).recordAgentUsageFenced(
+                anyLong(), any(), anyInt(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void nearDeadlineRejectsProviderDispatchWithControlledFallbackSignalAndKeepsLease() {
+        AiAnalysisRunMapper runMapper = mock(AiAnalysisRunMapper.class);
+        AiClient aiClient = mock(AiClient.class);
+        AiAnalysisRun run = fencedRun(102L, "worker-a", 11);
+        run.setDeadlineAt(LocalDateTime.now().plusSeconds(2));
+        AgentRunLease lease = new AgentRunLease(run, runtime(Duration.ofSeconds(20)), null, config());
+        AgentRunLifecycleService lifecycle = new AgentRunLifecycleService(
+                runMapper, aiClient, mock(AiRuntimeSettingsProvider.class));
+
+        AgentOrchestratorException deadline = assertThrows(AgentOrchestratorException.class,
+                () -> lifecycle.invoke(lease,
+                        new AiProviderRequest("agent", "v1", "system", "user", "{}")));
+
+        assertEquals("AGENT_DEADLINE_FALLBACK", deadline.getDiagnosticCode());
+        assertTrue(!lease.leaseLost());
+        verify(aiClient, never()).generate(any(AiProviderRequest.class), any(AiRuntimeSettings.class));
+        verify(runMapper, never()).recordAgentUsageFenced(
+                anyLong(), any(), anyInt(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any());
+    }
+
+    @Test
     void failedRunKeepsLastModelRoundAndToolCallCounts() {
         AiAnalysisRunMapper runMapper = mock(AiAnalysisRunMapper.class);
         AiRuntimeSettingsProvider settingsProvider = mock(AiRuntimeSettingsProvider.class);
@@ -277,5 +470,28 @@ class AgentRunLifecycleServiceTest {
                 eq(92L), eq("failed"), any(), eq(ErrorCode.UPSTREAM_ERROR.name()), eq("PROVIDER_5XX"),
                 eq(2), eq(1), any()
         );
+    }
+
+    private AgentRuntimeConfig config() {
+        return new AgentRuntimeConfig(true, 4, 6, 8_000, 12, Duration.ofSeconds(120), "json_plan");
+    }
+
+    private AiRuntimeSettings runtime(Duration timeout) {
+        return new AiRuntimeSettings(
+                "deepseek", "openai_compatible", "https://api.example.com/v1", "model", "secret",
+                0.2, 1200, timeout, 0, true);
+    }
+
+    private AiAnalysisRun fencedRun(Long id, String owner, int attempt) {
+        LocalDateTime now = LocalDateTime.now();
+        AiAnalysisRun run = new AiAnalysisRun();
+        run.setId(id);
+        run.setStatus("running");
+        run.setLeaseOwner(owner);
+        run.setExecutionAttempts(attempt);
+        run.setHeartbeatAt(now);
+        run.setLeaseExpiresAt(now.plusSeconds(30));
+        run.setDeadlineAt(now.plusSeconds(60));
+        return run;
     }
 }

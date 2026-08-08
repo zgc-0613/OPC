@@ -1,5 +1,19 @@
 # SoloFirm AI Readiness
 
+## Phase Three User-Facing v1 Release Evidence (2026-08-08)
+
+The release gate is now supported by current command evidence: frontend Vitest `157/157`, all eight repository frontend contract scripts, MySQL 8.4 Testcontainers `80/80`, Spring Boot `509` with `0` failures and `0` errors (`1` explicitly opt-in real-provider smoke skip), executable JAR packaging, migration Python tests `17/17`, deployment hardening `103/103`, Python syntax compilation, and `git diff --check`.
+
+The guarded deploy completed successfully. It ran isolated policy, case-comparison, and source-verification candidate probes before any production switch, then executed additive Phase Three migration precheck/migration/postcheck groups, created a timestamped backup, atomically switched production to `/opt/opc/releases/20260808-162621`, and retained the prior target `/opt/opc/releases/20260807-173031` plus `/opt/opc-backend.rollback.20260808-162621`. The database backup is `/opt/opc/backups/20260808-162621/opc_platform.sql.gz`.
+
+Post-switch probes covered an authorized-citation research run, reports and export, cross-user ownership isolation, preferences, feedback CAS, Analytics snapshot ownership, and administrator quality authorization. No secret, raw prompt, raw provider body, or probe-user content is recorded here. The release is Phase Three user-facing v1 / partial release, not Phase Three product complete: formal technology and revenue statistics still lack the required real-data readiness, and manual browser/responsive/accessibility review remains required.
+
+## Local Reliability Correction (2026-08-06)
+
+The Assistant client now distinguishes a terminal server Run from successful session-detail synchronization. When polling receives a terminal status but the subsequent owned session read has a transient network failure, it preserves the server-returned status, reports that result synchronization is incomplete, and offers a bounded manual synchronization action. It does not manufacture `failed`, continue infinite polling, expose safe retry before the terminal details arrive, or allow a new message to be sent into a session whose final message has not yet synchronized. The action only re-reads the existing Run/session and is guarded against stale session and unmount responses.
+
+Local evidence for this correction: frontend Vitest `148/148`; focused Agent tests `50/50`; all `*Agent*Test` `163` run with `0` failures/errors and one expected opt-in real-provider skip; Vite build, Spring Boot JAR package, Python migration `17/17`, Python deployment-hardening `94/94`, and syntax checks passed. MySQL 8.4 Testcontainers was invoked but is not accepted as passed: Docker Desktop Linux Engine was stopped, so `PhaseOneMySqlIntegrationTest` failed during container startup before any business assertion. The test remains enabled. No deployment, production probe, or real DeepSeek request occurred.
+
 ## Purpose
 
 This file records the stable prerequisites for an AI assistant without choosing a model provider or committing to a multi-agent UI. It is the handoff point for the revised product proposal.
@@ -174,3 +188,67 @@ AI readiness is asymmetric. The session/message/run/tool/citation/evidence/histo
 Third-stage statistics keep the double published + verified rule, explicit missing values, business-time-only trends, canonical de-duplication, server-owned aggregation and server-rehydrated AI snapshots. Revenue charts are prohibited until normalized, reviewed comparable groups reach the metric-dictionary threshold. Pending tags and AI-inferred values never enter formal dashboards.
 
 Implementation is ordered as Phase Three A (case analysis and technology evaluation), B (analytics APIs and accessible dashboards), then C (analytics-to-Agent snapshots, reports, export, performance and final evaluation). This readiness round changed documentation only; it did not implement Phase Three features, migrate data, call the model for a bulk evaluation or deploy production.
+
+## Phase Three Contract Stabilization
+
+The Phase Three specifications now close the implementation gaps found during final document review. Analytics authentication is a deliberate two-layer contract: Spring Security permits `/api/analytics/**` through to MVC, then the existing platform UserAuthInterceptor returns 401 for anonymous/expired users, 403 for disabled users and normal responses for active users. Administrator tokens cannot impersonate platform users.
+
+Phase A gains an optional, backward-compatible `phase3-task-v1` taskContext on the first `/sessions/start` request. It carries explicit case selection, approved comparison dimensions and technology-assessment constraints, agrees with requestedIntent, and is frozen for the session. Selected case IDs become usable only after the backend revalidates their complete evidence chains, projects taskSelectedEvidence and creates current-Run authorizedEvidence. The existing profile, Provider, tool and citation boundaries remain unchanged.
+
+Case geography now distinguishes primary/secondary operation regions, registration and legacy related region; policy geography means applicability. Technology endpoints have stable unavailable/409/empty behavior. Reports have active/trash/permanently_purged lifecycle, explicit restore/permanent deletion, independent behavior after session purge and Markdown/HTML/PDF exports. Revisioned user feedback and administrator-only aggregate quality APIs are fully specified without exposing conversation content or hidden reasoning.
+
+Completeness uses separate component-macro caseScore and policyScore. Revenue uses `value_status=actual|estimated|unknown|withheld`, explicit interval bins, `spans_multiple_bins`, and Type 7 percentiles over actual point values only. Phase B may ship a partial Green/Yellow slice, but Phase Three cannot be declared product-complete until the technology and revenue data/visualization gates, analytics-to-Agent flow, reports, feedback, 40-question evaluation and performance gates all pass.
+
+This stabilization is documentation-only. It does not implement Phase A/B/C, change Java or Vue, add migrations, change deployment scripts, access production, run the application test/build matrix or deploy.
+
+## Phase A Contract Final Closure (2026-07-29)
+
+Phase A now has one implementable request boundary. A normalized `phase3-task-v1` taskContext is atomically stored in nullable `ai_agent_sessions.task_context_version/task_context_json/task_context_hash`, never in profile or mutable clarification context. Start and owned session detail return it; history returns only task type/summary; Run detail returns task type/hash through the session authority. The idempotency identity includes profile, content, requestedIntent and canonical taskContext. Permanent session purge removes the context, and logs exclude its bounded free-text fields.
+
+Source verification has two modes. A selected positive sourceId is reloaded and checked for published + verified eligibility, provenance, HTTP(S) URL and current revision before Run authorization. Without sourceId, non-empty content is only a claim to investigate through controlled search/get_source; text IDs and URLs do not confer authorization and arbitrary URL fetching remains prohibited.
+
+`phase3-structured-result-v1` is frozen as a closed Draft 2020-12 discriminated schema for six tasks. ClaimItem.sourceIds is the sole conclusion-level evidence key; facts require a current-Run source. Every new Phase A result has a completion-time evidenceVersion derived from authorized IDs, evidence revisions/content hashes, eligibility and schema version. The existing enqueue-time `ai_analysis_runs.evidence_hash` is not that version. Ordinary Phase A returns dataVersion=null; Analytics dataVersion remains a Phase B/C snapshot concern.
+
+Case geography uses one four-state interpretation: unready operation/registration is Red unavailable, explicit legacy geography is Yellow partial “相关地区分布”, ready-but-no-match is empty, and policy applicability remains formal without copying country policies to provinces. Green 0% region completeness is only a quality fact. Report trash expires into locked, idempotent automatic purge after 30 days. Feedback is eligible only for owned completed Runs, or evidence_insufficient Runs with a persisted user-visible Assistant result.
+
+This closure changes specifications only. It does not implement Phase A, modify application code or schemas, access production, run the application build/test matrix or deploy. Phase A development may start against the frozen contracts; delivery still requires the migrations, DTOs, validators, services, UI and tests listed in the roadmap.
+
+## Phase A v1 Structured Result Implementation Gate (2026-07-29)
+
+The final specification gate contracts `phase3-structured-result-v1` to the existing stable runtime rather than raising runtime limits. `directAnswer` is capped at 600 characters; all top-level and nested ClaimItems share one six-item budget; citations are capped at six; synthesis remains capped at 3,200 output Tokens; and the persisted compatible Assistant rendering remains capped at 12,000 characters. Every string and array in the closed Draft 2020-12 schema has an explicit bound. Larger results require a new schema version and a separate runtime, persistence and rendering review.
+
+Evidence selection now has two non-overlapping meanings. `taskSelectedEvidence` is the immutable projection of normalized `taskContext` (`caseIds` at most three, `sourceIds` at most one, and no user-selected policy IDs in v1). `authorizedEvidence` is generated only by the server from current-Run tool execution and eligibility checks. Its case, policy and source arrays are each capped at 120, with cases plus policies capped at 120, derived from the existing 12-tool-call ceiling and ten-result search ceiling. Claims, citations and task-specific case/policy references must be subsets of that authorization.
+
+Case comparison requires one to three unique, allowlisted and explicitly submitted dimensions; other task types submit none. Report trash, restore and permanent-delete mutations all use a positive integer `expectedRevision` in a JSON body, return 400 for an invalid value, return 409 `REPORT_REVISION_CONFLICT` for a stale value, and do not treat an old-revision replay as success.
+
+The Phase 36 completion claim is superseded: its six examples did not contain a self-contained Run evidence environment and therefore did not prove case-to-source links or independently recomputable evidenceVersion values. The Phase A v1 specification is not considered frozen again until the explicit-selection and runEvidenceFixture gate in the current documentation round passes. Phase A remains unimplemented and undeployed.
+
+## Phase A v1 Explicit Evidence Closure (2026-07-29)
+
+Phase A now has one explicit-selection boundary. A selected case or source is validated before any research persistence or Token reservation. An ineligible case returns HTTP 400 `PHASE3_CASE_NOT_ELIGIBLE`; an ineligible selected source returns HTTP 400 `PHASE3_SOURCE_NOT_ELIGIBLE`. Neither path creates a session, user message, Run, taskSelectedEvidence or authorizedEvidence. `evidence_insufficient` is reserved for a request that was valid and atomically accepted but later lacks enough controlled evidence, loses evidence eligibility/revision during execution or can support only part of the requested conclusion.
+
+Each of the six contract examples now carries a test-only `phase3-run-evidence-fixture-v1` beside taskContext and structuredResult. The fixture records bounded case, policy and source revisions/content hashes/eligibility plus explicit case-source and policy-source links. It is not a production DTO, API field or persisted user result. The examples prove selected-to-authorized set equality, source-chain provenance, citation metadata equality and authorization-subset rules.
+
+`evidenceVersion` is independently reproducible from fixed-order canonical evidence input: schemaVersion, authorized cases, policies, sources, caseSourceLinks and policySourceLinks. Entity inputs contain only ID, non-negative evidenceRevision, `sha256:` contentHash and closed eligibility; arrays and links are stably sorted. Implementations hash compact UTF-8 JSON with fixed object-field order, no BOM, indentation, trailing whitespace or final newline, using SHA-256. Empty evidence has a real non-zero digest rather than a placeholder.
+
+The replacement document gate passed Draft 2020-12 meta-validation, structuredResult Schema `6/6`, complete service semantics `6/6`, independent evidenceVersion recomputation `6/6`, positive contract assertions `28/28`, original negatives `19/19` and new reason-specific negatives `20/20`. The two previously reproduced P1s are closed, so Phase A v1 specifications are formally frozen with no remaining P0/P1. This is specification readiness only: Phase A runtime code, migrations, UI, application tests and deployment have not started.
+
+## Phase A v1 Final Targeted Contract Patch (2026-07-29)
+
+The start boundary now resolves a locked `userId + idempotencyKey` record inside the database transaction before authoritative evidence qualification. An exact successful replay returns its original `202` receipt without revalidation or new side effects; an identity mismatch returns `409 PHASE3_IDEMPOTENCY_CONFLICT`; only a miss locks and revalidates selected evidence and required relations before atomically creating the session, first user message, Run, taskContext/evidence projections, Token reservation and success receipt. Revocation before the evidence lock causes a fully rolled-back `400`; revocation while start holds the lock waits and is handled by execution-time revalidation after a legal commit.
+
+The contract-test `policy_lookup` example now provides a non-empty `policy 2001 -> source 9004 -> fact -> citation` provenance chain with independently reproducible evidenceVersion `sha256:8491a7a0ad58ec5c91ef9a7d90553817d7d0049ae40f3f0e99a91f96bd4317aa`. Fixture entity IDs are unique within each entity type and link pairs are unique within each link type; duplicates fail before sorting and hashing, while legal many-to-many relationships remain supported.
+
+The final targeted gate passed Draft 2020-12 meta-validation, structuredResult Schema `6/6`, complete fixture semantics `6/6`, evidenceVersion recomputation `6/6`, transaction/idempotency `8/8`, policy-source `10/10`, uniqueness `9/9`, original negatives `19/19`, existing reason-specific negatives `20/20` and new targeted negatives `9/9`. Phase A v1 is formally frozen with no remaining P0/P1.
+
+This patch changes specifications only. It does not claim that Phase A runtime code, database changes, UI or deployment have been implemented.
+
+## Phase Three Local Implementation Snapshot (2026-08-01)
+
+Phase Three has now moved beyond the specification-only state in the local repository. The current worktree includes executable taskContext persistence, selected-evidence qualification, structured-result rendering, branch-material reuse, explicit preferences, report lifecycle, run feedback, administrator quality aggregation, Analytics snapshots, the protected `/analytics` route, and Analytics-to-Assistant handoff that remains user-send gated.
+
+The current readiness boundary is still narrower than “Phase Three product complete”. The implemented Analytics slice is overview plus `industry.case_count`; technology remains unavailable by design, revenue normalization is still absent, and `industry.case_count` remains a `Yellow` metric because canonical business-case de-duplication is not yet available and low-sample buckets cannot be promoted to strong chart conclusions.
+
+Local verification is complete for the present worktree: Spring Boot `444` tests with `0` failures/`0` errors and `1` skipped opt-in real DeepSeek smoke, MySQL 8.4 `76/76`, frontend Vitest `119/119`, all existing frontend npm scripts, the Vite production build, and Spring Boot executable JAR packaging. This section does not claim Python deployment/migration verification, remote preflight, rollout, rollback, or production probes, because those command results were not captured in this round.
+
+Therefore the engineering readiness state is: local implementation ready for deployment preparation, but not yet production-ready by evidence standard. The last production baseline remains the deployed Phase Two runtime until a credentialed Phase Three deployment, migration, and postdeploy probe round is actually executed and recorded.

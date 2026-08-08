@@ -47,6 +47,12 @@
           :class="{ 'nav-active': isAdminNavActive('evidence-reviews') }"
         ><ShieldCheck :size="17" aria-hidden="true" /><b>证据审核</b></RouterLink>
         <RouterLink
+          to="/admin/agent-quality"
+          active-class="admin-route-active"
+          exact-active-class="admin-route-exact-active"
+          :class="{ 'nav-active': isAdminNavActive('agent-quality') }"
+        ><Activity :size="17" aria-hidden="true" /><b>Agent quality</b></RouterLink>
+        <RouterLink
           to="/admin/settings"
           active-class="admin-route-active"
           exact-active-class="admin-route-exact-active"
@@ -77,6 +83,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  Activity,
   ArrowLeft,
   BookOpenText,
   BriefcaseBusiness,
@@ -95,6 +102,7 @@ const router = useRouter()
 
 const routeTitle = computed(() => {
   const titles = {
+    'admin-agent-quality': 'Agent quality',
     'admin-home': '后台首页',
     'admin-policies': '政策管理',
     'admin-cases': '案例管理',
@@ -108,6 +116,7 @@ const routeTitle = computed(() => {
 
 function isAdminNavActive(section) {
   const sectionMap = {
+    'agent-quality': ['admin-agent-quality'],
     home: ['admin-home'],
     policies: ['admin-policies'],
     cases: ['admin-cases'],

@@ -6,10 +6,14 @@ import importlib.util
 import io
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import scripts.deployment_hardening as deployment_hardening
 from scripts.deployment_hardening import (
@@ -31,8 +35,6 @@ from scripts.deployment_hardening import (
     validate_purge_barrier_record,
 )
 
-
-ROOT = Path(__file__).resolve().parents[1]
 APPLICATION_CONFIG = ROOT / "opc-backend" / "src" / "main" / "resources" / "application.yaml"
 NGINX_CONFIG = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD_UNIT = ROOT / "deploy" / "systemd" / "opc-backend.service"
@@ -147,6 +149,25 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertIn("latency_ms=987", message)
         self.assertIn("release_switched=false", message)
         self.assertNotIn("raw-model-output", message)
+
+    def test_candidate_contract_validation_reason_is_safe_and_stable(self):
+        spec = importlib.util.spec_from_file_location(
+            "opc_deploy_contract_reason", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+
+        self.assertEqual(
+            "coverage_audit",
+            deploy_module.candidate_contract_validation_reason(
+                ValueError("Candidate Agent evidence coverage differs from the authorized evidence snapshot")
+            ),
+        )
+        self.assertEqual(
+            "unknown",
+            deploy_module.candidate_contract_validation_reason(
+                ValueError("provider body must never appear in a candidate report")
+            ),
+        )
 
     def test_candidate_evidence_insufficient_failure_keeps_sanitized_metrics(self):
         message = deployment_hardening.candidate_probe_failure_message(
@@ -708,8 +729,25 @@ class DeploymentHardeningTest(unittest.TestCase):
             "4\t21\t10\t7\t8\t\t"
             "ai_agent_sessions.idx_agent_sessions_history_active,"
             "ai_agent_sessions.idx_agent_sessions_history_archived,"
-            "ai_agent_sessions.idx_agent_sessions_purge_due\t0"
+            "ai_agent_sessions.idx_agent_sessions_purge_due,"
+            "ai_agent_sessions.idx_agent_sessions_task_context_hash\t0"
         )
+
+    def test_agent_runtime_postcheck_allows_but_does_not_require_phase_three_task_context_index(self):
+        postcheck = (ROOT / "deploy" / "sql" / "20260725_agent_runtime_postcheck.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn(
+            "UNION ALL SELECT 'ai_agent_sessions', 'idx_agent_sessions_task_context_hash'",
+            postcheck,
+        )
+
+        with self.assertRaisesRegex(ValueError, r"unexpected=.*idx_agent_sessions_unknown"):
+            validate_agent_runtime_postcheck(
+                "4\t21\t10\t7\t8\t\t"
+                "ai_agent_sessions.idx_agent_sessions_task_context_hash,"
+                "ai_agent_sessions.idx_agent_sessions_unknown\t0"
+            )
 
     def test_assistant_workspace_postcheck_requires_columns_indexes_and_clean_backfills(self):
         validate_assistant_workspace_postcheck("6\t5\t3\t2\t1\t9\t2\t0\t1\t0\t0\t\t\t0")
@@ -994,6 +1032,10 @@ class DeploymentHardeningTest(unittest.TestCase):
     def test_real_assistant_probe_is_a_hard_release_gate(self):
         deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
+        cleanup = deploy[
+            deploy.index("def cleanup_production_probe_data("):
+            deploy.index("def run_phase_three_product_probes(")
+        ]
 
         self.assertIn('if advice_body.get("code") != 200:', body)
         self.assertIn('advice_data.get("summary") or advice_data.get("recommendedDirection")', body)
@@ -1002,7 +1044,35 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertIn('analysis_run_finish_reason', body)
         self.assertIn('analysis_run_total_tokens', body)
         self.assertIn("response_code={advice_body.get('code')}", body)
-        self.assertIn("DELETE FROM ai_analysis_runs", body)
+        self.assertIn("cleanup_production_probe_data(", body)
+        self.assertIn("DELETE run FROM ai_analysis_runs", cleanup)
+
+    def test_phase_three_product_probe_is_a_guarded_production_gate_with_peer_idor_identity(self):
+        source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        body = source[source.index("def deploy(client):"):source.index("def deploy_frontend(client):")]
+
+        owner_identity = body.index("ai_qa_username =")
+        peer_identity = body.index("ai_qa_peer_username =")
+        peer_session = body.index("ai_qa_peer_token")
+        final_message = body.index("phase_three_final_message =")
+        product_probe = body.index("phase_three_probe = run_phase_three_product_probes(")
+        permanent_purge = body.index("_, final_trash_body = request_json(")
+        cleanup = body.index("cleanup_production_probe_data(")
+
+        self.assertLess(owner_identity, peer_identity)
+        self.assertLess(peer_identity, peer_session)
+        self.assertLess(peer_session, final_message)
+        self.assertLess(final_message, product_probe)
+        self.assertLess(product_probe, permanent_purge)
+        self.assertLess(permanent_purge, cleanup)
+        self.assertIn('item.get("runId") == int(agent_run_id)', body)
+        self.assertIn('item.get("role") == "assistant"', body)
+        inner_finally = body.rfind("finally:", product_probe, cleanup)
+        self.assertGreater(inner_finally, product_probe)
+        finally_body = body[inner_finally:cleanup + len("cleanup_production_probe_data")]
+        self.assertIn("cleanup_production_probe_data", finally_body)
+        self.assertIn('"phase_three_probe": phase_three_probe', body)
+        self.assertNotIn("DELETE FROM user_sessions WHERE token =", body)
 
     def test_real_provider_candidate_gate_runs_before_current_release_switch(self):
         deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
@@ -1223,6 +1293,9 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertIn('"requested_intent": "case_comparison"', probe)
         self.assertIn('"requested_intent": "source_verification"', probe)
         self.assertIn('"requestedIntent": scenario_contract["requested_intent"]', probe)
+        self.assertIn("仅完成一次来源核验", probe)
+        self.assertIn("本次检索返回的来源", probe)
+        self.assertIn("一条简短、带该来源引用的结论", probe)
 
     def test_failed_candidate_release_cleanup_is_exact_and_protects_current(self):
         spec = importlib.util.spec_from_file_location("opc_deploy_script_release_cleanup", DEPLOY_SCRIPT)
@@ -1346,6 +1419,113 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertNotIn("if mutated:\n", recovery)
         self.assertLess(body.index("run_candidate_agent_v2_scenarios("), body.index("release_switched = True"))
 
+    def test_candidate_provider_connection_recovers_once_after_a_transient_failed_probe(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_provider_retry", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        settings = {"provider": "deepseek", "modelId": "deepseek-v4-flash", "agentEnabled": True}
+
+        with mock.patch.object(
+            deploy_module,
+            "remote_request_json",
+            side_effect=[
+                (200, {"code": 200, "data": settings}),
+                (200, {"code": 503, "data": {"success": False, "message": "secret"}}),
+                (200, {"code": 200, "data": {"success": True}}),
+            ],
+        ) as request, mock.patch.object(deploy_module.time, "sleep") as sleep:
+            returned = deploy_module.test_candidate_provider_connection(object(), {"X-Admin-Token": "secret"})
+
+        self.assertEqual(settings, returned)
+        self.assertEqual(3, request.call_count)
+        sleep.assert_called_once_with(5)
+
+    def test_candidate_provider_connection_stops_after_one_retry_with_safe_diagnostics(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_provider_retry_failure", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        settings = {"provider": "deepseek", "modelId": "deepseek-v4-flash", "agentEnabled": True}
+
+        with mock.patch.object(
+            deploy_module,
+            "remote_request_json",
+            side_effect=[
+                (200, {"code": 200, "data": settings}),
+                (200, {"code": 503, "data": {"success": False, "message": "secret"}}),
+                (200, {"code": 503, "data": {"success": False, "rawResponse": "secret"}}),
+            ],
+        ) as request, mock.patch.object(deploy_module.time, "sleep") as sleep:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r"connectionCode=503; connectionSuccess=false; providerClass=unknown; attempts=2",
+            ) as raised:
+                deploy_module.test_candidate_provider_connection(object(), {"X-Admin-Token": "secret"})
+
+        self.assertEqual(3, request.call_count)
+        sleep.assert_called_once_with(5)
+        self.assertNotIn("secret", str(raised.exception))
+        self.assertNotIn("rawResponse", str(raised.exception))
+
+    def test_candidate_provider_connection_reports_only_the_safe_rate_limit_class(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_provider_rate_limit", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        settings = {"provider": "deepseek", "modelId": "deepseek-v4-flash", "agentEnabled": True}
+
+        with mock.patch.object(
+            deploy_module,
+            "remote_request_json",
+            side_effect=[
+                (200, {"code": 200, "data": settings}),
+                (200, {"code": 503, "message": "AI provider request failed (HTTP 429)", "data": None}),
+                (200, {"code": 503, "message": "AI provider request failed (HTTP 429)", "data": None}),
+            ],
+        ), mock.patch.object(deploy_module.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, r"providerClass=rate_limit") as raised:
+                deploy_module.test_candidate_provider_connection(object(), {"X-Admin-Token": "secret"})
+
+        self.assertNotIn("HTTP 429", str(raised.exception))
+
+    def test_candidate_provider_connection_classifies_other_provider_http_errors_without_raw_text(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_provider_http_error", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        settings = {"provider": "deepseek", "modelId": "deepseek-v4-flash", "agentEnabled": True}
+
+        with mock.patch.object(
+            deploy_module,
+            "remote_request_json",
+            side_effect=[
+                (200, {"code": 200, "data": settings}),
+                (200, {"code": 503, "message": "AI provider request failed (HTTP 402)", "data": None}),
+                (200, {"code": 503, "message": "AI provider request failed (HTTP 402)", "data": None}),
+            ],
+        ), mock.patch.object(deploy_module.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, r"providerClass=provider_4xx") as raised:
+                deploy_module.test_candidate_provider_connection(object(), {"X-Admin-Token": "secret"})
+
+        self.assertNotIn("HTTP 402", str(raised.exception))
+
+    def test_candidate_provider_connection_classifies_acknowledgement_shape_without_raw_text(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_provider_ack", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        settings = {"provider": "deepseek", "modelId": "deepseek-v4-flash", "agentEnabled": True}
+
+        with mock.patch.object(
+            deploy_module,
+            "remote_request_json",
+            side_effect=[
+                (200, {"code": 200, "data": settings}),
+                (200, {"code": 503, "message": "连接测试响应校验失败 [AI_CONNECTION_ACK_MISSING_OK]", "data": None}),
+                (200, {"code": 503, "message": "连接测试响应校验失败 [AI_CONNECTION_ACK_MISSING_OK]", "data": None}),
+            ],
+        ), mock.patch.object(deploy_module.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, r"providerClass=ack_missing_ok") as raised:
+                deploy_module.test_candidate_provider_connection(object(), {"X-Admin-Token": "secret"})
+
+        self.assertNotIn("AI_CONNECTION_ACK_MISSING_OK", str(raised.exception))
+
     def test_provider_connection_is_not_repeated_after_release_switch(self):
         deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
@@ -1404,6 +1584,50 @@ class DeploymentHardeningTest(unittest.TestCase):
 
         self.assertNotIn(secret, str(raised.exception))
 
+    def test_report_export_request_returns_bounded_text_without_leaking_authentication(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_script", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        secret = "report-export-session-secret-never-log"
+        response = mock.MagicMock()
+        response.status = 200
+        response.headers = {
+            "Content-Type": "text/markdown;charset=UTF-8",
+            "Content-Disposition": "attachment; filename=research-report.md",
+        }
+        response.read.return_value = b"# Deployment Phase Three report\n\n## Sources\n"
+        response.__enter__.return_value = response
+
+        with mock.patch.object(
+            deploy_module.urllib.request, "urlopen", return_value=response
+        ) as urlopen:
+            status, headers, body = deploy_module.request_text(
+                "https://findopc.online/api/ai/research/reports/71/export?format=markdown",
+                headers={"Authorization": f"Bearer {secret}"},
+                maximum_bytes=1024,
+            )
+
+        self.assertEqual(200, status)
+        self.assertEqual("text/markdown;charset=UTF-8", headers["content-type"])
+        self.assertIn("## Sources", body)
+        request = urlopen.call_args.args[0]
+        self.assertEqual(f"Bearer {secret}", request.headers["Authorization"])
+
+        oversized = mock.MagicMock()
+        oversized.status = 200
+        oversized.headers = {"Content-Type": "text/markdown"}
+        oversized.read.return_value = b"x" * 1025
+        oversized.__enter__.return_value = oversized
+        with mock.patch.object(deploy_module.urllib.request, "urlopen", return_value=oversized):
+            with self.assertRaises(RuntimeError) as raised:
+                deploy_module.request_text(
+                    "https://findopc.online/api/ai/research/reports/71/export",
+                    headers={"Authorization": f"Bearer {secret}"},
+                    maximum_bytes=1024,
+                )
+        self.assertIn("response exceeded", str(raised.exception).lower())
+        self.assertNotIn(secret, str(raised.exception))
+
     def test_candidate_probe_data_cleanup_is_idempotent_and_follows_fk_order(self):
         spec = importlib.util.spec_from_file_location("opc_deploy_script", DEPLOY_SCRIPT)
         deploy_module = importlib.util.module_from_spec(spec)
@@ -1425,10 +1649,284 @@ class DeploymentHardeningTest(unittest.TestCase):
                         cleanup_sql.index("DELETE r FROM ai_analysis_runs"))
         self.assertLess(cleanup_sql.index("DELETE tc FROM ai_agent_tool_calls"),
                         cleanup_sql.index("DELETE r FROM ai_analysis_runs"))
+        self.assertLess(cleanup_sql.index("DELETE report FROM ai_research_reports"),
+                        cleanup_sql.index("DELETE r FROM ai_analysis_runs"))
+        self.assertLess(cleanup_sql.index("DELETE feedback FROM ai_agent_run_feedback"),
+                        cleanup_sql.index("DELETE r FROM ai_analysis_runs"))
+        self.assertLess(cleanup_sql.index("DELETE snapshot FROM ai_analytics_snapshots"),
+                        cleanup_sql.index("DELETE r FROM ai_analysis_runs"))
         self.assertLess(cleanup_sql.index("DELETE r FROM ai_analysis_runs"),
                         cleanup_sql.index("DELETE m FROM ai_agent_messages"))
+        self.assertLess(cleanup_sql.index("DELETE preference FROM ai_research_preferences"),
+                        cleanup_sql.index("DELETE u FROM platform_users"))
         self.assertNotIn("LIKE", cleanup_sql.upper())
         self.assertIn("username='candidate_20260726_ab12'", cleanup_sql)
+
+    def test_production_phase_three_probe_cleanup_is_exact_idempotent_and_verified(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_script", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        sql_calls = []
+
+        with mock.patch.object(
+            deploy_module,
+            "database_command",
+            side_effect=lambda _client, sql: sql_calls.append(sql) or (0, "\n".join(["0"] * 11), ""),
+        ):
+            identities = ("aiqa_2608021200", "aiqapeer_2608021200")
+            deploy_module.cleanup_production_probe_data(object(), identities)
+            deploy_module.cleanup_production_probe_data(object(), identities)
+
+        self.assertEqual(2, len(sql_calls))
+        self.assertEqual(sql_calls[0], sql_calls[1])
+        cleanup_sql = sql_calls[0]
+        self.assertIn("CREATE TEMPORARY TABLE opc_probe_users", cleanup_sql)
+        self.assertIn("CREATE TEMPORARY TABLE opc_probe_runs", cleanup_sql)
+        self.assertIn("CREATE TEMPORARY TABLE opc_probe_sessions", cleanup_sql)
+        self.assertIn("username IN ('aiqa_2608021200','aiqapeer_2608021200')", cleanup_sql)
+        self.assertNotIn("LIKE", cleanup_sql.upper())
+        for table in (
+            "ai_research_reports",
+            "ai_agent_run_feedback",
+            "ai_analytics_snapshots",
+            "ai_research_preferences",
+            "ai_agent_provider_calls",
+            "ai_agent_tool_calls",
+            "ai_analysis_runs",
+            "ai_agent_messages",
+            "ai_agent_sessions",
+            "user_sessions",
+            "platform_users",
+        ):
+            self.assertIn(table, cleanup_sql)
+        self.assertLess(cleanup_sql.index("DELETE report FROM ai_research_reports"),
+                        cleanup_sql.index("DELETE run FROM ai_analysis_runs"))
+        self.assertLess(cleanup_sql.index("DELETE feedback FROM ai_agent_run_feedback"),
+                        cleanup_sql.index("DELETE run FROM ai_analysis_runs"))
+        self.assertLess(cleanup_sql.index("DELETE run FROM ai_analysis_runs"),
+                        cleanup_sql.index("DELETE message FROM ai_agent_messages"))
+        self.assertNotIn("AS remaining_probe_rows", cleanup_sql)
+        for remaining_check in (
+            "remaining_reports",
+            "remaining_feedback",
+            "remaining_snapshots",
+            "remaining_preferences",
+            "remaining_provider_calls",
+            "remaining_tool_calls",
+            "remaining_runs",
+            "remaining_messages",
+            "remaining_sessions",
+            "remaining_user_sessions",
+            "remaining_users",
+        ):
+            self.assertIn(f"AS {remaining_check}", cleanup_sql)
+
+        with mock.patch.object(deploy_module, "database_command") as database:
+            with self.assertRaisesRegex(RuntimeError, "identity is invalid"):
+                deploy_module.cleanup_production_probe_data(
+                    object(), ("aiqa_2608021200' OR 1=1 --",)
+                )
+        database.assert_not_called()
+
+    def test_phase_three_product_probe_exercises_owned_contracts_and_returns_only_safe_summary(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_script", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+        owner_headers = {"Authorization": "Bearer owner-probe-secret"}
+        peer_headers = {"Authorization": "Bearer peer-probe-secret"}
+        admin_headers = {"X-Admin-Token": "admin-probe-secret"}
+        calls = []
+        preference = {"memoryEnabled": True, "commonRegion": "Hubei", "commonIndustry": "AI"}
+        preference_exists = True
+
+        def fake_request(url, method="GET", payload=None, headers=None, expected_code=200, timeout=20):
+            nonlocal preference, preference_exists
+            calls.append({
+                "url": url, "method": method, "payload": payload,
+                "headers": headers, "expected_code": expected_code,
+            })
+            if url.endswith("/sessions/11/reports"):
+                return 200, {"code": 200, "data": {
+                    "reportId": 71, "userId": 42, "sessionId": 11, "runId": 22,
+                    "finalMessageId": 33, "title": "Deployment Phase Three report",
+                    "evidenceVersion": "evidence-v1", "dataVersion": None,
+                    "status": "active", "revision": 1,
+                }}
+            if url.endswith("/reports/71"):
+                code = 200 if headers == owner_headers else 404
+                return 200, {"code": code, "data": {"reportId": 71} if code == 200 else None}
+            if url.endswith("/preferences"):
+                if method == "PATCH":
+                    preference = dict(payload)
+                    preference_exists = True
+                    return 200, {"code": 200, "data": preference}
+                if method == "DELETE":
+                    preference_exists = False
+                    return 200, {"code": 200, "data": None}
+                return 200, {"code": 200, "data": preference if preference_exists else None}
+            if url.endswith("/runs/22/feedback"):
+                if headers == peer_headers:
+                    return 200, {"code": 404, "data": None}
+                if method == "GET":
+                    return 200, {"code": 200, "data": {
+                        "runId": 22, "rating": "helpful", "reason": "good_evidence",
+                        "comment": None, "revision": 2,
+                    }}
+                revision = payload["expectedRevision"]
+                if revision == 0:
+                    return 200, {"code": 200, "data": {
+                        "runId": 22, "rating": "helpful", "reason": "accurate_and_useful",
+                        "comment": None, "revision": 1,
+                    }}
+                if revision == 1 and payload["reason"] == "good_evidence":
+                    return 200, {"code": 200, "data": {
+                        "runId": 22, "rating": "helpful", "reason": "good_evidence",
+                        "comment": None, "revision": 2,
+                    }}
+                return 200, {"code": 409, "message": "FEEDBACK_REVISION_CONFLICT", "data": None}
+            if url.endswith("/api/analytics/overview"):
+                return 200, {"code": 200, "data": {
+                    "dataVersion": "analytics-v1:test",
+                    "cards": [{"metricId": "overview.verified_cases", "value": 3}],
+                    "status": "complete",
+                }}
+            if url.endswith("/api/ai/research/from-analytics"):
+                if payload["dataVersion"] != "analytics-v1:test":
+                    return 200, {"code": 409, "message": "ANALYTICS_DATA_VERSION_STALE", "data": None}
+                return 202, {"code": 200, "data": {
+                    "session": {"sessionId": 88}, "messageId": 89, "runId": 90,
+                    "status": "received", "analyticsSnapshotId": 80,
+                    "metricId": "overview.verified_cases", "dataVersion": "analytics-v1:test",
+                }}
+            if url.endswith("/runs/90/cancel"):
+                return 200, {"code": 200, "data": {"runId": 90, "status": "clarification_needed"}}
+            if url.endswith("/runs/90"):
+                code = 200 if headers == owner_headers else 404
+                return 200, {"code": code, "data": {"runId": 90, "status": "clarification_needed"} if code == 200 else None}
+            if url.endswith("/api/admin/ai/research/quality"):
+                if headers != admin_headers:
+                    return 200, {"code": 401, "data": None}
+                return 200, {"code": 200, "data": {
+                    "sampleSize": 3, "completedCount": 2, "helpfulCount": 1,
+                    "reasonCounts": {"good_evidence": 1}, "failureReasons": {},
+                    "latencySummary": {"total": 300, "average": 100},
+                    "tokenSummary": {"total": 900, "average": 300},
+                    "toolCallSummary": {"total": 6, "average": 2},
+                    "granularity": "day",
+                }}
+            raise AssertionError(f"Unexpected request: {method} {url}")
+
+        def fake_text(url, method="GET", headers=None, expected_code=200, timeout=20,
+                      maximum_bytes=2 * 1024 * 1024):
+            calls.append({"url": url, "method": method, "headers": headers, "text": True})
+            if headers == owner_headers:
+                return 200, {"content-type": "text/markdown;charset=UTF-8"}, (
+                    "# Deployment Phase Three report\n\n"
+                    "> evidence-v1\n\n## Sources\n"
+                )
+            return 200, {"content-type": "application/json"}, json.dumps({
+                "code": 404, "message": "Resource not found", "data": None,
+            })
+
+        with mock.patch.object(deploy_module, "request_json", side_effect=fake_request), \
+                mock.patch.object(deploy_module, "request_text", side_effect=fake_text), \
+                mock.patch.object(
+                    deploy_module,
+                    "database_command",
+                    return_value=(
+                        0,
+                        "overview.verified_cases\tanalytics-v1:test\t90\t80\tanalytics-v1:test\t1",
+                        "",
+                    ),
+                ):
+            summary = deploy_module.run_phase_three_product_probes(
+                object(), "20260802-120000", owner_headers, peer_headers,
+                admin_headers, session_id=11, run_id=22, final_message_id=33,
+            )
+
+        self.assertEqual({
+            "report_saved": True,
+            "report_export": "markdown",
+            "report_owner_isolated": True,
+            "preference_consent": True,
+            "preference_deleted": True,
+            "feedback_revision": 2,
+            "feedback_cas": True,
+            "analytics_snapshot_id": 80,
+            "analytics_run_id": 90,
+            "analytics_data_version": "analytics-v1:test",
+            "analytics_owner_isolated": True,
+            "admin_quality_sample_size": 3,
+            "admin_quality_auth": True,
+        }, summary)
+        serialized_summary = json.dumps(summary)
+        for forbidden in ("owner-probe-secret", "peer-probe-secret", "admin-probe-secret", "comment", "question"):
+            self.assertNotIn(forbidden, serialized_summary)
+
+        report_calls = [call for call in calls if "/reports" in call["url"]]
+        self.assertTrue(any(call.get("headers") == peer_headers for call in report_calls))
+        feedback_writes = [
+            call for call in calls
+            if call["url"].endswith("/runs/22/feedback") and call["method"] == "PUT"
+        ]
+        self.assertEqual([0, 1, 1], [call["payload"]["expectedRevision"] for call in feedback_writes])
+        analytics_writes = [
+            call for call in calls if call["url"].endswith("/api/ai/research/from-analytics")
+        ]
+        self.assertEqual([], analytics_writes[0]["payload"]["selectedBucketIds"])
+        self.assertEqual("analytics-v1:test", analytics_writes[0]["payload"]["dataVersion"])
+        quality_calls = [call for call in calls if call["url"].endswith("/api/admin/ai/research/quality")]
+        self.assertEqual([None, owner_headers, admin_headers], [call["headers"] for call in quality_calls])
+
+    def test_phase_three_cancel_probe_accepts_controlled_state_race_only_after_terminal_read(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_script", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+
+        self.assertTrue(deploy_module.analytics_cancel_confirmed(
+            {"code": 200, "data": {"status": "cancelled"}},
+            {"code": 200, "data": {"status": "cancelled"}},
+        ))
+        self.assertTrue(deploy_module.analytics_cancel_confirmed(
+            {"code": 200, "data": {"status": "clarification_needed"}},
+            {"code": 200, "data": {"status": "clarification_needed"}},
+        ))
+        self.assertTrue(deploy_module.analytics_cancel_confirmed(
+            {"code": 409, "data": None},
+            {"code": 200, "data": {"status": "completed"}},
+        ))
+        self.assertTrue(deploy_module.analytics_cancel_confirmed(
+            {"code": 200, "data": {"status": "clarification_needed"}},
+            {"code": 200, "data": {"status": "clarification_needed"}},
+        ))
+        self.assertFalse(deploy_module.analytics_cancel_confirmed(
+            {"code": 409, "data": None},
+            {"code": 200, "data": {"status": "running"}},
+        ))
+        self.assertFalse(deploy_module.analytics_cancel_confirmed(
+            {"code": 401, "data": None},
+            {"code": 200, "data": {"status": "cancelled"}},
+        ))
+
+    def test_phase_three_cancel_diagnostic_keeps_only_safe_business_state_fields(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_script", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+
+        diagnostic = deploy_module.analytics_cancel_diagnostic(
+            200,
+            {"code": 200, "data": {"status": "clarification_needed", "message": "secret"}},
+            200,
+            {"code": 200, "data": {"status": "clarification_needed", "rawResponse": "secret"}},
+        )
+
+        self.assertEqual(
+            "cancelCode=200; cancelStatus=clarification_needed; "
+            "readCode=200; readStatus=clarification_needed",
+            diagnostic,
+        )
+        self.assertNotIn("secret", diagnostic)
+        self.assertNotIn("rawResponse", diagnostic)
 
     def test_candidate_probe_reads_the_atomic_start_receipt_shape(self):
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
@@ -1471,12 +1969,36 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertIn("mysqldump --single-transaction", command)
         self.assertIn("opc_candidate_20260726200000", command)
         self.assertIn("DELETE FROM ai_analysis_runs", command)
+        self.assertIn(
+            "UPDATE ai_model_settings SET agent_enabled=1, "
+            "agent_rollout_state='explicitly_enabled' WHERE id=1 AND enabled=1;",
+            command,
+        )
         self.assertIn("SPRING_DATASOURCE_URL", command)
         creation_sql = command.split("mysql -uroot <<SQL", 1)[1].split("\nSQL\n", 1)[0]
         self.assertNotIn("`", creation_sql)
         self.assertNotIn(candidate.password, command)
         self.assertIn(candidate.password, stdin_text)
         self.assertTrue(candidate.environment_file.startswith("/run/opc-candidate-"))
+
+    def test_candidate_database_commands_use_stable_headerless_output(self):
+        spec = importlib.util.spec_from_file_location("opc_deploy_candidate_mysql", DEPLOY_SCRIPT)
+        deploy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(deploy_module)
+
+        with mock.patch.object(
+            deploy_module,
+            "run",
+            return_value=(0, "1\n1", ""),
+        ) as remote_run:
+            deploy_module.candidate_database_command(
+                object(),
+                "opc_candidate_20260726200000",
+                "SELECT 1; SELECT 1;\n",
+            )
+
+        command = remote_run.call_args.args[1]
+        self.assertIn("mysql --batch --skip-column-names -uroot", command)
 
     def test_candidate_runtime_uses_the_isolated_environment_file(self):
         spec = importlib.util.spec_from_file_location("opc_deploy_script", DEPLOY_SCRIPT)
@@ -1627,6 +2149,10 @@ class DeploymentHardeningTest(unittest.TestCase):
     def test_agent_probe_requires_async_completion_tool_citation_and_database_audit(self):
         deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         body = deploy[deploy.index("def deploy(client):"):deploy.index("def deploy_frontend(client):")]
+        cleanup = deploy[
+            deploy.index("def cleanup_production_probe_data("):
+            deploy.index("def run_phase_three_product_probes(")
+        ]
 
         self.assertIn("/api/ai/research/sessions", body)
         self.assertIn("/api/ai/research/sessions/start", body)
@@ -1657,7 +2183,12 @@ class DeploymentHardeningTest(unittest.TestCase):
         self.assertIn("/api/admin/ai-agent-runs/", body)
         self.assertIn("Disabled QA user reached Agent Runtime", body)
         self.assertIn("Ordinary user reached administrator Agent audit", body)
-        self.assertIn("DELETE FROM ai_agent_sessions", body)
+        self.assertIn("cleanup_production_probe_data(", body)
+        self.assertIn("DELETE session FROM ai_agent_sessions", cleanup)
+        self.assertLess(
+            cleanup.index("DELETE run FROM ai_analysis_runs"),
+            cleanup.index("DELETE session FROM ai_agent_sessions"),
+        )
 
 
 if __name__ == "__main__":

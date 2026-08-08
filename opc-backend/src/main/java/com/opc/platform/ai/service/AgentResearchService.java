@@ -17,6 +17,7 @@ import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.userauth.AuthenticatedUser;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.dao.DuplicateKeyException;
@@ -46,7 +47,10 @@ public class AgentResearchService {
     private final TransactionTemplate transactions;
     private final TaskExecutor executor;
     private final ObjectMapper objectMapper;
+    private final PhaseThreeTaskContextValidator taskContextValidator;
+    private final PhaseThreeSelectedEvidenceValidator selectedEvidenceValidator;
 
+    @Autowired
     public AgentResearchService(
             AgentSessionService sessionService,
             AiAgentMessageMapper messageMapper,
@@ -59,7 +63,8 @@ public class AgentResearchService {
             AgentSessionHistoryService historyService,
             TransactionTemplate transactions,
             @Qualifier("agentTaskExecutor") TaskExecutor executor,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            PhaseThreeSelectedEvidenceValidator selectedEvidenceValidator
     ) {
         this.sessionService = sessionService;
         this.messageMapper = messageMapper;
@@ -73,6 +78,8 @@ public class AgentResearchService {
         this.transactions = transactions;
         this.executor = executor;
         this.objectMapper = objectMapper;
+        this.taskContextValidator = new PhaseThreeTaskContextValidator(objectMapper);
+        this.selectedEvidenceValidator = selectedEvidenceValidator;
     }
 
     public AgentResearchReceipt submit(
@@ -81,6 +88,9 @@ public class AgentResearchService {
             AgentMessageCreateDTO request
     ) {
         validateRequest(request);
+        if (request.getTaskContext() != null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "taskContext 只能在新建研究时提交");
+        }
         String requestedIntent = requestedIntent(request.getRequestedIntent());
         AgentSubmissionIdentity identity = new AgentSubmissionIdentity(
                 "message", hash(request.getContent().trim()), null, 0L, requestedIntent);
@@ -107,15 +117,27 @@ public class AgentResearchService {
 
     public AgentResearchStartReceipt start(AuthenticatedUser user, AgentSessionStartDTO request) {
         validateStartRequest(request);
+        AgentAnalyticsSnapshotBinding analyticsSnapshot = request.getAnalyticsSnapshotBinding();
+        validateAnalyticsSnapshotBinding(analyticsSnapshot);
         String requestedIntent = requestedIntent(request.getRequestedIntent());
+        if (request.getTaskContext() != null && !request.getTaskContext().isNull()
+                && "auto".equals(requestedIntent)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "PHASE3_TASK_INTENT_MISMATCH");
+        }
+        PhaseThreeTaskContext taskContext = normalizeTaskContext(request.getTaskContext(), requestedIntent);
+        PhaseThreeTaskContext finalizedTaskContext = taskContext;
         String profileJson = profilePolicy.canonicalJson(request.getProfile());
         AgentSubmissionIdentity requestedIdentity = new AgentSubmissionIdentity(
                 "session_start",
-                hash(request.getContent().trim()),
+                hash(request.getContent().trim() + analyticsIdentitySuffix(analyticsSnapshot)),
                 profilePolicy.fingerprint(profileJson),
                 0L,
                 requestedIntent
-        );
+        ).withTaskContext(
+                taskContext == null ? null : PhaseThreeTaskContextValidator.VERSION,
+                taskContext == null ? null : taskContext.canonicalJson(),
+                taskContext == null ? null : taskContext.hash())
+                .withAnalyticsSnapshot(analyticsSnapshot);
         AgentRuntimeConfig config = configProvider.agentRuntimeConfig();
         if (!config.enabled()) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Agent Runtime is not enabled");
@@ -123,7 +145,7 @@ public class AgentResearchService {
         AgentResearchReceipt receipt;
         try {
             receipt = transactions.execute(status -> createStartSubmission(
-                    user, request, profileJson, requestedIdentity, config));
+                    user, request, profileJson, requestedIdentity, config, finalizedTaskContext));
         } catch (ReusedSubmissionException exception) {
             receipt = exception.receipt;
         }
@@ -144,8 +166,13 @@ public class AgentResearchService {
                 // The scheduled database worker will claim the durable received run.
             }
         }
+        var sessionView = historyService.view(session);
+        JsonNode storedTaskContext = parseTaskContext(session.getTaskContextJson());
+        String taskType = storedTaskContext != null && storedTaskContext.path("taskType").isTextual()
+                ? storedTaskContext.path("taskType").asText() : requestedIntent;
         return new AgentResearchStartReceipt(
-                historyService.view(session), receipt.messageId(), receipt.runId(), receipt.status());
+                sessionView, receipt.messageId(), receipt.runId(), receipt.status(),
+                taskType, session.getTaskContextHash(), storedTaskContext);
     }
 
     private AgentResearchReceipt createStartSubmission(
@@ -153,15 +180,19 @@ public class AgentResearchService {
             AgentSessionStartDTO request,
             String profileJson,
             AgentSubmissionIdentity requestedIdentity,
-            AgentRuntimeConfig config
+            AgentRuntimeConfig config,
+            PhaseThreeTaskContext taskContext
     ) {
         sessionService.lockHistoryRevision(user);
         AiAnalysisRun existing = runMapper.findAgentByIdempotency(user.userId(), request.getIdempotencyKey());
         if (existing != null) {
-            validateReplay(existing, null, requestedIdentity);
+            validateReplay(user, existing, null, requestedIdentity);
             return receipt(existing);
         }
-        AiAgentSession session = sessionService.create(user, null, profileJson);
+        selectedEvidenceValidator.validate(taskContext);
+        AiAgentSession session = sessionService.create(
+                user, null, profileJson, requestedIdentity.taskContextVersion(),
+                requestedIdentity.taskContextJson(), requestedIdentity.taskContextHash());
         AgentMessageCreateDTO message = new AgentMessageCreateDTO();
         message.setContent(request.getContent());
         message.setIdempotencyKey(request.getIdempotencyKey());
@@ -169,7 +200,9 @@ public class AgentResearchService {
         AgentSubmissionIdentity identity = new AgentSubmissionIdentity(
                 requestedIdentity.kind(), requestedIdentity.contentHash(), requestedIdentity.profileHash(),
                 session.getContentGeneration() == null ? 0L : session.getContentGeneration(),
-                requestedIdentity.requestedIntent());
+                requestedIdentity.requestedIntent(), requestedIdentity.taskContextVersion(),
+                requestedIdentity.taskContextJson(), requestedIdentity.taskContextHash())
+                .withAnalyticsSnapshot(requestedIdentity.analyticsSnapshot());
         Submission submission = createSubmission(user, session.getId(), message, config, identity);
         if (submission.reused()) {
             throw new ReusedSubmissionException(submission.receipt());
@@ -186,7 +219,7 @@ public class AgentResearchService {
     ) {
         AiAnalysisRun existing = runMapper.findAgentByIdempotency(user.userId(), request.getIdempotencyKey());
         if (existing != null) {
-            validateReplay(existing, "message".equals(identity.kind()) ? sessionId : null, identity);
+            validateReplay(user, existing, "message".equals(identity.kind()) ? sessionId : null, identity);
             return new Submission(receipt(existing), null, null, true);
         }
         AiAgentSession session = sessionService.lockOwned(user, sessionId);
@@ -229,7 +262,7 @@ public class AgentResearchService {
         AiAnalysisRun run = lifecycle.enqueue(
                 user, sessionId, userMessage.getId(), request.getIdempotencyKey(), config, identity);
         if (!Objects.equals(run.getUserMessageId(), userMessage.getId())) {
-            validateReplay(run, "message".equals(identity.kind()) ? sessionId : null, identity);
+            validateReplay(user, run, "message".equals(identity.kind()) ? sessionId : null, identity);
             throw new ReusedSubmissionException(receipt(run));
         }
         if (messageMapper.attachRun(userMessage.getId(), run.getId()) != 1) {
@@ -270,6 +303,12 @@ public class AgentResearchService {
         run.setRequestContentHash(identity.contentHash());
         run.setStartProfileHash(identity.profileHash());
         run.setSessionContentGeneration(identity.sessionContentGeneration());
+        AgentAnalyticsSnapshotBinding analyticsSnapshot = identity.analyticsSnapshot();
+        run.setAnalyticsSnapshotId(analyticsSnapshot == null ? null : analyticsSnapshot.snapshotId());
+        run.setAnalyticsMetricId(analyticsSnapshot == null ? null : analyticsSnapshot.metricId());
+        run.setAnalyticsDataVersion(analyticsSnapshot == null ? null : analyticsSnapshot.dataVersion());
+        run.setAnalyticsFiltersJson(analyticsSnapshot == null ? null : analyticsSnapshot.filtersJson());
+        run.setAnalyticsSnapshotJson(analyticsSnapshot == null ? null : analyticsSnapshot.snapshotJson());
         run.setStatus(terminalStatus);
         run.setProvider("not_called");
         run.setModelId("not_called");
@@ -289,7 +328,7 @@ public class AgentResearchService {
         } catch (DuplicateKeyException exception) {
             AiAnalysisRun existing = runMapper.findAgentByIdempotency(user.userId(), idempotencyKey);
             if (existing == null) throw exception;
-            validateReplay(existing, "message".equals(identity.kind()) ? sessionId : null, identity);
+            validateReplay(user, existing, "message".equals(identity.kind()) ? sessionId : null, identity);
             throw new ReusedSubmissionException(receipt(existing));
         }
         return run;
@@ -305,10 +344,13 @@ public class AgentResearchService {
     }
 
     private void validateReplay(
+            AuthenticatedUser user,
             AiAnalysisRun existing,
             Long expectedSessionId,
             AgentSubmissionIdentity expected
     ) {
+        AiAgentSession storedSession = "session_start".equals(expected.kind())
+                ? sessionService.requireOwned(user, existing.getSessionId()) : null;
         String storedKind = StringUtils.hasText(existing.getSubmissionKind())
                 ? existing.getSubmissionKind() : "message";
         String storedContentHash = existing.getRequestContentHash();
@@ -325,7 +367,10 @@ public class AgentResearchService {
                 || value(existing.getSessionContentGeneration()) != expected.sessionContentGeneration()
                 || (expectedSessionId != null && !Objects.equals(existing.getSessionId(), expectedSessionId))
                 || ("session_start".equals(expected.kind())
-                    && !Objects.equals(existing.getStartProfileHash(), expected.profileHash()));
+                    && (!Objects.equals(existing.getStartProfileHash(), expected.profileHash())
+                        || !Objects.equals(storedSession.getTaskContextVersion(), expected.taskContextVersion())
+                        || !taskContextMatches(storedSession, expected)
+                        || !analyticsBindingMatches(existing, expected.analyticsSnapshot())));
         if (mismatch) {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "The idempotency key is already bound to a different research request");
@@ -336,6 +381,58 @@ public class AgentResearchService {
         return value == null ? 0L : value;
     }
 
+    private boolean taskContextMatches(AiAgentSession session, AgentSubmissionIdentity expected) {
+        if (StringUtils.hasText(session.getTaskContextHash()) || StringUtils.hasText(expected.taskContextHash())) {
+            return Objects.equals(session.getTaskContextHash(), expected.taskContextHash());
+        }
+        return Objects.equals(session.getTaskContextJson(), expected.taskContextJson());
+    }
+
+    private boolean analyticsBindingMatches(AiAnalysisRun run, AgentAnalyticsSnapshotBinding binding) {
+        if (binding == null) {
+            return run.getAnalyticsSnapshotId() == null
+                    && run.getAnalyticsMetricId() == null
+                    && run.getAnalyticsDataVersion() == null
+                    && run.getAnalyticsFiltersJson() == null;
+        }
+        return Objects.equals(run.getAnalyticsSnapshotId(), binding.snapshotId())
+                && Objects.equals(run.getAnalyticsMetricId(), binding.metricId())
+                && Objects.equals(run.getAnalyticsDataVersion(), binding.dataVersion())
+                && Objects.equals(run.getAnalyticsFiltersJson(), binding.filtersJson())
+                && Objects.equals(run.getAnalyticsSnapshotJson(), binding.snapshotJson());
+    }
+
+    private void validateAnalyticsSnapshotBinding(AgentAnalyticsSnapshotBinding binding) {
+        if (binding == null) return;
+        if (binding.snapshotId() == null || binding.snapshotId() <= 0
+                || !StringUtils.hasText(binding.metricId()) || !binding.metricId().matches("[A-Za-z0-9._-]{1,80}")
+                || !StringUtils.hasText(binding.dataVersion()) || !binding.dataVersion().matches("[A-Za-z0-9:._-]{1,128}")
+                || !StringUtils.hasText(binding.filtersJson()) || binding.filtersJson().length() > 8000
+                || !StringUtils.hasText(binding.snapshotJson()) || binding.snapshotJson().length() > 16000) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "ANALYTICS_SNAPSHOT_INVALID");
+        }
+        try {
+            JsonNode filters = objectMapper.readTree(binding.filtersJson());
+            JsonNode snapshot = objectMapper.readTree(binding.snapshotJson());
+            if (!filters.isObject() || !snapshot.isObject()
+                    || !binding.metricId().equals(snapshot.path("metricId").asText())
+                    || !binding.dataVersion().equals(snapshot.path("dataVersion").asText())) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "ANALYTICS_SNAPSHOT_INVALID");
+            }
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "ANALYTICS_SNAPSHOT_INVALID");
+        }
+    }
+
+    private String analyticsIdentitySuffix(AgentAnalyticsSnapshotBinding binding) {
+        if (binding == null) return "";
+        return "\nanalyticsSnapshot=" + binding.snapshotId()
+                + "\nmetricId=" + binding.metricId()
+                + "\ndataVersion=" + binding.dataVersion()
+                + "\nfilters=" + binding.filtersJson()
+                + "\nsnapshot=" + binding.snapshotJson();
+    }
+
     private void validateRequest(AgentMessageCreateDTO request) {
         if (request == null || !StringUtils.hasText(request.getContent())
                 || request.getContent().trim().length() > AgentSessionService.MAX_USER_MESSAGE_LENGTH
@@ -343,6 +440,11 @@ public class AgentResearchService {
                 || !request.getIdempotencyKey().matches("[A-Za-z0-9_-]{8,64}")) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "研究消息或幂等键格式无效");
         }
+    }
+
+    private PhaseThreeTaskContext normalizeTaskContext(JsonNode raw, String requestedIntent) {
+        if (raw == null || raw.isNull()) return null;
+        return taskContextValidator.validateAndNormalize(raw, requestedIntent);
     }
 
     private String requestedIntent(String value) {
@@ -363,6 +465,16 @@ public class AgentResearchService {
                     "finalMessageId", messageId, "citationCount", citationCount));
         } catch (JsonProcessingException exception) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "研究审计摘要无法序列化");
+        }
+    }
+
+    private JsonNode parseTaskContext(String value) {
+        if (!StringUtils.hasText(value)) return null;
+        try {
+            JsonNode parsed = objectMapper.readTree(value);
+            return parsed.isObject() ? parsed : null;
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Stored research context is invalid");
         }
     }
 

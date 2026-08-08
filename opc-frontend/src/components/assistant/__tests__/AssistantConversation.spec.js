@@ -12,6 +12,38 @@ function setScrollGeometry(element, { scrollHeight = 1000, clientHeight = 400, s
 }
 
 describe('AssistantConversation incoming scroll behavior', () => {
+  it('renders a user message exactly once without the assistant Markdown branch', () => {
+    const wrapper = mount(AssistantConversation, {
+      props: { messages: [{ messageId: 10, role: 'user', content: 'USER_ONLY_CONTENT' }] },
+    })
+
+    expect(wrapper.findAll('.message.is-user > p')).toHaveLength(1)
+    expect(wrapper.find('.message.is-user .assistant-markdown').exists()).toBe(false)
+    expect(wrapper.text().match(/USER_ONLY_CONTENT/g)).toHaveLength(1)
+  })
+
+  it('renders a supported structured result and keeps unknown result versions on the safe Markdown path', async () => {
+    const structuredResult = {
+      schemaVersion: 'phase3-structured-result-v1', taskType: 'policy_lookup', directAnswer: '当前政策适用于早期创业团队。',
+      keyFindings: [], recommendations: [], risks: [], assumptions: [], uncertainties: [], nextQuestions: [],
+      citations: [{ sourceId: 9, title: '政策原文', publisher: '公开发布者', url: 'https://example.gov.cn/policy', evidenceRevision: 1, availability: 'current' }],
+      evidenceCoverage: { factClaimCount: 1, citedFactClaimCount: 1, missingEvidenceFactCount: 0, ratio: 1 },
+      confidence: 'high', evidenceVersion: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', dataVersion: null,
+      generatedAt: '2026-08-01T12:00:00+08:00', taskResult: { type: 'policy_lookup' },
+    }
+    const wrapper = mount(AssistantConversation, {
+      props: { messages: [{ messageId: 1, role: 'assistant', content: '旧版兼容正文', structuredResult }] },
+    })
+
+    expect(wrapper.get('[data-testid="structured-result"]').text()).toContain('当前政策适用于早期创业团队。')
+    await wrapper.get('[data-testid="structured-result-citations"]').trigger('click')
+    expect(wrapper.emitted('citations')[0][0].citations).toEqual(structuredResult.citations)
+
+    await wrapper.setProps({ messages: [{ messageId: 2, role: 'assistant', content: '**保留的 Markdown 正文**', structuredResult: { ...structuredResult, schemaVersion: 'future-result-v2' } }] })
+    expect(wrapper.find('[data-testid="structured-result"]').exists()).toBe(false)
+    expect(wrapper.get('.assistant-markdown').text()).toContain('保留的 Markdown 正文')
+  })
+
   it('emits the server intent paired with each starter prompt', async () => {
     const wrapper = mount(AssistantConversation, { props: { draftMode: true } })
 

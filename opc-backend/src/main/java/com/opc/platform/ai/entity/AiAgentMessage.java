@@ -1,6 +1,7 @@
 package com.opc.platform.ai.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -20,5 +21,9 @@ public class AiAgentMessage {
     private Integer sequenceNo;
     private Long runId;
     private String citationsJson;
+    @TableField(exist = false)
+    private String structuredResultJson;
+    @TableField(exist = false)
+    private String analyticsSnapshotJson;
     private LocalDateTime createdAt;
 }

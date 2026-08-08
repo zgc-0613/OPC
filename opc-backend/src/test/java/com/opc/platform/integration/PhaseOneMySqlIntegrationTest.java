@@ -1,9 +1,11 @@
 package com.opc.platform.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.opc.platform.adminauth.AuthenticatedAdmin;
 import com.opc.platform.ai.dto.CaseAnalysisRequestDTO;
 import com.opc.platform.ai.dto.AgentMessageCreateDTO;
+import com.opc.platform.ai.contract.AgentResearchContract;
 import com.opc.platform.ai.dto.AgentSessionStartDTO;
 import com.opc.platform.ai.dto.AgentSessionUpdateDTO;
 import com.opc.platform.ai.dto.EvidenceReviewBatchItemDTO;
@@ -12,6 +14,7 @@ import com.opc.platform.ai.dto.EvidenceReviewQueryDTO;
 import com.opc.platform.ai.dto.EvidenceReviewUpdateDTO;
 import com.opc.platform.ai.entity.AiAnalysisRun;
 import com.opc.platform.ai.entity.AiAgentToolCall;
+import com.opc.platform.ai.entity.AiAgentProviderCall;
 import com.opc.platform.ai.exception.AgentHistoryCursorStaleException;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
@@ -36,6 +39,9 @@ import com.opc.platform.ai.service.AgentRunFinalizer;
 import com.opc.platform.ai.service.AgentRunLifecycleService;
 import com.opc.platform.ai.service.AgentProviderSettlementService;
 import com.opc.platform.ai.service.AgentRunEvidenceService;
+import com.opc.platform.ai.service.AnalyticsOverviewService;
+import com.opc.platform.ai.service.AnalyticsSnapshotMaterial;
+import com.opc.platform.ai.service.AnalyticsResearchStartService;
 import com.opc.platform.ai.mapper.AiAgentProviderCallMapper;
 import com.opc.platform.ai.service.CaseAnalysisService;
 import com.opc.platform.ai.service.EvidenceReviewService;
@@ -44,6 +50,7 @@ import com.opc.platform.ai.tool.AgentToolContext;
 import com.opc.platform.ai.tool.AgentToolException;
 import com.opc.platform.ai.tool.AgentToolRegistry;
 import com.opc.platform.caseitem.dto.CaseItemCreateDTO;
+import com.opc.platform.caseitem.dto.CaseItemQueryDTO;
 import com.opc.platform.caseitem.dto.CaseItemUpdateDTO;
 import com.opc.platform.caseitem.mapper.CaseItemMapper;
 import com.opc.platform.caseitem.service.CaseItemService;
@@ -66,6 +73,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -157,12 +165,14 @@ class PhaseOneMySqlIntegrationTest {
     @Autowired private AgentRunLifecycleService agentRunLifecycleService;
     @Autowired private AgentProviderSettlementService agentProviderSettlementService;
     @Autowired private AgentRunEvidenceService agentRunEvidenceService;
+    @Autowired private AnalyticsOverviewService analyticsOverviewService;
+    @Autowired private AnalyticsResearchStartService analyticsResearchStartService;
 
     @BeforeEach
     void resetDatabase() {
         jdbc.execute("SET FOREIGN_KEY_CHECKS=0");
         try {
-            for (String table : List.of("ai_agent_content_purge_audits", "ai_agent_provider_calls", "ai_agent_tool_calls", "ai_agent_messages", "ai_agent_sessions", "platform_users",
+            for (String table : List.of("ai_analytics_snapshots", "ai_agent_content_purge_audits", "ai_agent_provider_calls", "ai_agent_tool_calls", "ai_agent_messages", "ai_agent_sessions", "platform_users",
                     "policy_industry_tags", "case_tags", "policy_tags", "tag_aliases",
                     "ai_evidence_reviews", "ai_analysis_runs", "ai_model_settings",
                     "case_items", "policies", "tags", "regions", "sources")) {
@@ -264,6 +274,169 @@ class PhaseOneMySqlIntegrationTest {
                 "SELECT title_mode FROM ai_agent_sessions WHERE id=11", String.class));
         assertNotNull(jdbc.queryForObject(
                 "SELECT archived_at FROM ai_agent_sessions WHERE id=10", LocalDateTime.class));
+    }
+
+    @Test
+    void phaseThreeTaskContextMigrationIsRepeatableAndPostchecked() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        runAssistantWorkspaceMigration();
+        runAssistantWorkspaceStabilizationMigration();
+        runAssistantHistoryRevisionMigration();
+        runAgentMultiroundBudgetMigration();
+        jdbc.execute("ALTER TABLE ai_analysis_runs DROP COLUMN task_context_hash");
+        jdbc.execute("ALTER TABLE ai_analysis_runs DROP COLUMN task_context_json");
+        jdbc.execute("ALTER TABLE ai_analysis_runs DROP COLUMN task_context_version");
+
+        Map<String, Object> precheck = jdbc.queryForMap(Files.readString(
+                Path.of("..", "deploy", "sql", "20260801_phase_three_task_context_precheck.sql")));
+        assertEquals(2, ((Number) precheck.get("required_tables")).intValue());
+        assertEquals(0, ((Number) precheck.get("existing_task_context_columns")).intValue());
+
+        runPhaseThreeTaskContextMigration();
+        runPhaseThreeTaskContextMigration();
+
+        Map<String, Object> postcheck = jdbc.queryForMap(Files.readString(
+                Path.of("..", "deploy", "sql", "20260801_phase_three_task_context_postcheck.sql")));
+        assertEquals(3, ((Number) postcheck.get("session_context_columns")).intValue());
+        assertEquals(0, ((Number) postcheck.get("run_context_columns")).intValue());
+        assertEquals(1, ((Number) postcheck.get("task_context_indexes")).intValue());
+        assertEquals(0, ((Number) postcheck.get("incomplete_session_contexts")).intValue());
+    }
+
+    @Test
+    void phaseThreeAnalyticsSnapshotMigrationIsRepeatableAndPreservesOwnerIdempotency() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        runAssistantWorkspaceMigration();
+        runAssistantWorkspaceStabilizationMigration();
+        runAssistantHistoryRevisionMigration();
+        runAgentMultiroundBudgetMigration();
+        runPhaseThreeTaskContextMigration();
+
+        Map<String, Object> precheck = jdbc.queryForMap(Files.readString(
+                Path.of("..", "deploy", "sql", "20260801_phase_three_analytics_snapshots_precheck.sql")));
+        assertEquals(2, ((Number) precheck.get("required_tables")).intValue());
+        assertEquals(0, ((Number) precheck.get("existing_snapshot_table")).intValue());
+        assertEquals(0, ((Number) precheck.get("existing_snapshot_columns")).intValue());
+        assertEquals(0, ((Number) precheck.get("existing_run_snapshot_columns")).intValue());
+
+        runPhaseThreeAnalyticsSnapshotMigration();
+        runPhaseThreeAnalyticsSnapshotMigration();
+
+        Map<String, Object> postcheck = jdbc.queryForMap(Files.readString(
+                Path.of("..", "deploy", "sql", "20260801_phase_three_analytics_snapshots_postcheck.sql")));
+        assertEquals(1, ((Number) postcheck.get("snapshot_table")).intValue());
+        assertEquals(15, ((Number) postcheck.get("snapshot_columns")).intValue());
+        assertEquals(4, ((Number) postcheck.get("snapshot_indexes")).intValue());
+        assertEquals(5, ((Number) postcheck.get("run_snapshot_columns")).intValue());
+        assertEquals(2, ((Number) postcheck.get("run_snapshot_indexes")).intValue());
+
+        jdbc.update("""
+                INSERT INTO ai_analytics_snapshots
+                    (user_id,metric_id,normalized_filters_json,selected_bucket_ids_json,data_version,
+                     snapshot_json,snapshot_hash,idempotency_key,request_hash,expires_at)
+                VALUES (42,'overview.verified_cases',JSON_OBJECT(),JSON_ARRAY('overview.verified_cases'),
+                        'analytics-v1:current',JSON_OBJECT(),REPEAT('a',64),'analytics-snapshot-1',
+                        REPEAT('b',64),DATE_ADD(NOW(6), INTERVAL 30 MINUTE))
+                """);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
+                INSERT INTO ai_analytics_snapshots
+                    (user_id,metric_id,normalized_filters_json,selected_bucket_ids_json,data_version,
+                     snapshot_json,snapshot_hash,idempotency_key,request_hash,expires_at)
+                VALUES (42,'overview.verified_cases',JSON_OBJECT(),JSON_ARRAY('overview.verified_cases'),
+                        'analytics-v1:current',JSON_OBJECT(),REPEAT('c',64),'analytics-snapshot-1',
+                        REPEAT('d',64),DATE_ADD(NOW(6), INTERVAL 30 MINUTE))
+                """));
+    }
+
+    @Test
+    void analyticsResearchStartRollsBackTheSnapshotAndRunWhenTheFinalLinkCannotPersist() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        runAssistantWorkspaceMigration();
+        runAssistantWorkspaceStabilizationMigration();
+        runAssistantHistoryRevisionMigration();
+        runAgentMultiroundBudgetMigration();
+        runPhaseThreeTaskContextMigration();
+        runPhaseThreeAnalyticsSnapshotMigration();
+        jdbc.update("INSERT INTO platform_users (id,username,email,status) VALUES (42,'owner','owner@example.com','active')");
+        jdbc.update("""
+                UPDATE ai_model_settings
+                SET enabled=1, agent_enabled=1, agent_rollout_state='explicitly_enabled',
+                    agent_rollout_changed_at=NOW(6), agent_rollout_changed_by_admin_id=1
+                WHERE id=1
+                """);
+        AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
+        ObjectMapper objectMapper = new ObjectMapper();
+        String dataVersion = analyticsOverviewService.overview(owner).dataVersion();
+        var request = objectMapper.createObjectNode();
+        request.put("metricId", "overview.verified_cases");
+        request.set("filters", objectMapper.createObjectNode());
+        request.putArray("selectedBucketIds");
+        request.put("dataVersion", dataVersion);
+        request.put("userQuestion", "Use the verified cases overview as a bounded research condition.");
+        request.put("idempotencyKey", "analytics-atomic-1");
+        jdbc.execute("ALTER TABLE ai_analytics_snapshots DROP COLUMN run_id");
+
+        assertThrows(DataAccessException.class, () -> analyticsResearchStartService.start(owner, request));
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM ai_analytics_snapshots", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM ai_agent_sessions", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM ai_analysis_runs", Integer.class));
+    }
+
+    @Test
+    void industryAnalyticsUsesOnlyEligibleSourceChainsAndPreservesMultiLabelBuckets() throws Exception {
+        insertSource(1L, "Eligible source one", "published", "verified", 2L);
+        insertSource(2L, "Eligible source two", "published", "verified", 1L);
+        insertSource(3L, "Eligible source three", "published", "verified", 1L);
+        insertSource(4L, "Unverified source", "published", "legacy_unverified", 0L);
+        insertCase(11L, 1L, "AI service case", "verified", 2L);
+        insertCase(12L, 2L, "Enterprise service case", "verified", 1L);
+        insertCase(13L, 3L, "Unclassified eligible case", "verified", 1L);
+        insertCase(14L, 4L, "Ineligible source case", "verified", 1L);
+        jdbc.update("INSERT INTO tags (id,name,tag_type,is_industry,sort_order) VALUES (701,'人工智能服务','case',1,1),(702,'企业服务','case',1,2)");
+        jdbc.update("INSERT INTO case_tags (case_id,tag_id) VALUES (11,701),(11,702),(12,702),(14,701)");
+
+        AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
+        var response = analyticsOverviewService.industries(owner, "industry.case_count", List.of());
+
+        assertEquals("partial", response.status());
+        assertEquals(2L, response.sampleSize());
+        assertEquals(1L, response.missingCount());
+        assertEquals(3L, response.totalEligible());
+        assertEquals("industry:702", response.buckets().get(0).bucketId());
+        assertEquals(2L, response.buckets().get(0).value());
+        assertEquals("industry:701", response.buckets().get(1).bucketId());
+        assertEquals(1L, response.buckets().get(1).value());
+
+        AnalyticsSnapshotMaterial material = analyticsOverviewService.rebuildSnapshot(
+                "industry.case_count",
+                new ObjectMapper().createObjectNode().put("industryTagId", 701L),
+                List.of("industry:701"));
+        JsonNode payload = new ObjectMapper().readTree(material.payloadJson());
+        assertEquals("industry:701", payload.path("buckets").get(0).path("bucketId").asText());
+        assertEquals(response.dataVersion(), material.dataVersion());
+    }
+
+    @Test
+    void publicCaseListFiltersByTheExactIndustryTagRelation() {
+        insertSource(1L, "AI source", "published", "verified", 1L);
+        insertSource(2L, "Enterprise source", "published", "verified", 1L);
+        insertCase(11L, 1L, "AI service case", "verified", 1L);
+        insertCase(12L, 2L, "Enterprise service case", "verified", 1L);
+        jdbc.update("INSERT INTO tags (id,name,tag_type,is_industry,sort_order) VALUES (701,'人工智能服务','case',1,1),(702,'企业服务','case',1,2)");
+        jdbc.update("INSERT INTO case_tags (case_id,tag_id) VALUES (11,701),(12,702)");
+        CaseItemQueryDTO query = new CaseItemQueryDTO();
+        query.setIndustryTagId(701L);
+
+        var result = caseItemService.listPublicCaseItems(query);
+
+        assertEquals(List.of(11L), result.stream().map(item -> item.getId()).toList());
     }
 
     @Test
@@ -893,6 +1066,84 @@ class PhaseOneMySqlIntegrationTest {
     }
 
     @Test
+    void reclaimingWithTheSameOwnerRejectsThePreviousAttemptStageWrite() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeMigration();
+        runAgentRuntimeStabilizationMigration();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
+        jdbc.update("INSERT INTO ai_agent_sessions (id,user_id,title,status) VALUES (10,42,'Lease generation','active')");
+        jdbc.update("INSERT INTO ai_agent_messages (id,session_id,role,content,status,sequence_no) "
+                + "VALUES (20,10,'user','Research','completed',1)");
+        jdbc.update("""
+                INSERT INTO ai_analysis_runs (
+                  id,user_id,task_type,session_id,user_message_id,idempotency_key,status,
+                  provider,model_id,prompt_version,evidence_hash,reserved_tokens,deadline_at,
+                  current_stage,visible_progress,settlement_status
+                ) VALUES (
+                  30,42,'agent_research',10,20,'idem-generation-123','received',
+                  'fake','fake-agent','agent-research-v1',REPEAT('a',64),8000,
+                  ?,'received','queued','reserved'
+                )
+                """, LocalDateTime.now().plusMinutes(2));
+
+        AiAnalysisRun first = agentRunQueueService.claimNext("worker-a");
+        assertNotNull(first);
+        jdbc.update("""
+                INSERT INTO ai_agent_provider_calls (
+                  id,analysis_run_id,round_no,internal_request_id,settlement_status,reserved_tokens,
+                  prompt_tokens,completion_tokens,total_tokens,latency_ms,dispatched_at
+                ) VALUES (301,30,1,'first-attempt-provider-call','provider_dispatched',100,0,0,0,0,?)
+                """, LocalDateTime.now());
+        jdbc.update("UPDATE ai_analysis_runs SET lease_expires_at=DATE_SUB(NOW(6),INTERVAL 1 SECOND) WHERE id=30");
+        AiAnalysisRun second = agentRunQueueService.claimNext("worker-a");
+        assertNotNull(second);
+        assertEquals(2, second.getExecutionAttempts());
+
+        LocalDateTime staleAt = LocalDateTime.now();
+        int staleWrite = runMapper.updateAgentStageFenced(
+                first.getId(), "worker-a", first.getExecutionAttempts(),
+                "stale_stage", "stale", 99, 99, staleAt);
+        int staleUsage = runMapper.recordAgentUsageFenced(
+                first.getId(), "worker-a", first.getExecutionAttempts(),
+                10, 5, 15, 20, "late-response", "stop", staleAt);
+        int staleComplete = runMapper.settleAgentCompletedFenced(
+                first.getId(), "worker-a", first.getExecutionAttempts(), "completed",
+                10, 5, 15, 20, "late-response", "stop", 2, 1,
+                "{\"late\":true}", null, staleAt);
+        int staleFailure = runMapper.settleAgentFailedFenced(
+                first.getId(), "worker-a", first.getExecutionAttempts(), "failed", "stale",
+                "UPSTREAM_ERROR", "LATE", 2, 1, staleAt);
+        AiAgentProviderCall staleProviderCall = new AiAgentProviderCall();
+        staleProviderCall.setAnalysisRunId(first.getId());
+        staleProviderCall.setRoundNo(1);
+        staleProviderCall.setInternalRequestId("old-attempt-provider-call");
+        staleProviderCall.setSettlementStatus("provider_dispatched");
+        staleProviderCall.setReservedTokens(100);
+        staleProviderCall.setPromptTokens(0);
+        staleProviderCall.setCompletionTokens(0);
+        staleProviderCall.setTotalTokens(0);
+        staleProviderCall.setLatencyMs(0L);
+        staleProviderCall.setDispatchedAt(staleAt);
+        int staleProviderInsert = agentProviderCallMapper.insertGuardedFenced(
+                staleProviderCall, "worker-a", first.getExecutionAttempts(), staleAt);
+        int staleProviderSettlement = agentProviderCallMapper.settleActualFenced(
+                301L, "worker-a", first.getExecutionAttempts(), 10, 5, 15, 20,
+                "late-response", "stop", staleAt);
+        int staleProviderEstimate = agentProviderCallMapper.markDispatchedEstimatedFenced(
+                first.getId(), "worker-a", first.getExecutionAttempts(), staleAt);
+
+        assertEquals(0, staleWrite);
+        assertEquals(0, staleUsage);
+        assertEquals(0, staleComplete);
+        assertEquals(0, staleFailure);
+        assertEquals(0, staleProviderInsert);
+        assertEquals(0, staleProviderSettlement);
+        assertEquals(0, staleProviderEstimate);
+        assertEquals("planning", jdbc.queryForObject(
+                "SELECT current_stage FROM ai_analysis_runs WHERE id=30", String.class));
+    }
+
+    @Test
     void hubeiClarificationResolvesRealRegionAndDoesNotAskAgain() throws Exception {
         jdbc.update("DELETE FROM regions");
         jdbc.update("INSERT INTO regions (id,name,level,parent_id) VALUES " +
@@ -1405,6 +1656,40 @@ class PhaseOneMySqlIntegrationTest {
     }
 
     @Test
+    void completedStructuredResultIsReturnedByInitialAndPaginatedMessageHistory() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeWorkspaceMigrations();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
+        AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
+        var session = agentSessionService.create(owner, "Structured history", null);
+        var userMessage = agentSessionService.appendMessage(
+                owner, session.getId(), "user", "Research question", "completed", null, null);
+        jdbc.update("""
+                INSERT INTO ai_analysis_runs (
+                  user_id,task_type,session_id,user_message_id,idempotency_key,status,
+                  provider,model_id,prompt_version,evidence_hash,current_stage,visible_progress,
+                  result_json,completed_at
+                ) VALUES (42,'agent_research',?,?,?,'completed','deepseek','deepseek-chat',
+                  'agent-research-v2',REPEAT('c',64),'completed','Completed',?,CURRENT_TIMESTAMP(6))
+                """, session.getId(), userMessage.getId(), "idem-structured-history",
+                "{\"structuredResult\":{\"schemaVersion\":\"phase3-structured-result-v1\",\"directAnswer\":\"Frozen history answer\"}}");
+        Long runId = jdbc.queryForObject(
+                "SELECT id FROM ai_analysis_runs WHERE idempotency_key='idem-structured-history'",
+                Long.class);
+        agentSessionService.appendMessage(
+                owner, session.getId(), "assistant", "Legacy visible answer", "completed", runId, "[]");
+
+        var initial = agentResearchQueryService.sessionDetail(owner, session.getId());
+        var paginated = agentSessionHistoryService.messages(owner, session.getId(), null, 50);
+
+        assertEquals("Frozen history answer", initial.messages().get(1).structuredResult()
+                .path("directAnswer").asText());
+        assertEquals("Frozen history answer", paginated.items().get(1).structuredResult()
+                .path("directAnswer").asText());
+        assertEquals(null, initial.messages().get(0).structuredResult());
+    }
+
+    @Test
     void searchCasesToolReturnsOnlyPublishedVerifiedEvidence() throws Exception {
         jdbc.execute("""
                 CREATE TABLE platform_users (
@@ -1866,6 +2151,69 @@ class PhaseOneMySqlIntegrationTest {
     }
 
     @Test
+    void initialTaskContextIsPersistedReadBackAndBoundToIdempotency() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeWorkspaceMigrations();
+        jdbc.update("INSERT INTO platform_users (id,username,email,status) VALUES (42,'owner','owner@example.com','active')");
+        jdbc.update("""
+                UPDATE ai_model_settings
+                SET enabled=1, agent_enabled=1, agent_rollout_state='explicitly_enabled',
+                    agent_rollout_changed_at=NOW(6), agent_rollout_changed_by_admin_id=1
+                WHERE id=1
+                """);
+        AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
+        AgentSessionStartDTO request = new AgentSessionStartDTO();
+        request.setContent("Research a constrained startup opportunity");
+        request.setIdempotencyKey("idem-task-context-1");
+        request.setRequestedIntent("general_research");
+        request.setTaskContext(new ObjectMapper().readTree("""
+                {"version":"phase3-task-v1","taskType":"general_research",
+                 "caseIds":[],"comparisonDimensions":[],"outputDepth":"standard",
+                 "constraints":"budget limited"}
+                """));
+
+        var first = agentResearchService.start(owner, request);
+        Map<String, Object> firstSessionRow = jdbc.queryForMap("""
+                SELECT task_context_version, CAST(task_context_json AS CHAR) AS task_context_json,
+                       task_context_hash
+                FROM ai_agent_sessions WHERE id=?
+                """, first.session().sessionId());
+        assertTrue(String.valueOf(firstSessionRow.get("task_context_hash")).length() >= 32);
+        Map<String, Object> sessionRow = jdbc.queryForMap("""
+                SELECT task_context_version, CAST(task_context_json AS CHAR) AS task_context_json,
+                       task_context_hash
+                FROM ai_agent_sessions WHERE id=?
+                """, first.session().sessionId());
+        assertEquals("phase3-task-v1", sessionRow.get("task_context_version"));
+        assertTrue(String.valueOf(sessionRow.get("task_context_json")).contains("general_research"));
+        assertEquals("general_research", first.taskType());
+        assertEquals(sessionRow.get("task_context_hash"), first.taskContextHash());
+        assertEquals("general_research", first.taskContext().path("taskType").asText());
+        assertEquals("general_research", agentResearchQueryService.sessionDetail(owner, first.session().sessionId())
+                .session().taskContext().path("taskType").asText());
+        assertEquals(sessionRow.get("task_context_hash"), agentResearchQueryService.run(owner, first.runId())
+                .taskContextHash());
+
+        AgentSessionStartDTO replay = new AgentSessionStartDTO();
+        replay.setContent(request.getContent());
+        replay.setIdempotencyKey(request.getIdempotencyKey());
+        replay.setRequestedIntent("general_research");
+        replay.setTaskContext(new ObjectMapper().readTree("""
+                {"comparisonDimensions":[],"constraints":"budget limited","caseIds":[],
+                 "taskType":"general_research","version":"phase3-task-v1","outputDepth":"standard"}
+                """));
+        var replayed = agentResearchService.start(owner, replay);
+        assertEquals(first.runId(), replayed.runId());
+
+        replay.setTaskContext(new ObjectMapper().readTree("""
+                {"version":"phase3-task-v1","taskType":"general_research",
+                 "caseIds":[],"comparisonDimensions":[],"outputDepth":"deep"}
+                """));
+        assertEquals(ErrorCode.CONFLICT, assertThrows(BusinessException.class,
+                () -> agentResearchService.start(owner, replay)).getErrorCode());
+    }
+
+    @Test
     void clarificationRunIsZeroTokenAuditedAndIdempotentWithoutCallingProvider() throws Exception {
         jdbc.execute("""
                 CREATE TABLE platform_users (
@@ -2173,9 +2521,28 @@ class PhaseOneMySqlIntegrationTest {
         agentResearchQueryService.cancel(owner, runId);
         assertEquals(0, runMapper.settleAgentCompleted(
                 runId, "completed", 10, 5, 15, 20, "late-request", "stop", 2, 1,
-                "{\"citationCount\":1}", LocalDateTime.now()));
+                "{\"citationCount\":1}", null, LocalDateTime.now()));
         assertEquals("cancelled", jdbc.queryForObject(
                 "SELECT status FROM ai_analysis_runs WHERE id=?", String.class, runId));
+    }
+
+    @Test
+    void completedAgentRunPersistsDiagnosticCodeForAdminObservation() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeWorkspaceMigrations();
+        jdbc.update("INSERT INTO platform_users (id,username,status) VALUES (42,'owner','active')");
+        AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
+        var session = agentSessionService.create(owner, "Diagnostic persistence", null);
+        var message = agentSessionService.appendMessage(owner, session.getId(), "user", "Question", "completed", null, null);
+        Long runId = insertRunningAgentRun(session.getId(), message.getId(), "idem-diagnostic-123", 'e');
+
+        assertEquals(1, runMapper.settleAgentCompleted(
+                runId, "completed", 20, 10, 30, 50, "fallback-request", "length", 2, 1,
+                "{\"diagnosticCode\":\"FINAL_RESPONSE_TRUNCATED_FALLBACK\"}",
+                AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK, LocalDateTime.now()));
+        assertEquals(AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK,
+                jdbc.queryForObject("SELECT diagnostic_code FROM ai_analysis_runs WHERE id=?",
+                        String.class, runId));
     }
 
     @Test
@@ -2746,7 +3113,7 @@ class PhaseOneMySqlIntegrationTest {
         jdbc.execute("CREATE TABLE policy_industry_tags (id BIGINT PRIMARY KEY AUTO_INCREMENT,policy_id BIGINT NOT NULL,industry_tag_id BIGINT NOT NULL,created_at DATETIME DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uk_policy_industry_policy_tag(policy_id,industry_tag_id))");
         jdbc.execute("CREATE TABLE tag_aliases (id BIGINT PRIMARY KEY AUTO_INCREMENT,tag_id BIGINT NOT NULL,alias VARCHAR(100) NOT NULL,normalized_alias VARCHAR(100) NOT NULL,created_at DATETIME DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uk_tag_aliases_normalized(normalized_alias))");
         jdbc.execute("CREATE TABLE ai_evidence_reviews (id BIGINT PRIMARY KEY AUTO_INCREMENT,item_type VARCHAR(20) NOT NULL,item_id BIGINT NOT NULL,previous_status VARCHAR(30) NOT NULL,new_status VARCHAR(30) NOT NULL,admin_id BIGINT NOT NULL,admin_username VARCHAR(100) NOT NULL,notes VARCHAR(500),action_type VARCHAR(50),reason VARCHAR(500),operation_id VARCHAR(64),created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))");
-        jdbc.execute("CREATE TABLE ai_analysis_runs (id BIGINT PRIMARY KEY AUTO_INCREMENT,user_id BIGINT NOT NULL,task_type VARCHAR(40) NOT NULL,case_id BIGINT,session_id BIGINT,user_message_id BIGINT,idempotency_key VARCHAR(64),status VARCHAR(30) NOT NULL,active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status='running' THEN user_id ELSE NULL END) STORED,session_active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status='running' THEN session_id ELSE NULL END) STORED,result_json JSON,provider VARCHAR(40) NOT NULL,model_id VARCHAR(191) NOT NULL,prompt_version VARCHAR(60) NOT NULL,evidence_hash CHAR(64) NOT NULL,prompt_tokens INT NOT NULL DEFAULT 0,completion_tokens INT NOT NULL DEFAULT 0,total_tokens INT NOT NULL DEFAULT 0,reserved_tokens BIGINT NOT NULL DEFAULT 0,started_at DATETIME(6),deadline_at DATETIME(6),heartbeat_at DATETIME(6),latency_ms BIGINT NOT NULL DEFAULT 0,provider_request_id VARCHAR(191),finish_reason VARCHAR(40),response_hash CHAR(64),error_type VARCHAR(80),diagnostic_code VARCHAR(80),step_count INT NOT NULL DEFAULT 0,tool_call_count INT NOT NULL DEFAULT 0,current_stage VARCHAR(40),visible_progress VARCHAR(120),cancelled_at DATETIME(6),completed_at DATETIME(6),created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),UNIQUE KEY uk_running(active_guard),UNIQUE KEY uk_session_running(session_active_guard),UNIQUE KEY uk_idempotency(user_id,task_type,idempotency_key)) ENGINE=InnoDB");
+        jdbc.execute("CREATE TABLE ai_analysis_runs (id BIGINT PRIMARY KEY AUTO_INCREMENT,user_id BIGINT NOT NULL,task_type VARCHAR(40) NOT NULL,case_id BIGINT,session_id BIGINT,user_message_id BIGINT,idempotency_key VARCHAR(64),status VARCHAR(30) NOT NULL,active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status='running' THEN user_id ELSE NULL END) STORED,session_active_guard BIGINT GENERATED ALWAYS AS (CASE WHEN status='running' THEN session_id ELSE NULL END) STORED,result_json JSON,provider VARCHAR(40) NOT NULL,model_id VARCHAR(191) NOT NULL,prompt_version VARCHAR(60) NOT NULL,evidence_hash CHAR(64) NOT NULL,prompt_tokens INT NOT NULL DEFAULT 0,completion_tokens INT NOT NULL DEFAULT 0,total_tokens INT NOT NULL DEFAULT 0,reserved_tokens BIGINT NOT NULL DEFAULT 0,started_at DATETIME(6),deadline_at DATETIME(6),heartbeat_at DATETIME(6),latency_ms BIGINT NOT NULL DEFAULT 0,provider_request_id VARCHAR(191),finish_reason VARCHAR(40),response_hash CHAR(64),error_type VARCHAR(80),diagnostic_code VARCHAR(80),step_count INT NOT NULL DEFAULT 0,tool_call_count INT NOT NULL DEFAULT 0,current_stage VARCHAR(40),visible_progress VARCHAR(120),cancelled_at DATETIME(6),completed_at DATETIME(6),task_context_version VARCHAR(40) NULL,task_context_json JSON NULL,task_context_hash CHAR(64) NULL,created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),UNIQUE KEY uk_running(active_guard),UNIQUE KEY uk_session_running(session_active_guard),UNIQUE KEY uk_idempotency(user_id,task_type,idempotency_key)) ENGINE=InnoDB");
         jdbc.execute("ALTER TABLE ai_analysis_runs ADD COLUMN requested_intent VARCHAR(40) NOT NULL DEFAULT 'auto' AFTER task_type");
         jdbc.execute("CREATE TABLE ai_model_settings (id BIGINT PRIMARY KEY,provider VARCHAR(40) NOT NULL,api_format VARCHAR(40) NOT NULL,api_base_url VARCHAR(500),model_id VARCHAR(191),model_catalog_json JSON,api_key_ciphertext TEXT,api_key_provider VARCHAR(40),api_key_origin VARCHAR(500),temperature DECIMAL(4,3) NOT NULL,max_output_tokens INT NOT NULL,timeout_seconds INT NOT NULL,retry_count INT NOT NULL,daily_token_quota BIGINT NOT NULL,enabled TINYINT(1) NOT NULL,agent_enabled TINYINT(1) NOT NULL DEFAULT 0,agent_rollout_state VARCHAR(30) NOT NULL DEFAULT 'explicitly_disabled',agent_rollout_changed_at DATETIME(6),agent_rollout_changed_by_admin_id BIGINT,agent_max_model_rounds INT NOT NULL DEFAULT 4,agent_max_tool_calls INT NOT NULL DEFAULT 6,agent_max_tokens INT NOT NULL DEFAULT 8000,agent_history_window INT NOT NULL DEFAULT 12,agent_timeout_seconds INT NOT NULL DEFAULT 120,agent_tool_mode VARCHAR(20) NOT NULL DEFAULT 'json_plan',last_test_status VARCHAR(30) NOT NULL,last_tested_at DATETIME,last_test_message VARCHAR(240),updated_by_admin_id BIGINT,updated_by_admin_username VARCHAR(100),created_at DATETIME DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
         jdbc.update("INSERT INTO ai_model_settings (id,provider,api_format,temperature,max_output_tokens,timeout_seconds,retry_count,daily_token_quota,enabled,agent_enabled,agent_max_model_rounds,agent_max_tool_calls,agent_max_tokens,agent_history_window,agent_timeout_seconds,agent_tool_mode,last_test_status) VALUES (1,'deepseek','openai_compatible',0.2,1200,30,1,100000,0,0,4,6,8000,12,120,'json_plan','not_tested')");
@@ -2807,6 +3174,47 @@ class PhaseOneMySqlIntegrationTest {
         runAssistantWorkspaceMigration();
         runAssistantWorkspaceStabilizationMigration();
         runAssistantHistoryRevisionMigration();
+        runAgentMultiroundBudgetMigration();
+        runPhaseThreeTaskContextMigration();
+        runPhaseThreeAnalyticsSnapshotMigration();
+        runPhaseThreeReportsMigration();
+        runPhaseThreeFeedbackMigration();
+        runPhaseThreePreferencesMigration();
+    }
+
+    private void runPhaseThreeTaskContextMigration() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource(
+                    Path.of("..", "deploy", "sql", "20260801_phase_three_task_context.sql")));
+        }
+    }
+
+    private void runPhaseThreeAnalyticsSnapshotMigration() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource(
+                    Path.of("..", "deploy", "sql", "20260801_phase_three_analytics_snapshots.sql")));
+        }
+    }
+
+    private void runPhaseThreeReportsMigration() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource(
+                    Path.of("..", "deploy", "sql", "20260801_phase_three_reports.sql")));
+        }
+    }
+
+    private void runPhaseThreeFeedbackMigration() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource(
+                    Path.of("..", "deploy", "sql", "20260801_phase_three_feedback.sql")));
+        }
+    }
+
+    private void runPhaseThreePreferencesMigration() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource(
+                    Path.of("..", "deploy", "sql", "20260801_phase_three_preferences.sql")));
+        }
     }
 
     private void runAssistantHistoryRevisionMigration() throws SQLException {

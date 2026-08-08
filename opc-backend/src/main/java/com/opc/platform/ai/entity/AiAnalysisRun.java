@@ -21,6 +21,11 @@ public class AiAnalysisRun {
     private String idempotencyKey;
     private String submissionKind;
     private String requestedIntent;
+    private Long analyticsSnapshotId;
+    private String analyticsMetricId;
+    private String analyticsDataVersion;
+    private String analyticsFiltersJson;
+    private String analyticsSnapshotJson;
     private String requestContentHash;
     private String startProfileHash;
     private Long sessionContentGeneration;

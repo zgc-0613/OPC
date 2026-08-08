@@ -17,8 +17,29 @@ public record AgentOrchestratorOutcome(
         long latencyMs,
         String requestId,
         String finishReason,
-        JsonNode structuredResult
+        JsonNode structuredResult,
+        String diagnosticCode
 ) {
+    public AgentOrchestratorOutcome(
+            String status,
+            String answer,
+            List<AgentCitation> citations,
+            double confidence,
+            int modelRounds,
+            int toolCallCount,
+            int promptTokens,
+            int completionTokens,
+            int totalTokens,
+            long latencyMs,
+            String requestId,
+            String finishReason,
+            JsonNode structuredResult
+    ) {
+        this(status, answer, citations, confidence, modelRounds, toolCallCount,
+                promptTokens, completionTokens, totalTokens, latencyMs, requestId,
+                finishReason, structuredResult, null);
+    }
+
     public AgentOrchestratorOutcome {
         citations = citations == null ? List.of() : List.copyOf(citations);
     }

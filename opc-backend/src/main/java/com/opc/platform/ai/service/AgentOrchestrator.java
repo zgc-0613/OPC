@@ -14,7 +14,9 @@ import com.opc.platform.ai.tool.AgentToolExecution;
 import com.opc.platform.ai.tool.AgentToolException;
 import com.opc.platform.ai.tool.AgentToolRegistry;
 import com.opc.platform.common.enums.ErrorCode;
+import com.opc.platform.common.exception.BusinessException;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
@@ -31,6 +33,7 @@ public class AgentOrchestrator {
 
     private static final String PROMPT_VERSION = AgentResearchContract.PROMPT_VERSION;
     private static final int MAX_PLANNING_RECOVERIES = 2;
+    private static final int MAX_FINAL_CONTRACT_RECOVERIES = 2;
     private static final Set<String> LEGACY_FIELDS = Set.of(
             "action", "toolName", "arguments", "answer", "citations", "confidence"
     );
@@ -63,10 +66,23 @@ public class AgentOrchestrator {
 
     private final ObjectMapper objectMapper;
     private final AgentToolRegistry toolRegistry;
+    private final PhaseThreeEvidenceResolver evidenceResolver;
+    private final PhaseThreeStructuredResultAssembler phaseThreeResultAssembler;
 
     public AgentOrchestrator(ObjectMapper objectMapper, AgentToolRegistry toolRegistry) {
+        this(objectMapper, toolRegistry, null);
+    }
+
+    @Autowired
+    public AgentOrchestrator(
+            ObjectMapper objectMapper,
+            AgentToolRegistry toolRegistry,
+            PhaseThreeEvidenceResolver evidenceResolver
+    ) {
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
+        this.evidenceResolver = evidenceResolver;
+        this.phaseThreeResultAssembler = new PhaseThreeStructuredResultAssembler(objectMapper);
     }
 
     public AgentOrchestratorOutcome execute(
@@ -83,7 +99,7 @@ public class AgentOrchestrator {
         messages.add(AiProviderMessage.user(userPrompt(input)));
         ProfileBoundary profileBoundary = profileBoundary(input.profileJson());
         AgentToolContext toolContext = new AgentToolContext(
-                input.runId(), input.userId(), input.leaseOwner(), profileBoundary.regionId(),
+                input.runId(), input.userId(), input.leaseOwner(), input.executionAttempt(), profileBoundary.regionId(),
                 profileBoundary.industryTagId(), profileBoundary.industry());
         int promptTokens = 0;
         int completionTokens = 0;
@@ -96,6 +112,7 @@ public class AgentOrchestrator {
         String requestId = null;
         String finishReason = null;
         boolean compactPlanningRecovery = false;
+        boolean planningTruncatedFallback = false;
         boolean planAccepted = false;
         int sourceContractRecoveryAttempts = 0;
         boolean continuationContractRecovery = false;
@@ -103,8 +120,11 @@ public class AgentOrchestrator {
         boolean toolArgumentRecovery = false;
         boolean actionContractRecovery = false;
         int planningRecoveryAttempts = 0;
+        int finalResponseRecoveryAttempts = 0;
+        Set<String> sourceContractRecoveryDiagnostics = new LinkedHashSet<>();
         ResearchExecutionRequirements executionRequirements =
                 ResearchExecutionRequirements.resolve(input.requestedIntent(), input.userMessage());
+        JsonNode phaseThreeTaskContext = phaseThreeTaskContext(input.taskContextJson());
         String researchIntent = executionRequirements.resolvedIntent();
         List<String> comparisonDimensions = List.of("businessModel", "outcome");
         int evidenceMessageIndex = -1;
@@ -125,6 +145,8 @@ public class AgentOrchestrator {
                     ? toolRegistry.jsonCompactResearchPlanSchemaV2(input.config().maxToolCalls())
                     : awaitingInitialPlan
                     ? toolRegistry.jsonResearchPlanSchemaV2(input.config().maxToolCalls())
+                    : finalResponseRecoveryAttempts > 0
+                    ? toolRegistry.jsonCompactResearchRecoverySchemaV2(toolContext.allowedSourceIds())
                     : toolRegistry.jsonCompactResearchFinalSchemaV2(
                             remainingToolCalls,
                             toolContext.allowedSourceIds());
@@ -137,7 +159,29 @@ public class AgentOrchestrator {
                     true,
                     outputTokenBudget
             );
-            AiProviderResponse response = model.apply(request);
+            AiProviderResponse response;
+            try {
+                response = model.apply(request);
+            } catch (AgentOrchestratorException exception) {
+                if (AgentResearchContract.AGENT_DEADLINE_FALLBACK.equals(exception.getDiagnosticCode())) {
+                    AgentToolContext verificationContext = verifiedEvidenceContext(
+                            toolContext, toolReplays, phaseThreeTaskContext);
+                    FinalPayload fallback = boundedFinalFallback(
+                            fallbackEvidenceContext(executionRequirements, verificationContext),
+                            phaseThreeTaskContext, researchIntent,
+                            AgentResearchContract.AGENT_DEADLINE_FALLBACK,
+                            "研究时间已接近服务端结算期限，系统停止新的模型请求，并仅返回本次已授权证据范围。",
+                            "研究时间已接近服务端结算期限，尚无足够的已授权证据形成事实性结论。",
+                            "为确保已有运行安全结算，系统未再发起新的模型请求。",
+                            "稍后重试，或缩小研究范围以降低单次研究时长。",
+                            "deadline");
+                    return fallbackOutcome(
+                            fallback, Math.max(0, round - 1), toolCalls,
+                            promptTokens, completionTokens, totalTokens, totalLatency,
+                            requestId, finishReason, AgentResearchContract.AGENT_DEADLINE_FALLBACK);
+                }
+                throw exception;
+            }
             if (response == null) {
                 throw failure(ErrorCode.UPSTREAM_ERROR, "EMPTY_PROVIDER_RESPONSE", "模型未返回结果");
             }
@@ -163,6 +207,54 @@ public class AgentOrchestrator {
                         "The previous plan was truncated. Return a fresh compact plan only; do not repeat prior output."));
                 continue;
             }
+            if (!nativeMode && toolReplays.isEmpty() && "length".equalsIgnoreCase(finishReason)
+                    && planningRecoveryAttempts >= MAX_PLANNING_RECOVERIES) {
+                if (round >= input.config().maxModelRounds()) {
+                    FinalPayload fallback = boundedFinalFallback(
+                            fallbackEvidenceContext(executionRequirements, toolContext),
+                            phaseThreeTaskContext, researchIntent,
+                            AgentResearchContract.PLANNING_RESPONSE_TRUNCATED_FALLBACK,
+                            "研究计划连续被截断，服务端未将截断文本作为事实。",
+                            "研究计划连续被截断，当前没有足够的已授权证据形成事实性结论。",
+                            "计划响应未能完成，模型文本已被丢弃。",
+                            "稍后重试，或缩小研究范围以降低单次输出复杂度。",
+                            "length");
+                    return fallbackOutcome(
+                            fallback, round, toolCalls, promptTokens, completionTokens, totalTokens,
+                            totalLatency, requestId, finishReason,
+                            AgentResearchContract.PLANNING_RESPONSE_TRUNCATED_FALLBACK);
+                }
+                planningTruncatedFallback = true;
+                response = deterministicPlanningResponse(response, executionRequirements, researchIntent);
+            }
+            if (!nativeMode && response.toolCalls().isEmpty() && toolCalls > 0
+                    && "length".equalsIgnoreCase(finishReason)
+                    && finalResponseRecoveryAttempts < 1
+                    && round < input.config().maxModelRounds()) {
+                finalResponseRecoveryAttempts++;
+                messages.clear();
+                messages.add(AiProviderMessage.system(compactFinalRecoveryPrompt()));
+                messages.add(AiProviderMessage.user(userPrompt(input)));
+                messages.add(AiProviderMessage.user(evidenceInstruction(
+                        toolContext, evidenceBundle, completedRequests, 0)));
+                evidenceMessageIndex = messages.size() - 1;
+                messages.add(AiProviderMessage.user(
+                        "The previous final JSON was truncated. Return one compact valid final JSON object now. "
+                                + "Do not call tools, repeat the evidence bundle, or include prose outside JSON."));
+                continue;
+            }
+            if (!nativeMode && response.toolCalls().isEmpty() && toolCalls > 0
+                    && "length".equalsIgnoreCase(finishReason)
+                    && (finalResponseRecoveryAttempts > 0 || round >= input.config().maxModelRounds())) {
+                FinalPayload fallback = truncatedFinalFallback(
+                        fallbackEvidenceContext(executionRequirements, verifiedEvidenceContext(
+                                toolContext, toolReplays, phaseThreeTaskContext)),
+                        phaseThreeTaskContext, researchIntent);
+                return fallbackOutcome(
+                        fallback, round, toolCalls, promptTokens, completionTokens, totalTokens,
+                        totalLatency, requestId, finishReason,
+                        AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK);
+            }
             validateFinishReason(response, nativeMode);
 
             if (nativeMode && !response.toolCalls().isEmpty()) {
@@ -184,7 +276,44 @@ public class AgentOrchestrator {
                 continue;
             }
 
-            JsonNode plan = parsePlan(response.content());
+            JsonNode plan;
+            try {
+                plan = parsePlan(response.content());
+            } catch (AgentOrchestratorException exception) {
+                if (!nativeMode && planAccepted && toolCalls > 0
+                        && AgentResearchContract.INVALID_JSON.equals(exception.getDiagnosticCode())) {
+                    AgentToolContext verificationContext = verifiedEvidenceContext(
+                            toolContext, toolReplays, phaseThreeTaskContext);
+                    FinalPayload fallback = boundedFinalFallback(
+                            fallbackEvidenceContext(executionRequirements, verificationContext),
+                            phaseThreeTaskContext, researchIntent,
+                            AgentResearchContract.FINAL_RESPONSE_INVALID_JSON_FALLBACK,
+                            "模型最终 JSON 无法解析，服务端未使用该文本，仅返回本次已授权证据范围。",
+                            "模型最终 JSON 无法解析，当前没有足够的已授权证据形成事实性结论。",
+                            "最终结构化结果未通过 JSON 解析，模型文本已被丢弃。",
+                            "稍后重试，或缩小研究范围以降低单次输出复杂度。",
+                            "stop");
+                    return fallbackOutcome(
+                            fallback, round, toolCalls, promptTokens, completionTokens, totalTokens,
+                            totalLatency, requestId, finishReason,
+                            AgentResearchContract.FINAL_RESPONSE_INVALID_JSON_FALLBACK);
+                }
+                if (!nativeMode && !planAccepted && toolReplays.isEmpty()
+                        && AgentResearchContract.INVALID_JSON.equals(exception.getDiagnosticCode())
+                        && planningRecoveryAttempts < MAX_PLANNING_RECOVERIES
+                        && round < input.config().maxModelRounds()) {
+                    planningRecoveryAttempts++;
+                    compactPlanningRecovery = true;
+                    messages.clear();
+                    messages.add(AiProviderMessage.system(compactPlanningRecoveryPrompt()));
+                    messages.add(AiProviderMessage.user(userPrompt(input)));
+                    messages.add(AiProviderMessage.user(
+                            "The previous planning response was discarded with controlled diagnostic INVALID_JSON. "
+                                    + "Return one fresh action=plan JSON object only; do not repeat prior output."));
+                    continue;
+                }
+                throw exception;
+            }
             String action = plan.path("action").asText("");
             if ("plan".equals(action)) {
                 if (planAccepted || toolCalls != 0 || !toolReplays.isEmpty()) {
@@ -382,9 +511,12 @@ public class AgentOrchestrator {
                 continue;
             }
             if ("final".equals(action) || "evidence_insufficient".equals(action)) {
+                if (finalResponseRecoveryAttempts > 0 && plan.has("directAnswer")) {
+                    plan = completeCompactFinalRecovery(plan);
+                }
                 progress(stageListener, "synthesizing", round, toolCalls);
                 AgentToolContext verificationContext = new AgentToolContext(
-                        input.runId(), input.userId(), input.leaseOwner(), profileBoundary.regionId(),
+                        input.runId(), input.userId(), input.leaseOwner(), input.executionAttempt(), profileBoundary.regionId(),
                         profileBoundary.industryTagId(), profileBoundary.industry());
                 for (ToolReplay replay : toolReplays) {
                     toolRegistry.verifyEvidence(
@@ -404,21 +536,71 @@ public class AgentOrchestrator {
                                 AgentResearchContract.REQUIRED_TOOL_CHAIN_UNSATISFIED,
                                 "研究意图要求的证据工具链未完成");
                     }
+                    if (phaseThreeTaskContext != null || evidenceResolver != null) {
+                        if (evidenceResolver == null) {
+                            throw failure(ErrorCode.INTERNAL_ERROR, "EVIDENCE_MANIFEST_MISSING",
+                                    "研究证据清单尚未建立");
+                        }
+                        verificationContext.installEvidenceBundle(evidenceResolver.resolve(
+                                verificationContext.allowedCaseIds(), verificationContext.allowedPolicyIds(),
+                                verificationContext.allowedSourceIds(), phaseThreeTaskContext));
+                    }
                     FinalPayload finalPayload = plan.has("directAnswer")
-                            ? validateStructuredFinal(plan, action, toolContext, researchIntent)
+                            ? validateStructuredFinal(plan, action, verificationContext, researchIntent,
+                            phaseThreeTaskContext)
                             : validateFinal(plan, action, toolContext.allowedSourceIds());
                     return new AgentOrchestratorOutcome(
                             "final".equals(action) ? "completed" : "evidence_insufficient",
                             finalPayload.answer(), finalPayload.citations(), finalPayload.confidence(),
                             round, toolCalls, promptTokens, completionTokens, totalTokens, totalLatency,
-                            requestId, finishReason, finalPayload.structuredResult()
+                            requestId, finishReason, finalPayload.structuredResult(),
+                            planningTruncatedFallback
+                                    ? AgentResearchContract.PLANNING_RESPONSE_TRUNCATED_FALLBACK : null
                     );
                 } catch (AgentOrchestratorException exception) {
-                    if (sourceContractRecoveryAttempts < 2
+                    if (toolCalls > 0 && isFinalValidationFallback(exception.getDiagnosticCode())) {
+                        if (AgentResearchContract.INVALID_STRUCTURED_RESULT.equals(exception.getDiagnosticCode())
+                                || AgentResearchContract.UNKNOWN_FIELDS.equals(exception.getDiagnosticCode())
+                                || AgentResearchContract.MISSING_FIELD.equals(exception.getDiagnosticCode())
+                                || AgentResearchContract.INVALID_CONFIDENCE.equals(exception.getDiagnosticCode())
+                                || AgentResearchContract.INVALID_EVIDENCE_COVERAGE.equals(exception.getDiagnosticCode())) {
+                            FinalPayload fallback = boundedFinalFallback(
+                                    fallbackEvidenceContext(executionRequirements, verificationContext),
+                                    phaseThreeTaskContext, researchIntent,
+                                    AgentResearchContract.FINAL_RESPONSE_INVALID_STRUCTURED_FALLBACK,
+                                    "模型返回的结构化结果无法安全验证，服务器未使用该文本作为事实。",
+                                    "结构化最终结果未通过服务器契约校验。",
+                                    "稍后重试，或缩小研究范围以降低单次输出长度。"
+                            );
+                            return fallbackOutcome(
+                                    fallback, round, toolCalls, promptTokens, completionTokens, totalTokens,
+                                    totalLatency, requestId, finishReason,
+                                    AgentResearchContract.FINAL_RESPONSE_INVALID_STRUCTURED_FALLBACK);
+                        }
+                        if (sourceContractRecoveryAttempts >= MAX_FINAL_CONTRACT_RECOVERIES
+                                || round >= input.config().maxModelRounds()
+                                || sourceContractRecoveryDiagnostics.contains(exception.getDiagnosticCode())) {
+                            FinalPayload fallback = boundedFinalFallback(
+                                    fallbackEvidenceContext(executionRequirements, verificationContext),
+                                    phaseThreeTaskContext, researchIntent,
+                                    AgentResearchContract.FINAL_RESPONSE_CONTRACT_FALLBACK,
+                                    "模型最终结果未能通过引用契约校验，服务器未使用未经验证的文本。",
+                                    "最终结果的引用或证据标记未通过服务器契约校验。",
+                                    "稍后重试，或缩小研究范围以降低单次输出长度。"
+                            );
+                            return fallbackOutcome(
+                                    fallback, round, toolCalls, promptTokens, completionTokens, totalTokens,
+                                    totalLatency, requestId, finishReason,
+                                    AgentResearchContract.FINAL_RESPONSE_CONTRACT_FALLBACK);
+                        }
+                    }
+                    if (sourceContractRecoveryAttempts < MAX_FINAL_CONTRACT_RECOVERIES
                             && toolCalls > 0
                             && round < input.config().maxModelRounds()
-                            && isRecoverableSourceContractFailure(exception.getDiagnosticCode())) {
+                            && isRecoverableSourceContractFailure(exception.getDiagnosticCode())
+                            && !sourceContractRecoveryDiagnostics.contains(exception.getDiagnosticCode())) {
                         sourceContractRecoveryAttempts++;
+                        sourceContractRecoveryDiagnostics.add(exception.getDiagnosticCode());
                         messages.add(AiProviderMessage.user(sourceContractRecoveryPrompt(
                                 exception.getDiagnosticCode(), toolContext.allowedSourceIds())));
                         continue;
@@ -441,6 +623,272 @@ public class AgentOrchestrator {
             throw failure(ErrorCode.UPSTREAM_ERROR, "INVALID_AGENT_ACTION", "模型返回了无效研究动作");
         }
         throw failure(ErrorCode.TOO_MANY_REQUESTS, "AGENT_ROUND_LIMIT", "本次研究已达到模型轮次上限");
+    }
+
+    private AiProviderResponse deterministicPlanningResponse(
+            AiProviderResponse discarded,
+            ResearchExecutionRequirements requirements,
+            String resolvedIntent
+    ) {
+        String initialTool = requirements.requires(ResearchExecutionRequirements.Operation.POLICY_SEARCH)
+                ? "search_policies" : "search_cases";
+        if (!toolRegistry.contains(initialTool)) {
+            initialTool = AgentResearchContract.INITIAL_SEARCH_TOOLS.stream()
+                    .sorted().filter(toolRegistry::contains).findFirst()
+                    .orElseThrow(() -> failure(ErrorCode.UPSTREAM_ERROR, "NO_INITIAL_SEARCH_TOOL",
+                            "服务器没有可用于受限研究计划的初始检索工具"));
+        }
+        var plan = objectMapper.createObjectNode();
+        plan.put("action", "plan");
+        plan.put("intent", resolvedIntent);
+        plan.putArray("researchQuestions").add("Complete the requested research with authorized evidence.");
+        var request = plan.putArray("toolRequests").addObject();
+        request.put("requestId", "serverPlanningFallback");
+        request.put("toolName", initialTool);
+        request.set("arguments", requiredSearchArguments("selected"));
+        request.putArray("dependsOn");
+        if (requirements.requires(ResearchExecutionRequirements.Operation.CASE_COMPARISON)) {
+            plan.set("comparisonDimensions", objectMapper.valueToTree(
+                    List.of("businessModel", "outcome")));
+        } else {
+            plan.putArray("comparisonDimensions");
+        }
+        plan.set("outputSections", objectMapper.valueToTree(AgentResearchContract.OUTPUT_SECTIONS));
+        return new AiProviderResponse(
+                plan.toString(), discarded.promptTokens(), discarded.completionTokens(),
+                discarded.totalTokens(), discarded.latencyMs(), discarded.requestId(),
+                "stop", List.of());
+    }
+
+    private JsonNode completeCompactFinalRecovery(JsonNode plan) {
+        var completed = (com.fasterxml.jackson.databind.node.ObjectNode) plan.deepCopy();
+        for (String field : List.of(
+                "caseInsights", "policyInsights", "comparison", "risks", "assumptions",
+                "uncertainties", "nextQuestions"
+        )) {
+            if (!completed.has(field)) completed.putArray(field);
+        }
+        return completed;
+    }
+
+    private AgentToolContext fallbackEvidenceContext(
+            ResearchExecutionRequirements requirements,
+            AgentToolContext verificationContext
+    ) {
+        if (!requirements.requires(ResearchExecutionRequirements.Operation.SOURCE_VERIFICATION)
+                || verificationContext.completedTool("get_source")) {
+            return verificationContext;
+        }
+        return new AgentToolContext(
+                verificationContext.runId(), verificationContext.userId(), verificationContext.leaseOwner(),
+                verificationContext.executionAttempt(), verificationContext.primaryRegionId(),
+                verificationContext.primaryIndustryTagId(), verificationContext.primaryIndustry());
+    }
+
+    private FinalPayload truncatedFinalFallback(
+            AgentToolContext toolContext,
+            List<ToolReplay> toolReplays,
+            JsonNode phaseThreeTaskContext,
+            String resolvedIntent
+    ) {
+        return truncatedFinalFallback(
+                verifiedEvidenceContext(toolContext, toolReplays, phaseThreeTaskContext),
+                phaseThreeTaskContext, resolvedIntent);
+    }
+
+    private AgentToolContext verifiedEvidenceContext(
+            AgentToolContext toolContext,
+            List<ToolReplay> toolReplays,
+            JsonNode phaseThreeTaskContext
+    ) {
+        AgentToolContext verificationContext = new AgentToolContext(
+                toolContext.runId(), toolContext.userId(), toolContext.leaseOwner(),
+                toolContext.executionAttempt(), toolContext.primaryRegionId(),
+                toolContext.primaryIndustryTagId(), toolContext.primaryIndustry());
+        for (ToolReplay replay : toolReplays) {
+            toolRegistry.verifyEvidence(
+                    verificationContext, replay.toolName(), replay.arguments(), replay.evidenceHash());
+        }
+        installAuthoritativeEvidence(verificationContext, phaseThreeTaskContext);
+        return verificationContext;
+    }
+
+    /** Resolve the server-owned evidence manifest for both Phase Three and legacy runs. */
+    private void installAuthoritativeEvidence(
+            AgentToolContext verificationContext,
+            JsonNode phaseThreeTaskContext
+    ) {
+        if (evidenceResolver == null) {
+            if (phaseThreeTaskContext != null) {
+                throw failure(ErrorCode.INTERNAL_ERROR, "EVIDENCE_MANIFEST_MISSING",
+                        "鐮旂┒璇佹嵁娓呭崟灏氭湭寤虹珛");
+            }
+            return;
+        }
+        verificationContext.installEvidenceBundle(evidenceResolver.resolve(
+                verificationContext.allowedCaseIds(), verificationContext.allowedPolicyIds(),
+                verificationContext.allowedSourceIds(), phaseThreeTaskContext));
+    }
+
+    private FinalPayload truncatedFinalFallback(
+            AgentToolContext verificationContext,
+            JsonNode phaseThreeTaskContext,
+            String resolvedIntent
+    ) {
+        List<Long> citationSourceIds = verificationContext.allowedSourceIds().stream()
+                .sorted().limit(AgentResearchContract.MAX_CITATIONS).toList();
+        AgentToolContext.EvidenceCoverage coverage = verificationContext.deriveCoverage();
+        boolean hasAuthorizedEvidence = !citationSourceIds.isEmpty();
+        String action = hasAuthorizedEvidence ? "final" : "evidence_insufficient";
+        String directAnswer = hasAuthorizedEvidence
+                ? "模型最终合成连续截断，服务器未将截断文本作为事实，仅返回已授权证据范围、限制和安全下一步。"
+                : "模型最终合成连续截断，当前没有足够的已授权证据形成事实性结论。";
+
+        var fallback = objectMapper.createObjectNode();
+        fallback.put("action", action);
+        fallback.put("intent", resolvedIntent);
+        fallback.put("directAnswer", directAnswer);
+        var keyFindings = fallback.putArray("keyFindings");
+        if (hasAuthorizedEvidence) {
+            var finding = keyFindings.addObject();
+            finding.put("text", "服务器仅确认本次运行已授权证据的存在，未将截断模型文本作为事实。");
+            finding.put("evidenceType", "methodology");
+            finding.set("sourceIds", objectMapper.valueToTree(citationSourceIds));
+        }
+        fallback.putArray("caseInsights");
+        fallback.putArray("policyInsights");
+        fallback.putArray("comparison");
+        fallback.putArray("recommendations");
+        fallback.putArray("risks");
+        fallback.putArray("assumptions");
+        var uncertainties = fallback.putArray("uncertainties");
+        uncertainties.add("完整最终结论未生成，截断响应不能作为事实使用。");
+        var nextQuestions = fallback.putArray("nextQuestions");
+        nextQuestions.add("稍后重试，或缩小研究范围以降低单次输出长度。");
+        var citations = fallback.putArray("citations");
+        for (Long sourceId : citationSourceIds) {
+            citations.addObject()
+                    .put("sourceId", sourceId)
+                    .put("claim", "本次运行已取得该授权证据的元数据");
+        }
+        fallback.put("confidence", 0D);
+        var coverageNode = fallback.putObject("evidenceCoverage");
+        coverageNode.put("status", hasAuthorizedEvidence ? coverage.status() : "insufficient");
+        coverageNode.put("caseCount", coverage.caseCount());
+        coverageNode.put("policyCount", coverage.policyCount());
+        coverageNode.put("sourceCount", coverage.sourceCount());
+        coverageNode.putArray("limitations")
+                .add("连续截断导致完整研究结论未生成")
+                .add("当前结果仅使用本次运行已授权证据元数据");
+
+        if (phaseThreeTaskContext != null) {
+            return validateStructuredFinal(
+                    fallback, action, verificationContext, resolvedIntent, phaseThreeTaskContext);
+        }
+
+        var authorized = fallback.putObject("authorizedEvidence");
+        addIds(authorized.putArray("caseIds"), verificationContext.allowedCaseIds());
+        addIds(authorized.putArray("policyIds"), verificationContext.allowedPolicyIds());
+        addIds(authorized.putArray("sourceIds"), verificationContext.allowedSourceIds());
+        if (!verificationContext.evidenceBundle().isEmpty()
+                || (verificationContext.allowedCaseIds().isEmpty()
+                && verificationContext.allowedPolicyIds().isEmpty()
+                && verificationContext.allowedSourceIds().isEmpty())) {
+            fallback.put("evidenceVersion", verificationContext.evidenceVersion());
+        }
+        fallback.put("diagnosticCode", AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK);
+        fallback.put("finishReason", "length");
+        fallback.put("generatedAt", java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).toString());
+        List<AgentCitation> validatedCitations = citationSourceIds.stream()
+                .map(sourceId -> new AgentCitation(sourceId, "本次运行已取得该授权证据的元数据"))
+                .toList();
+        return new FinalPayload(
+                renderStructuredMarkdown(fallback, directAnswer), validatedCitations, 0D, fallback);
+    }
+
+    private FinalPayload boundedFinalFallback(
+            AgentToolContext verificationContext,
+            JsonNode phaseThreeTaskContext,
+            String resolvedIntent,
+            String diagnosticCode,
+            String directAnswer,
+            String limitation,
+            String nextAction
+    ) {
+        return boundedFinalFallback(
+                verificationContext, phaseThreeTaskContext, resolvedIntent,
+                diagnosticCode, directAnswer, directAnswer, limitation, nextAction, "stop");
+    }
+
+    private FinalPayload boundedFinalFallback(
+            AgentToolContext verificationContext,
+            JsonNode phaseThreeTaskContext,
+            String resolvedIntent,
+            String diagnosticCode,
+            String directAnswerWithEvidence,
+            String directAnswerWithoutEvidence,
+            String limitation,
+            String nextAction,
+            String finishReason
+    ) {
+        FinalPayload base = truncatedFinalFallback(
+                verificationContext, phaseThreeTaskContext, resolvedIntent);
+        var structured = base.structuredResult().deepCopy();
+        if (structured instanceof com.fasterxml.jackson.databind.node.ObjectNode object) {
+            String directAnswer = base.citations().isEmpty()
+                    ? directAnswerWithoutEvidence : directAnswerWithEvidence;
+            object.put("directAnswer", directAnswer);
+            object.put("diagnosticCode", diagnosticCode);
+            object.put("finishReason", finishReason);
+            var findings = object.putArray("keyFindings");
+            if (!base.citations().isEmpty()) {
+                var finding = findings.addObject();
+                finding.put("text", "服务器仅确认本次运行已授权证据的存在，未将未验证模型文本作为事实。");
+                finding.put("evidenceType", "methodology");
+                finding.set("sourceIds", objectMapper.valueToTree(
+                        base.citations().stream().map(AgentCitation::sourceId).toList()));
+            }
+            object.putArray("uncertainties").add(limitation);
+            object.putArray("nextQuestions").add(nextAction);
+            JsonNode coverage = object.path("evidenceCoverage");
+            if (coverage instanceof com.fasterxml.jackson.databind.node.ObjectNode coverageObject) {
+                coverageObject.putArray("limitations").add(limitation);
+            }
+            StringBuilder answer = new StringBuilder(directAnswer)
+                    .append("\n\n研究限制：").append(limitation)
+                    .append("\n下一步：").append(nextAction);
+            if (!base.citations().isEmpty()) {
+                answer.append("\n\n已授权来源：");
+                base.citations().forEach(citation -> answer.append("[")
+                        .append(citation.sourceId()).append("] "));
+            }
+            return new FinalPayload(answer.toString(), base.citations(), 0D, object);
+        }
+        return base;
+    }
+
+    private AgentOrchestratorOutcome fallbackOutcome(
+            FinalPayload fallback,
+            int modelRounds,
+            int toolCalls,
+            int promptTokens,
+            int completionTokens,
+            int totalTokens,
+            long totalLatency,
+            String requestId,
+            String finishReason,
+            String diagnosticCode
+    ) {
+        return new AgentOrchestratorOutcome(
+                fallback.citations().isEmpty() ? "evidence_insufficient" : "completed",
+                fallback.answer(), fallback.citations(), fallback.confidence(),
+                modelRounds, toolCalls, promptTokens, completionTokens, totalTokens, totalLatency,
+                requestId, finishReason, fallback.structuredResult(), diagnosticCode
+        );
+    }
+
+    private void addIds(com.fasterxml.jackson.databind.node.ArrayNode target, Set<Long> values) {
+        values.stream().sorted().forEach(target::add);
     }
 
     private void validateFinishReason(AiProviderResponse response, boolean nativeMode) {
@@ -589,7 +1037,7 @@ public class AgentOrchestrator {
             }
         }
         if (requirements.requires(ResearchExecutionRequirements.Operation.SOURCE_VERIFICATION)) {
-            if (!context.completedTool("search_cases") && !context.completedTool("search_policies")) {
+            if (context.searchedSourceCount() == 0 && !context.completedTool("search_policies")) {
                 toolCalls = executeRequiredTool(
                         context, toolCalls, maxToolCalls, "requiredSourceSearch", "search_policies",
                         requiredSearchArguments("selected"), List.of(), toolReplays, evidenceBundle,
@@ -631,9 +1079,15 @@ public class AgentOrchestrator {
                 && context.completedToolCount("search_cases") < 2))) {
             return true;
         }
-        return Set.of("search_cases", "search_policies").contains(toolName)
+        if ("search_cases".equals(toolName)
                 && requirements.requires(ResearchExecutionRequirements.Operation.SOURCE_VERIFICATION)
                 && !context.completedTool("search_cases")
+                && !context.completedTool("search_policies")) {
+            return true;
+        }
+        return "search_policies".equals(toolName)
+                && requirements.requires(ResearchExecutionRequirements.Operation.SOURCE_VERIFICATION)
+                && context.searchedSourceCount() == 0
                 && !context.completedTool("search_policies");
     }
 
@@ -664,8 +1118,8 @@ public class AgentOrchestrator {
         }
         if (requirements.requires(ResearchExecutionRequirements.Operation.SOURCE_VERIFICATION)
                 && !context.completedTool("get_source")) {
-            if (!context.completedTool("search_cases") && !context.completedTool("search_policies")
-                    && !caseSearchReserved && !policySearchReserved) {
+            if (context.searchedSourceCount() == 0 && !context.completedTool("search_policies")
+                    && !policySearchReserved) {
                 reserve++;
             }
             reserve++;
@@ -734,8 +1188,10 @@ public class AgentOrchestrator {
         }
         if (Set.of("search_cases", "search_policies").contains(toolName)
                 && requirements.requires(ResearchExecutionRequirements.Operation.SOURCE_VERIFICATION)
-                && !context.completedTool("search_cases")
-                && !context.completedTool("search_policies")) {
+                && (("search_cases".equals(toolName) && !context.completedTool("search_cases")
+                && !context.completedTool("search_policies"))
+                || ("search_policies".equals(toolName) && context.searchedSourceCount() == 0
+                && !context.completedTool("search_policies")))) {
             return requiredSearchArguments("selected");
         }
         return bindProfileToSearchArguments(toolName, modelArguments, profileJson);
@@ -845,7 +1301,8 @@ public class AgentOrchestrator {
             JsonNode plan,
             String action,
             AgentToolContext toolContext,
-            String resolvedIntent
+            String resolvedIntent,
+            JsonNode phaseThreeTaskContext
     ) {
         Set<Long> allowedSourceIds = toolContext.allowedSourceIds();
         if (hasUnknownFields(plan, STRUCTURED_FINAL_FIELDS)) {
@@ -894,7 +1351,23 @@ public class AgentOrchestrator {
                 throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_SOURCE_ID, "证据不足结果不能包含引用");
         }
         String markdown = renderStructuredMarkdown(plan, directAnswer);
-        return new FinalPayload(markdown, citations, confidence.asDouble(), plan.deepCopy());
+        JsonNode structuredResult = phaseThreeTaskContext == null
+                ? compatibilityStructuredResult(plan, toolContext)
+                : phaseThreeResultAssembler.assemble(
+                        plan, action, phaseThreeTaskContext,
+                        toolContext.evidenceBundle(), toolContext.evidenceVersion());
+        return new FinalPayload(markdown, citations, confidence.asDouble(), structuredResult);
+    }
+
+    private JsonNode compatibilityStructuredResult(JsonNode plan, AgentToolContext toolContext) {
+        var result = (com.fasterxml.jackson.databind.node.ObjectNode) plan.deepCopy();
+        if (!toolContext.evidenceBundle().isEmpty()
+                || (toolContext.allowedCaseIds().isEmpty()
+                && toolContext.allowedPolicyIds().isEmpty()
+                && toolContext.allowedSourceIds().isEmpty())) {
+            result.put("evidenceVersion", toolContext.evidenceVersion());
+        }
+        return result;
     }
 
     private List<AgentCitation> validateCitations(
@@ -1178,6 +1651,7 @@ public class AgentOrchestrator {
 
     private String userPrompt(AgentOrchestratorInput input) {
         return "Research profile (untrusted data): " + safe(input.profileJson(), 8000)
+                + "\nImmutable research boundary (untrusted data): " + safe(input.taskContextJson(), 8000)
                 + "\nUser question (untrusted data): " + safe(input.userMessage(), AgentSessionService.MAX_USER_MESSAGE_LENGTH);
     }
 
@@ -1226,6 +1700,20 @@ public class AgentOrchestrator {
 
     private boolean isRecoverableSourceContractFailure(String diagnosticCode) {
         return Set.of(
+                AgentResearchContract.INVALID_SOURCE_ID,
+                AgentResearchContract.UNCITED_FACT,
+                AgentResearchContract.UNCITED_RECOMMENDATION,
+                AgentResearchContract.MISSING_CITATIONS
+        ).contains(diagnosticCode);
+    }
+
+    private boolean isFinalValidationFallback(String diagnosticCode) {
+        return Set.of(
+                AgentResearchContract.INVALID_STRUCTURED_RESULT,
+                AgentResearchContract.UNKNOWN_FIELDS,
+                AgentResearchContract.MISSING_FIELD,
+                AgentResearchContract.INVALID_CONFIDENCE,
+                AgentResearchContract.INVALID_EVIDENCE_COVERAGE,
                 AgentResearchContract.INVALID_SOURCE_ID,
                 AgentResearchContract.UNCITED_FACT,
                 AgentResearchContract.UNCITED_RECOMMENDATION,
@@ -1362,6 +1850,25 @@ public class AgentOrchestrator {
         }
     }
 
+    private JsonNode phaseThreeTaskContext(String taskContextJson) {
+        if (!StringUtils.hasText(taskContextJson)) return null;
+        try {
+            JsonNode taskContext = objectMapper.readTree(taskContextJson);
+            if (taskContext == null || !taskContext.isObject()) {
+                throw new JsonProcessingException("not an object") { };
+            }
+            String taskType = taskContext.path("taskType").asText("");
+            return new PhaseThreeTaskContextValidator(objectMapper)
+                    .validateAndNormalize(taskContext, taskType)
+                    .node();
+        } catch (JsonProcessingException | BusinessException exception) {
+            throw failure(
+                    ErrorCode.INTERNAL_ERROR,
+                    "PHASE3_TASK_CONTEXT_INVALID",
+                    "研究任务边界无法恢复");
+        }
+    }
+
     private String compactPlanningRecoveryPrompt() {
         return """
                 You are performing compact planning recovery for the bounded SoloFirm research runtime.
@@ -1370,6 +1877,17 @@ public class AgentOrchestrator {
                 Do not include prose, hidden reasoning, repeated content, or unknown fields.
                 Tool requests must follow this whitelist and its exact argument contracts:
                 """.formatted(AgentResearchContract.planningBoundaryPrompt()) + toolRegistry.promptCatalog();
+    }
+
+    private String compactFinalRecoveryPrompt() {
+        return """
+                You are recovering a truncated SoloFirm research result.
+                Return exactly one compact JSON object that matches the supplied final-result schema.
+                Use only evidence already present in this conversation; do not call tools or invent identifiers.
+                Keep directAnswer within 300 characters. Return at most one key finding, one recommendation,
+                three necessary citations, and one evidence limitation. Omitted result sections are restored by the server.
+                Mark each statement as fact, inference, or methodology. Return no prose outside JSON.
+                """;
     }
 
     private boolean isRecoverablePlanningFailure(String diagnosticCode) {

@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -82,7 +83,18 @@ class AgentContractReplayTest {
                     return responses.removeFirst();
                 };
 
-        if (fixture.has("status")) {
+        if (fixture.has("fallbackDiagnostic")) {
+            AgentOrchestratorOutcome outcome = orchestrator.execute(input, provider, progress -> { });
+            assertEquals(fixture.path("status").asText(), outcome.status());
+            assertEquals(fixture.path("fallbackDiagnostic").asText(), outcome.diagnosticCode());
+            assertEquals(fixture.path("finishReason").asText("length"), outcome.finishReason());
+            assertFalse(outcome.citations().isEmpty());
+            assertEquals(1L, outcome.citations().get(0).sourceId());
+            String discardedText = fixture.path("discardedText").asText("");
+            if (!discardedText.isEmpty()) {
+                assertFalse(outcome.answer().contains(discardedText));
+            }
+        } else if (fixture.has("status")) {
             AgentOrchestratorOutcome outcome = orchestrator.execute(input, provider, progress -> { });
             assertEquals(fixture.path("status").asText(), outcome.status());
             JsonNode expected = fixture.path("derivedCoverage");

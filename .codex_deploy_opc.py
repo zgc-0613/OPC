@@ -71,6 +71,21 @@ ASSISTANT_HISTORY_REVISION_POSTCHECK = ROOT / "deploy" / "sql" / "20260726_assis
 AGENT_MULTIRROUND_BUDGET_PRECHECK = ROOT / "deploy" / "sql" / "20260727_agent_multiround_budget_precheck.sql"
 AGENT_MULTIRROUND_BUDGET_MIGRATION = ROOT / "deploy" / "sql" / "20260727_agent_multiround_budget.sql"
 AGENT_MULTIRROUND_BUDGET_POSTCHECK = ROOT / "deploy" / "sql" / "20260727_agent_multiround_budget_postcheck.sql"
+PHASE_THREE_TASK_CONTEXT_PRECHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_task_context_precheck.sql"
+PHASE_THREE_TASK_CONTEXT_MIGRATION = ROOT / "deploy" / "sql" / "20260801_phase_three_task_context.sql"
+PHASE_THREE_TASK_CONTEXT_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_task_context_postcheck.sql"
+PHASE_THREE_REPORTS_PRECHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_reports_precheck.sql"
+PHASE_THREE_REPORTS_MIGRATION = ROOT / "deploy" / "sql" / "20260801_phase_three_reports.sql"
+PHASE_THREE_REPORTS_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_reports_postcheck.sql"
+PHASE_THREE_ANALYTICS_SNAPSHOTS_PRECHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_analytics_snapshots_precheck.sql"
+PHASE_THREE_ANALYTICS_SNAPSHOTS_MIGRATION = ROOT / "deploy" / "sql" / "20260801_phase_three_analytics_snapshots.sql"
+PHASE_THREE_ANALYTICS_SNAPSHOTS_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_analytics_snapshots_postcheck.sql"
+PHASE_THREE_FEEDBACK_PRECHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_feedback_precheck.sql"
+PHASE_THREE_FEEDBACK_MIGRATION = ROOT / "deploy" / "sql" / "20260801_phase_three_feedback.sql"
+PHASE_THREE_FEEDBACK_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_feedback_postcheck.sql"
+PHASE_THREE_PREFERENCES_PRECHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_preferences_precheck.sql"
+PHASE_THREE_PREFERENCES_MIGRATION = ROOT / "deploy" / "sql" / "20260801_phase_three_preferences.sql"
+PHASE_THREE_PREFERENCES_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_preferences_postcheck.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 LOCAL_DEPLOY_SECRET_FILE = ROOT / ".local-secrets" / "opc-deploy.env"
@@ -223,7 +238,12 @@ def database_command(client, sql):
 def candidate_database_command(client, database_name, sql):
     if not re.fullmatch(r"opc_candidate_[0-9]{14}", database_name or ""):
         raise RuntimeError("Candidate database identity is invalid")
-    return run(client, f"mysql -uroot '{database_name}'", stdin_text=sql, timeout=180)
+    return run(
+        client,
+        f"mysql --batch --skip-column-names -uroot '{database_name}'",
+        stdin_text=sql,
+        timeout=180,
+    )
 
 
 def scoped_database_command(client, sql, database_name=None):
@@ -335,6 +355,83 @@ def request_json(url, method="GET", payload=None, headers=None, expected_code=20
     return status, data
 
 
+def analytics_cancel_confirmed(cancel_body, terminal_body):
+    """Accept a cancellation response or a fenced state-race followed by a terminal read."""
+    terminal_statuses = {
+        "completed", "clarification_needed", "evidence_insufficient", "failed", "cancelled", "expired"
+    }
+
+    def terminal(body):
+        if not isinstance(body, dict) or body.get("code") != 200:
+            return False
+        data = body.get("data")
+        return isinstance(data, dict) and data.get("status") in terminal_statuses
+
+    if terminal(cancel_body):
+        return True
+    return isinstance(cancel_body, dict) and cancel_body.get("code") == 409 \
+        and terminal(terminal_body)
+
+
+def analytics_cancel_diagnostic(cancel_http_status, cancel_body, read_http_status, read_body):
+    """Return only bounded business state fields for a failed cancellation probe."""
+    safe_statuses = {
+        "received", "planning", "running", "clarification_needed", "evidence_insufficient",
+        "completed", "failed", "cancelled", "expired", "settling",
+    }
+
+    def safe_code(http_status, body):
+        code = body.get("code") if isinstance(body, dict) else None
+        if isinstance(code, int) and 100 <= code <= 599:
+            return str(code)
+        if isinstance(http_status, int) and 100 <= http_status <= 599:
+            return str(http_status)
+        return "unknown"
+
+    def safe_status(body):
+        data = body.get("data") if isinstance(body, dict) else None
+        status = data.get("status") if isinstance(data, dict) else None
+        return status if status in safe_statuses else "unknown"
+
+    return (
+        f"cancelCode={safe_code(cancel_http_status, cancel_body)}; "
+        f"cancelStatus={safe_status(cancel_body)}; "
+        f"readCode={safe_code(read_http_status, read_body)}; "
+        f"readStatus={safe_status(read_body)}"
+    )
+
+
+def request_text(
+        url, method="GET", headers=None, expected_code=200, timeout=20,
+        maximum_bytes=2 * 1024 * 1024):
+    if not isinstance(maximum_bytes, int) or maximum_bytes < 1:
+        raise RuntimeError("Text response limit is invalid")
+    request_headers = {"Accept": "text/markdown,text/html;q=0.9,application/json;q=0.8"}
+    for name, value in (headers or {}).items():
+        if not re.fullmatch(r"[A-Za-z0-9-]+", name) or not isinstance(value, str) \
+                or "\r" in value or "\n" in value:
+            raise RuntimeError("Text request header is invalid")
+        request_headers[name] = value
+    request = urllib.request.Request(url, method=method, headers=request_headers)
+    context = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+            raw = response.read(maximum_bytes + 1)
+            status = response.status
+            response_headers = {name.lower(): value for name, value in response.headers.items()}
+    except urllib.error.HTTPError as error:
+        raw = error.read(maximum_bytes + 1)
+        status = error.code
+        response_headers = {name.lower(): value for name, value in error.headers.items()}
+    except Exception:
+        raise RuntimeError("Text request transport failed") from None
+    if len(raw) > maximum_bytes:
+        raise RuntimeError("Text response exceeded the deployment probe limit")
+    if status != expected_code:
+        raise RuntimeError(f"Unexpected text response status: {status}")
+    return status, response_headers, raw.decode("utf-8", errors="replace")
+
+
 def remote_request_json(client, url, method="GET", payload=None, headers=None, expected_code=200, timeout=20):
     config = [
         "silent",
@@ -413,7 +510,7 @@ DELETE FROM platform_users;
 DELETE FROM admin_sessions;
 DELETE FROM admin_accounts;
 SET FOREIGN_KEY_CHECKS=1;
-UPDATE ai_model_settings SET agent_enabled=1 WHERE id=1 AND enabled=1;
+UPDATE ai_model_settings SET agent_enabled=1, agent_rollout_state='explicitly_enabled' WHERE id=1 AND enabled=1;
 SQL
 umask 077
 printf 'SPRING_DATASOURCE_URL=jdbc:mysql://127.0.0.1:3306/{name}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai\nSPRING_DATASOURCE_USERNAME={username}\nSPRING_DATASOURCE_PASSWORD=%s\n' "$candidate_password" > '{environment_file}'
@@ -572,9 +669,39 @@ def apply_candidate_release_migrations(client, release, candidate_database, stam
     _, output, _ = source("agent-multiround-budget-postcheck.sql")
     if output.splitlines()[-1:] != ["1\t1"]:
         raise RuntimeError("Candidate Agent multi-round budget postcheck failed")
+    _, output, _ = source("phase-three-task-context-precheck.sql")
+    source("phase-three-task-context.sql")
+    _, output, _ = source("phase-three-task-context-postcheck.sql")
+    if output.splitlines()[-1:] != ["3\t0\t1\t0"]:
+        raise RuntimeError("Candidate Phase Three task-context postcheck failed")
+    source("phase-three-reports-precheck.sql")
+    source("phase-three-reports.sql")
+    source("phase-three-reports.sql")
+    _, output, _ = source("phase-three-reports-postcheck.sql")
+    if output.splitlines()[-1:] != ["1\t9\t2\t4\t0"]:
+        raise RuntimeError("Candidate Phase Three reports postcheck failed")
+    source("phase-three-analytics-snapshots-precheck.sql")
+    source("phase-three-analytics-snapshots.sql")
+    source("phase-three-analytics-snapshots.sql")
+    _, output, _ = source("phase-three-analytics-snapshots-postcheck.sql")
+    if output.splitlines()[-1:] != ["1\t15\t4\t5\t2"]:
+        raise RuntimeError("Candidate Phase Three analytics snapshots postcheck failed")
+    source("phase-three-feedback-precheck.sql")
+    source("phase-three-feedback.sql")
+    source("phase-three-feedback.sql")
+    _, output, _ = source("phase-three-feedback-postcheck.sql")
+    if output.splitlines()[-1:] != ["1\t8\t2\t2\t0\t0"]:
+        raise RuntimeError("Candidate Phase Three feedback postcheck failed")
+    source("phase-three-preferences-precheck.sql")
+    source("phase-three-preferences.sql")
+    source("phase-three-preferences.sql")
+    _, output, _ = source("phase-three-preferences-postcheck.sql")
+    if output.splitlines()[-2:] != ["1", "1"]:
+        raise RuntimeError("Candidate Phase Three preferences postcheck failed")
 
 
 def candidate_runtime_unit(stamp):
+    # Phase Three task-context migration is verified before candidate runtime boot.
     compact = re.sub(r"[^0-9A-Za-z]", "", stamp or "")
     if not re.fullmatch(r"[0-9]{14}", compact):
         raise RuntimeError("Candidate runtime stamp is invalid")
@@ -626,6 +753,25 @@ def stop_candidate_runtime(client, unit):
         raise RuntimeError("Candidate runtime cleanup failed")
 
 
+def candidate_provider_failure_class(connection_body):
+    """Classify the already-sanitized connection response without retaining its message."""
+    message = connection_body.get("message") if isinstance(connection_body, dict) else ""
+    if not isinstance(message, str):
+        return "unknown"
+    acknowledgement = re.search(r"\bAI_CONNECTION_ACK_(EMPTY|INVALID_JSON|NOT_OBJECT|MISSING_OK|FALSE)\b", message)
+    if acknowledgement:
+        return "ack_" + acknowledgement.group(1).lower()
+    if re.search(r"\bHTTP\s+429\b", message):
+        return "rate_limit"
+    if re.search(r"\bHTTP\s+5\d\d\b", message):
+        return "provider_5xx"
+    if re.search(r"\bHTTP\s+4\d\d\b", message):
+        return "provider_4xx"
+    if "not configured" in message.lower() or "not supported" in message.lower():
+        return "configuration"
+    return "unavailable"
+
+
 def test_candidate_provider_connection(client, admin_headers):
     _, settings_body = remote_request_json(
         client, "http://127.0.0.1:18082/api/admin/ai-settings", headers=admin_headers,
@@ -637,15 +783,36 @@ def test_candidate_provider_connection(client, admin_headers):
         raise RuntimeError("PROVIDER_CONNECTION_FAILED: candidate Provider name is missing")
     if not settings.get("modelId"):
         raise RuntimeError("PROVIDER_CONNECTION_FAILED: candidate model ID is missing")
-    _, connection_body = remote_request_json(
-        client,
-        "http://127.0.0.1:18082/api/admin/ai-settings/test-connection",
-        method="POST",
-        headers=admin_headers,
-        timeout=90,
-    )
-    if connection_body.get("code") != 200 or not (connection_body.get("data") or {}).get("success"):
-        raise RuntimeError("PROVIDER_CONNECTION_FAILED: candidate Provider connection test failed")
+    connection_body = None
+    for attempt in range(2):
+        try:
+            _, connection_body = remote_request_json(
+                client,
+                "http://127.0.0.1:18082/api/admin/ai-settings/test-connection",
+                method="POST",
+                headers=admin_headers,
+                timeout=90,
+            )
+        except RuntimeError:
+            connection_body = None
+        connection_data = connection_body.get("data") if isinstance(connection_body, dict) else None
+        if isinstance(connection_body, dict) and connection_body.get("code") == 200 \
+                and isinstance(connection_data, dict) and connection_data.get("success") is True:
+            break
+        if attempt == 0:
+            time.sleep(5)
+    else:
+        connection_code = connection_body.get("code") if isinstance(connection_body, dict) else None
+        safe_code = str(connection_code) if isinstance(connection_code, int) \
+            and not isinstance(connection_code, bool) and 100 <= connection_code <= 599 else "unknown"
+        success = connection_body.get("data", {}).get("success") if isinstance(connection_body, dict) \
+            and isinstance(connection_body.get("data"), dict) else None
+        safe_success = "true" if success is True else "false" if success is False else "unknown"
+        raise RuntimeError(
+            "PROVIDER_CONNECTION_FAILED: candidate Provider connection test failed "
+            f"(connectionCode={safe_code}; connectionSuccess={safe_success}; "
+            f"providerClass={candidate_provider_failure_class(connection_body)}; attempts=2)"
+        )
     if not settings.get("agentEnabled"):
         raise RuntimeError("AGENT_DISABLED: candidate Agent v2 probe requires the existing rollout to be enabled")
     return settings
@@ -669,6 +836,9 @@ def cleanup_candidate_probe_data(client, username, database_name=None):
     scoped_database_command(
         client,
         "START TRANSACTION;\n"
+        f"DELETE report FROM ai_research_reports report WHERE report.user_id={user};\n"
+        f"DELETE feedback FROM ai_agent_run_feedback feedback WHERE feedback.user_id={user};\n"
+        f"DELETE snapshot FROM ai_analytics_snapshots snapshot WHERE snapshot.user_id={user};\n"
         "DELETE pc FROM ai_agent_provider_calls pc INNER JOIN ai_analysis_runs r "
         "ON r.id=pc.analysis_run_id "
         f"WHERE r.user_id={user};\n"
@@ -680,6 +850,7 @@ def cleanup_candidate_probe_data(client, username, database_name=None):
         "DELETE m FROM ai_agent_messages m INNER JOIN ai_agent_sessions s "
         f"ON s.id=m.session_id WHERE s.user_id={user};\n"
         f"DELETE s FROM ai_agent_sessions s WHERE s.user_id={user};\n"
+        f"DELETE preference FROM ai_research_preferences preference WHERE preference.user_id={user};\n"
         f"DELETE us FROM user_sessions us WHERE us.user_id={user};\n"
         f"DELETE u FROM platform_users u WHERE u.username='{username}';\n"
         "COMMIT;\n",
@@ -693,6 +864,378 @@ def cleanup_candidate_probe_data(client, username, database_name=None):
     lines = [line.strip() for line in remaining_output.splitlines() if line.strip().isdigit()]
     if not lines or int(lines[-1]) != 0:
         raise RuntimeError("Candidate probe data cleanup could not be verified")
+
+
+def cleanup_production_probe_data(client, usernames):
+    identities = tuple(dict.fromkeys(usernames or ()))
+    if not identities or len(identities) > 2 or any(
+            not re.fullmatch(r"aiqa(?:peer)?_[0-9]{10}", value or "")
+            for value in identities):
+        raise RuntimeError("Production probe cleanup identity is invalid")
+    quoted_usernames = ",".join(f"'{value}'" for value in identities)
+    cleanup_sql = (
+        "DROP TEMPORARY TABLE IF EXISTS opc_probe_runs;\n"
+        "DROP TEMPORARY TABLE IF EXISTS opc_probe_sessions;\n"
+        "DROP TEMPORARY TABLE IF EXISTS opc_probe_users;\n"
+        "CREATE TEMPORARY TABLE opc_probe_users (id BIGINT PRIMARY KEY);\n"
+        "CREATE TEMPORARY TABLE opc_probe_runs (id BIGINT PRIMARY KEY);\n"
+        "CREATE TEMPORARY TABLE opc_probe_sessions (id BIGINT PRIMARY KEY);\n"
+        "INSERT INTO opc_probe_users (id) SELECT id FROM platform_users "
+        f"WHERE username IN ({quoted_usernames});\n"
+        "INSERT INTO opc_probe_runs (id) SELECT r.id FROM ai_analysis_runs r "
+        "JOIN opc_probe_users probe ON probe.id=r.user_id;\n"
+        "INSERT INTO opc_probe_sessions (id) SELECT session.id FROM ai_agent_sessions session "
+        "JOIN opc_probe_users probe ON probe.id=session.user_id;\n"
+        "START TRANSACTION;\n"
+        "DELETE report FROM ai_research_reports report "
+        "JOIN opc_probe_users probe ON probe.id=report.user_id;\n"
+        "DELETE feedback FROM ai_agent_run_feedback feedback "
+        "JOIN opc_probe_users probe ON probe.id=feedback.user_id;\n"
+        "DELETE snapshot FROM ai_analytics_snapshots snapshot "
+        "JOIN opc_probe_users probe ON probe.id=snapshot.user_id;\n"
+        "DELETE provider FROM ai_agent_provider_calls provider "
+        "JOIN opc_probe_runs probe ON probe.id=provider.analysis_run_id;\n"
+        "DELETE tool FROM ai_agent_tool_calls tool "
+        "JOIN opc_probe_runs probe ON probe.id=tool.analysis_run_id;\n"
+        "DELETE audit FROM ai_agent_content_purge_audits audit "
+        "JOIN opc_probe_users probe ON probe.id=audit.user_id;\n"
+        "DELETE run FROM ai_analysis_runs run "
+        "JOIN opc_probe_users probe ON probe.id=run.user_id;\n"
+        "DELETE message FROM ai_agent_messages message "
+        "JOIN opc_probe_sessions probe ON probe.id=message.session_id;\n"
+        "DELETE session FROM ai_agent_sessions session "
+        "JOIN opc_probe_users probe ON probe.id=session.user_id;\n"
+        "DELETE preference FROM ai_research_preferences preference "
+        "JOIN opc_probe_users probe ON probe.id=preference.user_id;\n"
+        "DELETE user_session FROM user_sessions user_session "
+        "JOIN opc_probe_users probe ON probe.id=user_session.user_id;\n"
+        "DELETE user FROM platform_users user "
+        "JOIN opc_probe_users probe ON probe.id=user.id;\n"
+        "COMMIT;\n"
+        "SELECT COUNT(*) AS remaining_reports FROM ai_research_reports report "
+        "JOIN opc_probe_users probe ON probe.id=report.user_id;\n"
+        "SELECT COUNT(*) AS remaining_feedback FROM ai_agent_run_feedback feedback "
+        "JOIN opc_probe_users probe ON probe.id=feedback.user_id;\n"
+        "SELECT COUNT(*) AS remaining_snapshots FROM ai_analytics_snapshots snapshot "
+        "JOIN opc_probe_users probe ON probe.id=snapshot.user_id;\n"
+        "SELECT COUNT(*) AS remaining_preferences FROM ai_research_preferences preference "
+        "JOIN opc_probe_users probe ON probe.id=preference.user_id;\n"
+        "SELECT COUNT(*) AS remaining_provider_calls FROM ai_agent_provider_calls provider "
+        "JOIN opc_probe_runs probe ON probe.id=provider.analysis_run_id;\n"
+        "SELECT COUNT(*) AS remaining_tool_calls FROM ai_agent_tool_calls tool "
+        "JOIN opc_probe_runs probe ON probe.id=tool.analysis_run_id;\n"
+        "SELECT COUNT(*) AS remaining_runs FROM ai_analysis_runs run "
+        "JOIN opc_probe_runs probe ON probe.id=run.id;\n"
+        "SELECT COUNT(*) AS remaining_messages FROM ai_agent_messages message "
+        "JOIN opc_probe_sessions probe ON probe.id=message.session_id;\n"
+        "SELECT COUNT(*) AS remaining_sessions FROM ai_agent_sessions session "
+        "JOIN opc_probe_sessions probe ON probe.id=session.id;\n"
+        "SELECT COUNT(*) AS remaining_user_sessions FROM user_sessions user_session "
+        "JOIN opc_probe_users probe ON probe.id=user_session.user_id;\n"
+        "SELECT COUNT(*) AS remaining_users FROM platform_users user "
+        "JOIN opc_probe_users probe ON probe.id=user.id;\n"
+        "DROP TEMPORARY TABLE opc_probe_runs;\n"
+        "DROP TEMPORARY TABLE opc_probe_sessions;\n"
+        "DROP TEMPORARY TABLE opc_probe_users;\n"
+    )
+    _, output, _ = database_command(client, cleanup_sql)
+    lines = [line.strip() for line in output.splitlines() if line.strip().isdigit()]
+    verification_counts = lines[-11:]
+    if len(verification_counts) != 11 or any(int(value) != 0 for value in verification_counts):
+        raise RuntimeError("Production probe data cleanup could not be verified")
+
+
+def run_phase_three_product_probes(
+        client, stamp, owner_headers, peer_headers, admin_headers,
+        session_id, run_id, final_message_id):
+    if any(not isinstance(value, int) or value <= 0
+           for value in (session_id, run_id, final_message_id)):
+        raise RuntimeError("Phase Three probe identity is invalid")
+    suffix = stamp.replace("-", "")
+    if not re.fullmatch(r"[0-9]{14}", suffix):
+        raise RuntimeError("Phase Three probe stamp is invalid")
+
+    report_title = "Deployment Phase Three report"
+    _, report_body = request_json(
+        f"https://findopc.online/api/ai/research/sessions/{session_id}/reports",
+        method="POST",
+        headers=owner_headers,
+        payload={
+            "finalMessageId": final_message_id,
+            "title": report_title,
+            "notes": "",
+            "idempotencyKey": f"deploy-report-{suffix}",
+        },
+    )
+    report = report_body.get("data") or {}
+    report_id = report.get("reportId")
+    evidence_version = report.get("evidenceVersion")
+    if report_body.get("code") != 200 or not isinstance(report_id, int) or report_id <= 0 \
+            or report.get("sessionId") != session_id or report.get("runId") != run_id \
+            or report.get("finalMessageId") != final_message_id \
+            or report.get("status") != "active" or not isinstance(evidence_version, str) \
+            or not evidence_version:
+        raise RuntimeError("Phase Three report save probe failed")
+    _, owned_report = request_json(
+        f"https://findopc.online/api/ai/research/reports/{report_id}",
+        headers=owner_headers,
+    )
+    if owned_report.get("code") != 200 \
+            or (owned_report.get("data") or {}).get("reportId") != report_id:
+        raise RuntimeError("Phase Three report read probe failed")
+    _, export_headers, export_body = request_text(
+        f"https://findopc.online/api/ai/research/reports/{report_id}/export?format=markdown",
+        headers=owner_headers,
+        maximum_bytes=2 * 1024 * 1024,
+    )
+    if not export_headers.get("content-type", "").lower().startswith("text/markdown") \
+            or report_title not in export_body or evidence_version not in export_body \
+            or "## Sources" not in export_body:
+        raise RuntimeError("Phase Three report export probe failed")
+    _, peer_report = request_json(
+        f"https://findopc.online/api/ai/research/reports/{report_id}",
+        headers=peer_headers,
+    )
+    if peer_report.get("code") != 404:
+        raise RuntimeError("Phase Three report ownership probe failed")
+    _, peer_export_headers, peer_export_body = request_text(
+        f"https://findopc.online/api/ai/research/reports/{report_id}/export?format=markdown",
+        headers=peer_headers,
+        maximum_bytes=64 * 1024,
+    )
+    try:
+        peer_export_error = json.loads(peer_export_body)
+    except (TypeError, json.JSONDecodeError):
+        peer_export_error = {}
+    if not peer_export_headers.get("content-type", "").lower().startswith("application/json") \
+            or peer_export_error.get("code") != 404 or report_title in peer_export_body:
+        raise RuntimeError("Phase Three report export ownership probe failed")
+
+    preference_payload = {
+        "memoryEnabled": True,
+        "commonRegion": "Hubei",
+        "commonIndustry": "AI",
+        "technologyDirection": "AI applications",
+        "ventureStage": "validation",
+        "budgetRange": "under_100k",
+        "teamCapabilities": "product development",
+        "existingResources": "",
+        "policyFocus": "startup support",
+    }
+    _, preference_update = request_json(
+        "https://findopc.online/api/ai/research/preferences",
+        method="PATCH",
+        headers=owner_headers,
+        payload=preference_payload,
+    )
+    saved_preference = preference_update.get("data") or {}
+    if preference_update.get("code") != 200 or saved_preference.get("memoryEnabled") is not True \
+            or saved_preference.get("commonRegion") != "Hubei" \
+            or saved_preference.get("commonIndustry") != "AI":
+        raise RuntimeError("Phase Three preference consent probe failed")
+    _, preference_read = request_json(
+        "https://findopc.online/api/ai/research/preferences",
+        headers=owner_headers,
+    )
+    read_preference = preference_read.get("data") or {}
+    if preference_read.get("code") != 200 or read_preference.get("memoryEnabled") is not True \
+            or read_preference.get("technologyDirection") != "AI applications":
+        raise RuntimeError("Phase Three preference read probe failed")
+    _, preference_delete = request_json(
+        "https://findopc.online/api/ai/research/preferences",
+        method="DELETE",
+        headers=owner_headers,
+    )
+    _, preference_after_delete = request_json(
+        "https://findopc.online/api/ai/research/preferences",
+        headers=owner_headers,
+    )
+    if preference_delete.get("code") != 200 or preference_after_delete.get("code") != 200 \
+            or preference_after_delete.get("data") is not None:
+        raise RuntimeError("Phase Three preference delete probe failed")
+
+    feedback_url = f"https://findopc.online/api/ai/research/runs/{run_id}/feedback"
+    _, feedback_create = request_json(
+        feedback_url,
+        method="PUT",
+        headers=owner_headers,
+        payload={
+            "rating": "helpful", "reason": "accurate_and_useful",
+            "comment": "", "expectedRevision": 0,
+        },
+    )
+    first_feedback = feedback_create.get("data") or {}
+    if feedback_create.get("code") != 200 or first_feedback.get("revision") != 1:
+        raise RuntimeError("Phase Three feedback create probe failed")
+    _, feedback_update = request_json(
+        feedback_url,
+        method="PUT",
+        headers=owner_headers,
+        payload={
+            "rating": "helpful", "reason": "good_evidence",
+            "comment": "", "expectedRevision": 1,
+        },
+    )
+    second_feedback = feedback_update.get("data") or {}
+    if feedback_update.get("code") != 200 or second_feedback.get("revision") != 2 \
+            or second_feedback.get("reason") != "good_evidence":
+        raise RuntimeError("Phase Three feedback update probe failed")
+    _, stale_feedback = request_json(
+        feedback_url,
+        method="PUT",
+        headers=owner_headers,
+        payload={
+            "rating": "helpful", "reason": "clear_and_actionable",
+            "comment": "", "expectedRevision": 1,
+        },
+    )
+    _, feedback_read = request_json(feedback_url, headers=owner_headers)
+    final_feedback = feedback_read.get("data") or {}
+    _, peer_feedback = request_json(feedback_url, headers=peer_headers)
+    if stale_feedback.get("code") != 409 or feedback_read.get("code") != 200 \
+            or final_feedback.get("revision") != 2 \
+            or final_feedback.get("reason") != "good_evidence" \
+            or peer_feedback.get("code") != 404:
+        raise RuntimeError("Phase Three feedback CAS or ownership probe failed")
+
+    _, overview_body = request_json(
+        "https://findopc.online/api/analytics/overview",
+        headers=owner_headers,
+    )
+    overview = overview_body.get("data") or {}
+    data_version = overview.get("dataVersion")
+    available_metrics = {
+        card.get("metricId") for card in (overview.get("cards") or [])
+        if isinstance(card, dict)
+    }
+    if overview_body.get("code") != 200 or not isinstance(data_version, str) \
+            or not data_version or len(data_version) > 128 \
+            or "overview.verified_cases" not in available_metrics:
+        raise RuntimeError("Phase Three analytics overview probe failed")
+    analytics_payload = {
+        "metricId": "overview.verified_cases",
+        "filters": {},
+        "selectedBucketIds": [],
+        "dataVersion": data_version,
+        "userQuestion": "Evaluate the verified case metric boundary.",
+        "idempotencyKey": f"deploy-analytics-{suffix}",
+    }
+    _, analytics_start = request_json(
+        "https://findopc.online/api/ai/research/from-analytics",
+        method="POST",
+        headers=owner_headers,
+        expected_code=202,
+        payload=analytics_payload,
+        timeout=30,
+    )
+    analytics_receipt = analytics_start.get("data") or {}
+    analytics_snapshot_id = analytics_receipt.get("analyticsSnapshotId")
+    analytics_run_id = analytics_receipt.get("runId")
+    if analytics_start.get("code") != 200 \
+            or not isinstance(analytics_snapshot_id, int) or analytics_snapshot_id <= 0 \
+            or not isinstance(analytics_run_id, int) or analytics_run_id <= 0 \
+            or analytics_receipt.get("metricId") != "overview.verified_cases" \
+            or analytics_receipt.get("dataVersion") != data_version:
+        raise RuntimeError("Phase Three analytics research start probe failed")
+    stale_payload = dict(analytics_payload)
+    stale_payload.update({
+        "dataVersion": "stale-" + hashlib.sha256(data_version.encode("utf-8")).hexdigest()[:12],
+        "idempotencyKey": f"deploy-analytics-stale-{suffix}",
+    })
+    _, stale_analytics = request_json(
+        "https://findopc.online/api/ai/research/from-analytics",
+        method="POST",
+        headers=owner_headers,
+        payload=stale_payload,
+        timeout=30,
+    )
+    if stale_analytics.get("code") != 409 \
+            or stale_analytics.get("message") != "ANALYTICS_DATA_VERSION_STALE":
+        raise RuntimeError("Phase Three analytics stale version probe failed")
+    _, analytics_audit_output, _ = database_command(
+        client,
+        "SELECT snapshot.metric_id,snapshot.data_version,snapshot.run_id,"
+        "run.analytics_snapshot_id,run.analytics_data_version,"
+        "IF(snapshot.user_id=run.user_id,1,0) "
+        "FROM ai_analytics_snapshots snapshot JOIN ai_analysis_runs run ON run.id=snapshot.run_id "
+        f"WHERE snapshot.id={analytics_snapshot_id} AND run.id={analytics_run_id} LIMIT 1;\n",
+    )
+    audit_lines = [line for line in analytics_audit_output.splitlines() if line.count("\t") == 5]
+    analytics_audit = audit_lines[-1].split("\t") if audit_lines else []
+    if analytics_audit != [
+        "overview.verified_cases", data_version, str(analytics_run_id),
+        str(analytics_snapshot_id), data_version, "1",
+    ]:
+        raise RuntimeError("Phase Three analytics data version audit failed")
+    _, peer_analytics_run = request_json(
+        f"https://findopc.online/api/ai/research/runs/{analytics_run_id}",
+        headers=peer_headers,
+    )
+    if peer_analytics_run.get("code") != 404:
+        raise RuntimeError("Phase Three analytics ownership probe failed")
+    analytics_cancel_http_status, analytics_cancel = request_json(
+        f"https://findopc.online/api/ai/research/runs/{analytics_run_id}/cancel",
+        method="POST",
+        headers=owner_headers,
+    )
+    analytics_read_http_status, analytics_read = request_json(
+        f"https://findopc.online/api/ai/research/runs/{analytics_run_id}",
+        headers=owner_headers,
+    )
+    analytics_cancel_diagnostic_text = analytics_cancel_diagnostic(
+        analytics_cancel_http_status, analytics_cancel,
+        analytics_read_http_status, analytics_read,
+    )
+    if not analytics_cancel_confirmed(analytics_cancel, analytics_read):
+        raise RuntimeError(
+            "Phase Three analytics research cancellation probe failed: "
+            + analytics_cancel_diagnostic_text
+        )
+    terminal_statuses = {
+        "completed", "clarification_needed", "evidence_insufficient", "failed", "cancelled", "expired"
+    }
+    if analytics_read.get("code") != 200 \
+            or (analytics_read.get("data") or {}).get("status") not in terminal_statuses:
+        raise RuntimeError(
+            "Phase Three analytics terminal run probe failed: "
+            + analytics_cancel_diagnostic_text
+        )
+
+    quality_url = "https://admin.findopc.online/api/admin/ai/research/quality"
+    _, anonymous_quality = request_json(quality_url)
+    _, ordinary_quality = request_json(quality_url, headers=owner_headers)
+    _, admin_quality = request_json(quality_url, headers=admin_headers)
+    quality = admin_quality.get("data") or {}
+    quality_text = json.dumps(quality, ensure_ascii=True)
+    private_key = re.search(
+        r'(?i)"(?:question|answer|comment|content|rawPrompt|rawResponse|chainOfThought)"\s*:',
+        quality_text,
+    )
+    if anonymous_quality.get("code") != 401 or ordinary_quality.get("code") != 401 \
+            or admin_quality.get("code") != 200 \
+            or not isinstance(quality.get("sampleSize"), int) or quality.get("sampleSize") < 1 \
+            or not isinstance(quality.get("helpfulCount"), int) or quality.get("helpfulCount") < 1 \
+            or int((quality.get("reasonCounts") or {}).get("good_evidence") or 0) < 1 \
+            or not isinstance(quality.get("latencySummary"), dict) \
+            or not isinstance(quality.get("tokenSummary"), dict) \
+            or not isinstance(quality.get("toolCallSummary"), dict) or private_key:
+        raise RuntimeError("Phase Three administrator quality or auth probe failed")
+
+    return {
+        "report_saved": True,
+        "report_export": "markdown",
+        "report_owner_isolated": True,
+        "preference_consent": True,
+        "preference_deleted": True,
+        "feedback_revision": int(final_feedback["revision"]),
+        "feedback_cas": True,
+        "analytics_snapshot_id": analytics_snapshot_id,
+        "analytics_run_id": analytics_run_id,
+        "analytics_data_version": data_version,
+        "analytics_owner_isolated": True,
+        "admin_quality_sample_size": int(quality["sampleSize"]),
+        "admin_quality_auth": True,
+    }
 
 
 class CandidateProbeFailure(RuntimeError):
@@ -810,6 +1353,27 @@ def candidate_scenario_diagnostic(error, scenario):
     return f"CANDIDATE_{scenario.upper()}_FAILED"
 
 
+def candidate_contract_validation_reason(error):
+    message = str(error or "")
+    mapping = {
+        "field ": "required_field",
+        "must be positive": "numeric_field",
+        "token totals": "token_audit",
+        "model-round audit": "model_round_audit",
+        "tool-call audit": "tool_call_audit",
+        "citations are outside": "citation_audit",
+        "usage was not fully settled": "settlement_audit",
+        "coverage counts are invalid": "coverage_counts",
+        "coverage differs": "coverage_audit",
+        "coverage status is inconsistent": "coverage_status",
+        "controlled terminal state": "terminal_status",
+    }
+    for phrase, reason in mapping.items():
+        if phrase in message:
+            return reason
+    return "unknown"
+
+
 def candidate_research_context(client, database_name, scenario):
     if scenario == "case_comparison":
         sql = (
@@ -910,7 +1474,7 @@ def run_candidate_agent_v2_probe(client, stamp, settings, candidate_database, sc
             "requested_intent": "case_comparison",
         },
         "source_verification": {
-            "content": "先检索{region}{industry}创业政策资料，再使用检索实际返回的来源编号核验一个原始来源。",
+            "content": "仅完成一次来源核验：先检索{region}{industry}创业政策，再从本次检索返回的来源中选择一个编号核验；只给出一条简短、带该来源引用的结论。",
             "required_evidence": ("source",),
             "required_tools": ("search_policies", "get_source"),
             "requested_intent": "source_verification",
@@ -1176,7 +1740,10 @@ def run_candidate_agent_v2_probe(client, stamp, settings, candidate_database, sc
                 max_tool_calls=int(settings.get("agentMaxToolCalls") or 6),
             )
         except ValueError as error:
-            raise RuntimeError(f"CANDIDATE_AGENT_CONTRACT_INVALID: {error}") from None
+            diagnostic = "CANDIDATE_AGENT_CONTRACT_INVALID"
+            probe_record["diagnostic_code"] = diagnostic
+            probe_record["contract_validation_reason"] = candidate_contract_validation_reason(error)
+            raise CandidateProbeFailure(diagnostic, probe_record) from None
         return probe_record
     except Exception as error:
         primary_error = error
@@ -1309,6 +1876,21 @@ def deploy(client):
         AGENT_MULTIRROUND_BUDGET_PRECHECK,
         AGENT_MULTIRROUND_BUDGET_MIGRATION,
         AGENT_MULTIRROUND_BUDGET_POSTCHECK,
+        PHASE_THREE_TASK_CONTEXT_PRECHECK,
+        PHASE_THREE_TASK_CONTEXT_MIGRATION,
+        PHASE_THREE_TASK_CONTEXT_POSTCHECK,
+        PHASE_THREE_REPORTS_PRECHECK,
+        PHASE_THREE_REPORTS_MIGRATION,
+        PHASE_THREE_REPORTS_POSTCHECK,
+        PHASE_THREE_ANALYTICS_SNAPSHOTS_PRECHECK,
+        PHASE_THREE_ANALYTICS_SNAPSHOTS_MIGRATION,
+        PHASE_THREE_ANALYTICS_SNAPSHOTS_POSTCHECK,
+        PHASE_THREE_FEEDBACK_PRECHECK,
+        PHASE_THREE_FEEDBACK_MIGRATION,
+        PHASE_THREE_FEEDBACK_POSTCHECK,
+        PHASE_THREE_PREFERENCES_PRECHECK,
+        PHASE_THREE_PREFERENCES_MIGRATION,
+        PHASE_THREE_PREFERENCES_POSTCHECK,
     ]
     for path in required:
         if not path.exists():
@@ -1329,6 +1911,7 @@ def deploy(client):
     service_user_preexisting = False
     assistant_probe = None
     agent_probe = None
+    phase_three_probe = None
     candidate_probe = None
     candidate_probes = {}
     unclassified_policy_count = None
@@ -1389,6 +1972,21 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     sftp.put(str(AGENT_MULTIRROUND_BUDGET_PRECHECK), f"{release}/agent-multiround-budget-precheck.sql")
     sftp.put(str(AGENT_MULTIRROUND_BUDGET_MIGRATION), f"{release}/agent-multiround-budget.sql")
     sftp.put(str(AGENT_MULTIRROUND_BUDGET_POSTCHECK), f"{release}/agent-multiround-budget-postcheck.sql")
+    sftp.put(str(PHASE_THREE_TASK_CONTEXT_PRECHECK), f"{release}/phase-three-task-context-precheck.sql")
+    sftp.put(str(PHASE_THREE_TASK_CONTEXT_MIGRATION), f"{release}/phase-three-task-context.sql")
+    sftp.put(str(PHASE_THREE_TASK_CONTEXT_POSTCHECK), f"{release}/phase-three-task-context-postcheck.sql")
+    sftp.put(str(PHASE_THREE_REPORTS_PRECHECK), f"{release}/phase-three-reports-precheck.sql")
+    sftp.put(str(PHASE_THREE_REPORTS_MIGRATION), f"{release}/phase-three-reports.sql")
+    sftp.put(str(PHASE_THREE_REPORTS_POSTCHECK), f"{release}/phase-three-reports-postcheck.sql")
+    sftp.put(str(PHASE_THREE_ANALYTICS_SNAPSHOTS_PRECHECK), f"{release}/phase-three-analytics-snapshots-precheck.sql")
+    sftp.put(str(PHASE_THREE_ANALYTICS_SNAPSHOTS_MIGRATION), f"{release}/phase-three-analytics-snapshots.sql")
+    sftp.put(str(PHASE_THREE_ANALYTICS_SNAPSHOTS_POSTCHECK), f"{release}/phase-three-analytics-snapshots-postcheck.sql")
+    sftp.put(str(PHASE_THREE_FEEDBACK_PRECHECK), f"{release}/phase-three-feedback-precheck.sql")
+    sftp.put(str(PHASE_THREE_FEEDBACK_MIGRATION), f"{release}/phase-three-feedback.sql")
+    sftp.put(str(PHASE_THREE_FEEDBACK_POSTCHECK), f"{release}/phase-three-feedback-postcheck.sql")
+    sftp.put(str(PHASE_THREE_PREFERENCES_PRECHECK), f"{release}/phase-three-preferences-precheck.sql")
+    sftp.put(str(PHASE_THREE_PREFERENCES_MIGRATION), f"{release}/phase-three-preferences.sql")
+    sftp.put(str(PHASE_THREE_PREFERENCES_POSTCHECK), f"{release}/phase-three-preferences-postcheck.sql")
     sftp.put(str(NGINX), uploaded_nginx)
     sftp.put(str(SYSTEMD), uploaded_systemd)
     sftp.close()
@@ -1420,6 +2018,21 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"{release}/agent-multiround-budget-precheck.sql": sha256(AGENT_MULTIRROUND_BUDGET_PRECHECK),
         f"{release}/agent-multiround-budget.sql": sha256(AGENT_MULTIRROUND_BUDGET_MIGRATION),
         f"{release}/agent-multiround-budget-postcheck.sql": sha256(AGENT_MULTIRROUND_BUDGET_POSTCHECK),
+        f"{release}/phase-three-task-context-precheck.sql": sha256(PHASE_THREE_TASK_CONTEXT_PRECHECK),
+        f"{release}/phase-three-task-context.sql": sha256(PHASE_THREE_TASK_CONTEXT_MIGRATION),
+        f"{release}/phase-three-task-context-postcheck.sql": sha256(PHASE_THREE_TASK_CONTEXT_POSTCHECK),
+        f"{release}/phase-three-reports-precheck.sql": sha256(PHASE_THREE_REPORTS_PRECHECK),
+        f"{release}/phase-three-reports.sql": sha256(PHASE_THREE_REPORTS_MIGRATION),
+        f"{release}/phase-three-reports-postcheck.sql": sha256(PHASE_THREE_REPORTS_POSTCHECK),
+        f"{release}/phase-three-analytics-snapshots-precheck.sql": sha256(PHASE_THREE_ANALYTICS_SNAPSHOTS_PRECHECK),
+        f"{release}/phase-three-analytics-snapshots.sql": sha256(PHASE_THREE_ANALYTICS_SNAPSHOTS_MIGRATION),
+        f"{release}/phase-three-analytics-snapshots-postcheck.sql": sha256(PHASE_THREE_ANALYTICS_SNAPSHOTS_POSTCHECK),
+        f"{release}/phase-three-feedback-precheck.sql": sha256(PHASE_THREE_FEEDBACK_PRECHECK),
+        f"{release}/phase-three-feedback.sql": sha256(PHASE_THREE_FEEDBACK_MIGRATION),
+        f"{release}/phase-three-feedback-postcheck.sql": sha256(PHASE_THREE_FEEDBACK_POSTCHECK),
+        f"{release}/phase-three-preferences-precheck.sql": sha256(PHASE_THREE_PREFERENCES_PRECHECK),
+        f"{release}/phase-three-preferences.sql": sha256(PHASE_THREE_PREFERENCES_MIGRATION),
+        f"{release}/phase-three-preferences-postcheck.sql": sha256(PHASE_THREE_PREFERENCES_POSTCHECK),
         uploaded_nginx: sha256(NGINX),
         uploaded_systemd: sha256(SYSTEMD),
     }
@@ -1678,6 +2291,35 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         )
         if multiround_postcheck_output.splitlines()[-1:] != ["1\t1"]:
             raise RuntimeError("Agent multi-round budget database postcheck failed")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-task-context-precheck.sql'")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/phase-three-task-context.sql'")
+        _, phase_three_task_context_postcheck_output, _ = run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-task-context-postcheck.sql'")
+        if phase_three_task_context_postcheck_output.splitlines()[-1:] != ["3\t0\t1\t0"]:
+            raise RuntimeError("Phase Three task context database postcheck failed")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-reports-precheck.sql'")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/phase-three-reports.sql'")
+        _, phase_three_reports_postcheck_output, _ = run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-reports-postcheck.sql'")
+        if phase_three_reports_postcheck_output.splitlines()[-1:] != ["1\t9\t2\t4\t0"]:
+            raise RuntimeError("Phase Three reports database postcheck failed")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-analytics-snapshots-precheck.sql'")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/phase-three-analytics-snapshots.sql'")
+        _, analytics_snapshot_postcheck_output, _ = run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-analytics-snapshots-postcheck.sql'",
+        )
+        if analytics_snapshot_postcheck_output.splitlines()[-1:] != ["1\t15\t4\t5\t2"]:
+            raise RuntimeError("Phase Three analytics snapshots database postcheck failed")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-feedback-precheck.sql'")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/phase-three-feedback.sql'")
+        _, phase_three_feedback_postcheck_output, _ = run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-feedback-postcheck.sql'")
+        if phase_three_feedback_postcheck_output.splitlines()[-1:] != ["1\t8\t2\t2\t0\t0"]:
+            raise RuntimeError("Phase Three feedback database postcheck failed")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-preferences-precheck.sql'")
+        run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/phase-three-preferences.sql'")
+        _, phase_three_preferences_postcheck_output, _ = run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-preferences-postcheck.sql'")
+        if phase_three_preferences_postcheck_output.splitlines()[-2:] != ["1", "1"]:
+            raise RuntimeError("Phase Three preferences database postcheck failed")
         run(
             client,
             "set -euo pipefail\n"
@@ -1919,16 +2561,25 @@ test "${cursor_length:-0}" -ge 32
         ai_qa_username = f"aiqa_{stamp.replace('-', '')[-10:]}"
         ai_qa_email = f"{ai_qa_username}@example.invalid"
         ai_qa_token = secrets.token_hex(32)
+        ai_qa_peer_username = f"aiqapeer_{stamp.replace('-', '')[-10:]}"
+        ai_qa_peer_email = f"{ai_qa_peer_username}@example.invalid"
+        ai_qa_peer_token = secrets.token_hex(32)
         ai_qa_sql = f"""
 INSERT INTO platform_users (username, email, password_hash, status)
-VALUES ('{ai_qa_username}', '{ai_qa_email}', NULL, 'active');
+VALUES ('{ai_qa_username}', '{ai_qa_email}', NULL, 'active'),
+       ('{ai_qa_peer_username}', '{ai_qa_peer_email}', NULL, 'active');
 INSERT INTO user_sessions (user_id, token, expires_at)
 SELECT id, '{ai_qa_token}', DATE_ADD(NOW(), INTERVAL 10 MINUTE)
 FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
+INSERT INTO user_sessions (user_id, token, expires_at)
+SELECT id, '{ai_qa_peer_token}', DATE_ADD(NOW(), INTERVAL 10 MINUTE)
+FROM platform_users WHERE username = '{ai_qa_peer_username}' LIMIT 1;
 """
-        database_command(client, ai_qa_sql)
+        ai_probe_error = None
         try:
+            database_command(client, ai_qa_sql)
             user_headers = {"Authorization": f"Bearer {ai_qa_token}"}
+            peer_headers = {"Authorization": f"Bearer {ai_qa_peer_token}"}
             _, ordinary_admin_audit = request_json(
                 "https://admin.findopc.online/api/admin/ai-agent-runs?limit=1",
                 headers=user_headers,
@@ -2237,8 +2888,33 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 f"https://findopc.online/api/ai/research/sessions/{agent_session_id}/messages?limit=50",
                 headers=user_headers,
             )
-            if message_page.get("code") != 200 or len((message_page.get("data") or {}).get("items") or []) < 2:
+            message_items = (message_page.get("data") or {}).get("items") or []
+            if message_page.get("code") != 200 or len(message_items) < 2:
                 raise RuntimeError("Production Agent message pagination failed")
+            phase_three_final_messages = [
+                item for item in message_items
+                if item.get("runId") == int(agent_run_id)
+                and item.get("role") == "assistant"
+                and item.get("status") == "completed"
+                and isinstance(item.get("messageId"), int)
+            ]
+            phase_three_final_message = max(
+                phase_three_final_messages,
+                key=lambda item: int(item.get("sequenceNo") or 0),
+                default=None,
+            )
+            if phase_three_final_message is None:
+                raise RuntimeError("Production Agent final message is unavailable for Phase Three probes")
+            phase_three_probe = run_phase_three_product_probes(
+                client,
+                stamp,
+                user_headers,
+                peer_headers,
+                admin_headers,
+                session_id=int(agent_session_id),
+                run_id=int(agent_run_id),
+                final_message_id=int(phase_three_final_message["messageId"]),
+            )
 
             history_sequence_sql = " UNION ALL ".join(
                 f"SELECT {value} AS n" if value == 1 else f"SELECT {value}"
@@ -2485,16 +3161,23 @@ FROM platform_users WHERE username = '{ai_qa_username}' LIMIT 1;
                 "readable_run_results": purge_barrier_fields[5],
                 "generation_matches": purge_barrier_fields[6],
             })
+        except Exception as error:
+            ai_probe_error = error
+            raise
         finally:
-            database_command(
-                client,
-                f"DELETE FROM user_sessions WHERE token = '{ai_qa_token}';\n"
-                f"DELETE FROM ai_analysis_runs WHERE user_id IN "
-                f"(SELECT id FROM platform_users WHERE username = '{ai_qa_username}');\n"
-                f"DELETE FROM ai_agent_sessions WHERE user_id IN "
-                f"(SELECT id FROM platform_users WHERE username = '{ai_qa_username}');\n"
-                f"DELETE FROM platform_users WHERE username = '{ai_qa_username}';\n",
-            )
+            ai_probe_cleanup_error = None
+            try:
+                cleanup_production_probe_data(
+                    client, (ai_qa_username, ai_qa_peer_username))
+            except Exception as error:
+                ai_probe_cleanup_error = error
+            if ai_probe_cleanup_error is not None:
+                if ai_probe_error is not None:
+                    ai_probe_error.add_note(
+                        "Production probe data cleanup also failed after the original probe error"
+                    )
+                else:
+                    raise ai_probe_cleanup_error
 
         qa_suffix = stamp.replace("-", "")[-10:]
         approve_username = f"qaapprove_{qa_suffix}"
@@ -2698,6 +3381,7 @@ nginx -t && systemctl reload nginx
         "backend_user": backend_runtime["user"],
         "assistant_probe": assistant_probe,
         "agent_probe": agent_probe,
+        "phase_three_probe": phase_three_probe,
         "candidate_probe": candidate_probe,
         "candidate_probes": candidate_probes,
         "unclassified_policy_count": unclassified_policy_count,

@@ -151,6 +151,16 @@ public class AgentToolRegistry {
         return serializeSchema(root);
     }
 
+    public String jsonCompactResearchRecoverySchemaV2(Set<Long> allowedSourceIds) {
+        var root = objectMapper.createObjectNode();
+        var branches = root.putArray("oneOf");
+        if (allowedSourceIds == null || !allowedSourceIds.isEmpty()) {
+            addCompactRecoveryFinalBranch(branches, "final", allowedSourceIds);
+        }
+        addCompactRecoveryFinalBranch(branches, "evidence_insufficient", allowedSourceIds);
+        return serializeSchema(root);
+    }
+
     private String serializeSchema(JsonNode root) {
         try {
             return objectMapper.writeValueAsString(root);
@@ -212,7 +222,7 @@ public class AgentToolRegistry {
         audit.setStatus("pending");
         audit.setEvidenceCount(0);
         audit.setLatencyMs(0L);
-        if (callMapper.insertGuarded(audit, context.leaseOwner()) != 1) {
+        if (guardedInsert(context, audit) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "Agent tool write was rejected because the run lease or session content changed");
         }
@@ -485,6 +495,56 @@ public class AgentToolRegistry {
                 AgentResearchContract.MAX_COVERAGE_LIMITATION_LENGTH);
     }
 
+    private void addCompactRecoveryFinalBranch(
+            com.fasterxml.jackson.databind.node.ArrayNode branches,
+            String action,
+            Set<Long> allowedSourceIds
+    ) {
+        addResearchFinalBranch(branches, action, allowedSourceIds);
+        var branch = (com.fasterxml.jackson.databind.node.ObjectNode) branches.get(branches.size() - 1);
+        var required = branch.putArray("required");
+        for (String field : List.of(
+                "action", "intent", "directAnswer", "keyFindings", "recommendations",
+                "citations", "confidence", "evidenceCoverage"
+        )) required.add(field);
+        var properties = (com.fasterxml.jackson.databind.node.ObjectNode) branch.get("properties");
+        properties.remove(List.of(
+                "caseInsights", "policyInsights", "comparison", "risks", "assumptions",
+                "uncertainties", "nextQuestions"
+        ));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) properties.get("directAnswer"))
+                .put("maxLength", 300);
+        var keyFindings = (com.fasterxml.jackson.databind.node.ObjectNode) properties.get("keyFindings");
+        keyFindings.put("maxItems", 1);
+        keyFindings.path("items").path("oneOf").forEach(statement -> {
+            var statementProperties = (com.fasterxml.jackson.databind.node.ObjectNode) statement.get("properties");
+            ((com.fasterxml.jackson.databind.node.ObjectNode) statementProperties.get("text"))
+                    .put("maxLength", 240);
+            ((com.fasterxml.jackson.databind.node.ObjectNode) statementProperties.get("sourceIds"))
+                    .put("maxItems", 3);
+        });
+        var recommendations = (com.fasterxml.jackson.databind.node.ObjectNode) properties.get("recommendations");
+        recommendations.put("maxItems", 1);
+        var recommendationProperties = (com.fasterxml.jackson.databind.node.ObjectNode)
+                recommendations.path("items").get("properties");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) recommendationProperties.get("reason"))
+                .put("maxLength", 160);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) recommendationProperties.get("nextAction"))
+                .put("maxLength", 160);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) recommendationProperties.get("sourceIds"))
+                .put("maxItems", 3);
+        var citations = (com.fasterxml.jackson.databind.node.ObjectNode) properties.get("citations");
+        if ("final".equals(action)) citations.put("maxItems", 3);
+        ((com.fasterxml.jackson.databind.node.ObjectNode)
+                citations.path("items").path("properties").get("claim"))
+                .put("maxLength", 120);
+        var limitations = (com.fasterxml.jackson.databind.node.ObjectNode)
+                properties.path("evidenceCoverage").path("properties").get("limitations");
+        limitations.put("maxItems", 1);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) limitations.get("items"))
+                .put("maxLength", 160);
+    }
+
     private void addIntentSchema(com.fasterxml.jackson.databind.node.ObjectNode node) {
         node.put("type", "string");
         var values = node.putArray("enum");
@@ -687,7 +747,7 @@ public class AgentToolRegistry {
     }
 
     private void requireGuardedUpdate(AgentToolContext context, AiAgentToolCall audit) {
-        if (callMapper.updateGuarded(audit, context.leaseOwner()) != 1) {
+        if (guardedUpdate(context, audit) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "Agent tool write was rejected because the run lease or session content changed");
         }
@@ -700,7 +760,23 @@ public class AgentToolRegistry {
         audit.setDiagnosticCode(diagnosticCode);
         audit.setCompletedAt(LocalDateTime.now());
         audit.setLatencyMs(elapsedMillis(startedNanos));
-        callMapper.updateGuarded(audit, context.leaseOwner());
+        guardedUpdate(context, audit);
+    }
+
+    private int guardedInsert(AgentToolContext context, AiAgentToolCall audit) {
+        if (context.executionAttempt() != null && context.executionAttempt() > 0) {
+            return callMapper.insertGuardedFenced(
+                    audit, context.leaseOwner(), context.executionAttempt());
+        }
+        return callMapper.insertGuarded(audit, context.leaseOwner());
+    }
+
+    private int guardedUpdate(AgentToolContext context, AiAgentToolCall audit) {
+        if (context.executionAttempt() != null && context.executionAttempt() > 0) {
+            return callMapper.updateGuardedFenced(
+                    audit, context.leaseOwner(), context.executionAttempt());
+        }
+        return callMapper.updateGuarded(audit, context.leaseOwner());
     }
 
     private String safeAuditArguments(JsonNode arguments) {

@@ -307,6 +307,30 @@ class AiSettingsServiceTest {
     }
 
     @Test
+    void connectionTestExposesOnlyAStableAcknowledgementDiagnostic() throws Exception {
+        AiModelSettingsMapper settingsMapper = mock(AiModelSettingsMapper.class);
+        AesGcmSecretCipher cipher = new AesGcmSecretCipher(masterKey());
+        when(settingsMapper.selectById(1L)).thenReturn(runnableSettings(cipher));
+        AiProviderFactory factory = mock(AiProviderFactory.class);
+        AiClient client = mock(AiClient.class);
+        when(factory.create(any(AiRuntimeSettings.class))).thenReturn(client);
+        when(client.generate(any(AiProviderRequest.class))).thenReturn(new AiProviderResponse("{\"status\":\"ok\"}"));
+        AiSettingsService service = new AiSettingsService(
+                settingsMapper, mock(AiSettingsAuditMapper.class), cipher, factory,
+                new ObjectMapper(), mock(AiHttpTransport.class), endpointPolicy()
+        );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.testConnection(new AuthenticatedAdmin(7L, "ACha_"))
+        );
+
+        assertTrue(exception.getMessage().contains("AI_CONNECTION_ACK_MISSING_OK"));
+        assertTrue(exception.getMessage().startsWith("连接测试响应校验失败"));
+        assertFalse(exception.getMessage().contains("status"));
+    }
+
+    @Test
     void connectionTestSanitizesTimeoutAndRedirectErrors() throws Exception {
         for (String upstreamMessage : List.of(
                 "timeout using Bearer sk-connection-secret",

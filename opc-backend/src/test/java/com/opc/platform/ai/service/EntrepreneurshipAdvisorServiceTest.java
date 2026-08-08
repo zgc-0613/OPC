@@ -383,10 +383,35 @@ class EntrepreneurshipAdvisorServiceTest {
     }
 
     @Test
-    void finishReasonLengthIsReportedAsTruncatedBeforeParsing() {
-        AiResponseValidationException exception = adviseWithResponse("{\"summary\":", "length");
+    void finishReasonLengthReturnsServerBoundedFallbackWithLegalEvidence() {
+        givenVerifiedEvidence();
+        String truncatedBody = "MODEL_TRUNCATED_BODY_MUST_NOT_REACH_THE_USER";
+        when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
+                truncatedBody, 20, 30, 50, 88, "req-truncated", "length"
+        ));
 
-        assertEquals("TRUNCATED_RESPONSE", exception.getDiagnosticCode());
+        var result = service.advise(user(), request());
+
+        assertEquals("完整建议未生成", result.getSummary());
+        assertTrue(result.getRecommendedDirection().contains("截断"));
+        assertTrue(result.getOpportunities().isEmpty());
+        assertEquals(0.0, result.getConfidence());
+        assertTrue(result.getLimitedResult());
+        assertEquals("FINAL_RESPONSE_TRUNCATED_FALLBACK", result.getDiagnosticCode());
+        assertEquals(2, result.getCitations().size());
+        assertTrue(result.getCitations().stream()
+                .allMatch(citation -> List.of(8L, 9L).contains(citation.getSourceId())));
+        assertFalse((result.getSummary() + result.getRecommendedDirection()
+                + result.getRisks() + result.getActionPlan()).contains(truncatedBody));
+        assertEquals(20, result.getTokenUsage().getPromptTokens());
+        assertEquals(30, result.getTokenUsage().getCompletionTokens());
+        assertEquals(50, result.getTokenUsage().getTotalTokens());
+        verify(aiClient, org.mockito.Mockito.times(1)).generate(any(), eq(settings));
+        verify(runMapper).settle(
+                eq(101L), eq("completed"), eq(null), eq(null),
+                eq(20), eq(30), eq(50), eq(88L), eq("req-truncated"), eq("length"),
+                any(), eq(null), any()
+        );
     }
 
     @Test
@@ -406,7 +431,7 @@ class EntrepreneurshipAdvisorServiceTest {
         when(aiClient.generate(any(), eq(settings))).thenReturn(new AiProviderResponse(
                 "{\"summary\":\"摘要\",\"recommendedDirection\":\"先验证需求\",\"opportunities\":[],"
                         + "\"risks\":[],\"actionPlan\":[],\"citations\":[{\"sourceId\":8,\"claim\":\"来源结论\"}],\"confidence\":0.7}",
-                20, 20, 40, 50, "req-stale"
+                20, 20, 40, 50, "req-stale", "length"
         ));
 
         BusinessException exception = assertThrows(

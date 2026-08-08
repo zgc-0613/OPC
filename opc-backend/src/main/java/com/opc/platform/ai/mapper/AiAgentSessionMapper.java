@@ -151,7 +151,8 @@ public interface AiAgentSessionMapper extends BaseMapper<AiAgentSession> {
     @Update("""
             UPDATE ai_agent_sessions
             SET title=#{title}, title_mode=#{titleMode}, profile_json=NULL,
-                research_context_json=NULL, pinned_at=NULL, purged_at=#{purgedAt},
+                research_context_json=NULL, task_context_version=NULL, task_context_json=NULL,
+                task_context_hash=NULL, pinned_at=NULL, purged_at=#{purgedAt},
                 content_generation=content_generation+1, version=version+1
             WHERE id=#{id} AND purged_at IS NULL
             """)

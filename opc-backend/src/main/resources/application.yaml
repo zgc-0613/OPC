@@ -29,6 +29,7 @@ opc:
     trusted-provider-origins: ${OPC_AI_TRUSTED_PROVIDER_ORIGINS:https://api.deepseek.com}
     agent:
       history-cursor-secret: ${OPC_ASSISTANT_CURSOR_HMAC_SECRET:}
+      lease-seconds: ${OPC_AI_AGENT_LEASE_SECONDS:45}
   admin:
     session-hours: 12
   settings:

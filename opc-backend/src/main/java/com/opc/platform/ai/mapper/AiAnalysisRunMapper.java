@@ -88,6 +88,8 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
                 user_id, task_type, case_id, session_id, user_message_id, idempotency_key,
                 submission_kind, requested_intent, request_content_hash, start_profile_hash,
                 session_content_generation,
+                analytics_snapshot_id, analytics_metric_id, analytics_data_version,
+                analytics_filters_json, analytics_snapshot_json,
                 status, provider, model_id, current_stage, visible_progress,
                 prompt_version, evidence_hash, reserved_tokens, started_at,
                 deadline_at, heartbeat_at
@@ -98,7 +100,10 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
                 COALESCE(#{run.submissionKind}, 'message'),
                 COALESCE(#{run.requestedIntent}, 'auto'),
                 #{run.requestContentHash}, #{run.startProfileHash},
-                COALESCE(#{run.sessionContentGeneration}, 0), #{run.status},
+                COALESCE(#{run.sessionContentGeneration}, 0),
+                #{run.analyticsSnapshotId}, #{run.analyticsMetricId}, #{run.analyticsDataVersion},
+                #{run.analyticsFiltersJson}, #{run.analyticsSnapshotJson},
+                #{run.status},
                 #{run.provider}, #{run.modelId}, #{run.currentStage}, #{run.visibleProgress},
                 #{run.promptVersion}, #{run.evidenceHash},
                 #{reservedTokens}, #{run.startedAt}, #{run.deadlineAt}, #{run.heartbeatAt}
@@ -137,6 +142,9 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
             LIMIT 1
             """)
     AiAnalysisRun selectOwnedAgentRun(@Param("id") Long id, @Param("userId") Long userId);
+
+    @Select("SELECT r.* FROM ai_analysis_runs r JOIN ai_agent_messages m ON m.run_id=r.id WHERE m.id=#{messageId} AND r.user_id=#{userId} AND r.task_type='agent_research' LIMIT 1")
+    AiAnalysisRun selectOwnedAgentRunByFinalMessage(@Param("messageId") Long messageId, @Param("userId") Long userId);
 
     @Select("""
             SELECT * FROM ai_analysis_runs
@@ -202,6 +210,23 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
     int renewAgentLease(
             @Param("id") Long id,
             @Param("owner") String owner,
+            @Param("now") LocalDateTime now,
+            @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET heartbeat_at=#{now},
+                lease_expires_at=LEAST(#{leaseExpiresAt},COALESCE(deadline_at,#{leaseExpiresAt}))
+            WHERE id=#{id} AND task_type='agent_research' AND status='running'
+              AND lease_owner=#{owner} AND execution_attempts=#{executionAttempt}
+              AND lease_expires_at IS NOT NULL AND lease_expires_at >= #{now}
+              AND (deadline_at IS NULL OR deadline_at >= #{now})
+            """)
+    int renewAgentLeaseFenced(
+            @Param("id") Long id,
+            @Param("owner") String owner,
+            @Param("executionAttempt") int executionAttempt,
             @Param("now") LocalDateTime now,
             @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt
     );
@@ -285,6 +310,27 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
 
     @Update("""
             UPDATE ai_analysis_runs
+            SET current_stage=#{stage}, visible_progress=#{progress}, heartbeat_at=#{now},
+                step_count=GREATEST(step_count,#{stepCount}),
+                tool_call_count=GREATEST(tool_call_count,#{toolCallCount})
+            WHERE id=#{id} AND task_type='agent_research' AND status='running'
+              AND lease_owner=#{owner} AND execution_attempts=#{executionAttempt}
+              AND lease_expires_at IS NOT NULL AND lease_expires_at >= #{now}
+              AND (deadline_at IS NULL OR deadline_at >= #{now})
+            """)
+    int updateAgentStageFenced(
+            @Param("id") Long id,
+            @Param("owner") String owner,
+            @Param("executionAttempt") int executionAttempt,
+            @Param("stage") String stage,
+            @Param("progress") String progress,
+            @Param("stepCount") int stepCount,
+            @Param("toolCallCount") int toolCallCount,
+            @Param("now") LocalDateTime now
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
             SET prompt_tokens=prompt_tokens+#{promptTokens},
                 completion_tokens=completion_tokens+#{completionTokens},
                 total_tokens=total_tokens+#{totalTokens},
@@ -307,12 +353,55 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
 
     @Update("""
             UPDATE ai_analysis_runs
+            SET prompt_tokens=prompt_tokens+#{promptTokens},
+                completion_tokens=completion_tokens+#{completionTokens},
+                total_tokens=total_tokens+#{totalTokens},
+                latency_ms=latency_ms+#{latencyMs},
+                provider_request_id=#{providerRequestId}, finish_reason=#{finishReason},
+                heartbeat_at=#{now}
+            WHERE id=#{id} AND task_type='agent_research' AND status='running'
+              AND lease_owner=#{owner} AND execution_attempts=#{executionAttempt}
+              AND lease_expires_at IS NOT NULL AND lease_expires_at >= #{now}
+              AND (deadline_at IS NULL OR deadline_at >= #{now})
+            """)
+    int recordAgentUsageFenced(
+            @Param("id") Long id,
+            @Param("owner") String owner,
+            @Param("executionAttempt") int executionAttempt,
+            @Param("promptTokens") int promptTokens,
+            @Param("completionTokens") int completionTokens,
+            @Param("totalTokens") int totalTokens,
+            @Param("latencyMs") long latencyMs,
+            @Param("providerRequestId") String providerRequestId,
+            @Param("finishReason") String finishReason,
+            @Param("now") LocalDateTime now
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
             SET settlement_status='provider_dispatched', provider_dispatched_at=#{now},
                 settlement_version=settlement_version+1
             WHERE id=#{id} AND task_type='agent_research' AND status='running'
               AND settlement_status IN ('reserved','settled_actual')
             """)
     int markAgentProviderDispatched(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET settlement_status='provider_dispatched', provider_dispatched_at=#{now},
+                settlement_version=settlement_version+1, heartbeat_at=#{now}
+            WHERE id=#{id} AND task_type='agent_research' AND status='running'
+              AND lease_owner=#{owner} AND execution_attempts=#{executionAttempt}
+              AND lease_expires_at IS NOT NULL AND lease_expires_at >= #{now}
+              AND (deadline_at IS NULL OR deadline_at >= #{now})
+              AND settlement_status IN ('reserved','settled_actual')
+            """)
+    int markAgentProviderDispatchedFenced(
+            @Param("id") Long id,
+            @Param("owner") String owner,
+            @Param("executionAttempt") int executionAttempt,
+            @Param("now") LocalDateTime now
+    );
 
     @Update("""
             UPDATE ai_analysis_runs
@@ -329,6 +418,35 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
             """)
     int settleAgentUsageActual(
             @Param("id") Long id,
+            @Param("promptTokens") int promptTokens,
+            @Param("completionTokens") int completionTokens,
+            @Param("totalTokens") int totalTokens,
+            @Param("latencyMs") long latencyMs,
+            @Param("providerRequestId") String providerRequestId,
+            @Param("finishReason") String finishReason,
+            @Param("now") LocalDateTime now
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET prompt_tokens=prompt_tokens+#{promptTokens},
+                completion_tokens=completion_tokens+#{completionTokens},
+                total_tokens=total_tokens+#{totalTokens},
+                latency_ms=latency_ms+#{latencyMs},
+                provider_request_id=#{providerRequestId}, finish_reason=#{finishReason},
+                settlement_status='settled_actual', settled_at=#{now},
+                reserved_tokens=reserved_tokens, settlement_version=settlement_version+1,
+                heartbeat_at=#{now}
+            WHERE id=#{id} AND task_type='agent_research' AND status='running'
+              AND lease_owner=#{owner} AND execution_attempts=#{executionAttempt}
+              AND lease_expires_at IS NOT NULL AND lease_expires_at >= #{now}
+              AND (deadline_at IS NULL OR deadline_at >= #{now})
+              AND settlement_status='provider_dispatched'
+            """)
+    int settleAgentUsageActualFenced(
+            @Param("id") Long id,
+            @Param("owner") String owner,
+            @Param("executionAttempt") int executionAttempt,
             @Param("promptTokens") int promptTokens,
             @Param("completionTokens") int completionTokens,
             @Param("totalTokens") int totalTokens,
@@ -363,7 +481,8 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
             SET status=#{status}, current_stage=#{status}, visible_progress=#{status},
                 prompt_tokens=#{promptTokens}, completion_tokens=#{completionTokens}, total_tokens=#{totalTokens},
                 reserved_tokens=0, latency_ms=#{latencyMs}, provider_request_id=#{providerRequestId},
-                finish_reason=#{finishReason}, step_count=#{stepCount}, tool_call_count=#{toolCallCount},
+                finish_reason=#{finishReason}, diagnostic_code=#{diagnosticCode},
+                step_count=#{stepCount}, tool_call_count=#{toolCallCount},
                 result_json=#{resultJson}, completed_at=#{completedAt}, heartbeat_at=#{completedAt}
             WHERE id=#{id} AND status='running'
             """)
@@ -379,6 +498,43 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
             @Param("stepCount") int stepCount,
             @Param("toolCallCount") int toolCallCount,
             @Param("resultJson") String resultJson,
+            @Param("diagnosticCode") String diagnosticCode,
+            @Param("completedAt") LocalDateTime completedAt
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET status=#{status}, current_stage=#{status}, visible_progress=#{status},
+                prompt_tokens=#{promptTokens}, completion_tokens=#{completionTokens}, total_tokens=#{totalTokens},
+                reserved_tokens=0, latency_ms=#{latencyMs}, provider_request_id=#{providerRequestId},
+                finish_reason=#{finishReason}, diagnostic_code=#{diagnosticCode},
+                step_count=#{stepCount}, tool_call_count=#{toolCallCount},
+                result_json=#{resultJson}, completed_at=#{completedAt}, heartbeat_at=#{completedAt},
+                lease_owner=NULL, lease_expires_at=NULL, settled_at=COALESCE(settled_at,#{completedAt}),
+                settlement_status=CASE WHEN settlement_status='provider_dispatched'
+                    THEN 'settled_estimated' WHEN settlement_status='settled_actual'
+                    THEN 'settled_actual' ELSE 'released_without_dispatch' END,
+                settlement_version=settlement_version+1
+            WHERE id=#{id} AND task_type='agent_research' AND status='running'
+              AND lease_owner=#{owner} AND execution_attempts=#{executionAttempt}
+              AND lease_expires_at IS NOT NULL AND lease_expires_at >= #{completedAt}
+              AND (deadline_at IS NULL OR deadline_at >= #{completedAt})
+            """)
+    int settleAgentCompletedFenced(
+            @Param("id") Long id,
+            @Param("owner") String owner,
+            @Param("executionAttempt") int executionAttempt,
+            @Param("status") String status,
+            @Param("promptTokens") int promptTokens,
+            @Param("completionTokens") int completionTokens,
+            @Param("totalTokens") int totalTokens,
+            @Param("latencyMs") long latencyMs,
+            @Param("providerRequestId") String providerRequestId,
+            @Param("finishReason") String finishReason,
+            @Param("stepCount") int stepCount,
+            @Param("toolCallCount") int toolCallCount,
+            @Param("resultJson") String resultJson,
+            @Param("diagnosticCode") String diagnosticCode,
             @Param("completedAt") LocalDateTime completedAt
     );
 
@@ -412,6 +568,70 @@ public interface AiAnalysisRunMapper extends BaseMapper<AiAnalysisRun> {
             @Param("stepCount") int stepCount,
             @Param("toolCallCount") int toolCallCount,
             @Param("completedAt") LocalDateTime completedAt
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET status=#{status}, current_stage=#{status}, visible_progress=#{progress},
+                error_type=#{errorType}, diagnostic_code=#{diagnosticCode},
+                prompt_tokens=CASE
+                  WHEN settlement_status='provider_dispatched' AND total_tokens < reserved_tokens
+                  THEN prompt_tokens + (reserved_tokens-total_tokens)
+                  ELSE prompt_tokens END,
+                total_tokens=CASE WHEN settlement_status='provider_dispatched'
+                  THEN GREATEST(total_tokens, reserved_tokens) ELSE total_tokens END,
+                settlement_status=CASE
+                  WHEN settlement_status='provider_dispatched' THEN 'settled_estimated'
+                  WHEN settlement_status='settled_actual' THEN 'settled_actual'
+                  ELSE 'released_without_dispatch' END,
+                settled_at=COALESCE(settled_at, #{completedAt}), reserved_tokens=0,
+                lease_owner=NULL, lease_expires_at=NULL,
+                settlement_version=settlement_version+1,
+                step_count=GREATEST(step_count,#{stepCount}),
+                tool_call_count=GREATEST(tool_call_count,#{toolCallCount}),
+                completed_at=#{completedAt}, heartbeat_at=#{completedAt}
+            WHERE id=#{id} AND task_type='agent_research' AND status='running'
+              AND lease_owner=#{owner} AND execution_attempts=#{executionAttempt}
+              AND lease_expires_at IS NOT NULL AND lease_expires_at >= #{completedAt}
+            """)
+    int settleAgentFailedFenced(
+            @Param("id") Long id,
+            @Param("owner") String owner,
+            @Param("executionAttempt") int executionAttempt,
+            @Param("status") String status,
+            @Param("progress") String progress,
+            @Param("errorType") String errorType,
+            @Param("diagnosticCode") String diagnosticCode,
+            @Param("stepCount") int stepCount,
+            @Param("toolCallCount") int toolCallCount,
+            @Param("completedAt") LocalDateTime completedAt
+    );
+
+    @Update("""
+            UPDATE ai_analysis_runs
+            SET status='expired', current_stage='expired', visible_progress='研究运行已过期',
+                error_type='TASK_TIMEOUT', diagnostic_code='AGENT_TIMEOUT',
+                prompt_tokens=CASE
+                  WHEN settlement_status='provider_dispatched' AND total_tokens < reserved_tokens
+                  THEN prompt_tokens + (reserved_tokens-total_tokens) ELSE prompt_tokens END,
+                total_tokens=CASE WHEN settlement_status='provider_dispatched'
+                  THEN GREATEST(total_tokens,reserved_tokens) ELSE total_tokens END,
+                settlement_status=CASE WHEN settlement_status='provider_dispatched'
+                  THEN 'settled_estimated' WHEN settlement_status='settled_actual'
+                  THEN 'settled_actual' ELSE 'released_without_dispatch' END,
+                settled_at=COALESCE(settled_at,#{expiredAt}), reserved_tokens=0,
+                lease_owner=NULL, lease_expires_at=NULL,
+                settlement_version=settlement_version+1,
+                completed_at=#{expiredAt}, heartbeat_at=#{expiredAt}
+            WHERE id=#{id} AND task_type='agent_research' AND status='running'
+              AND lease_owner=#{owner} AND execution_attempts=#{executionAttempt}
+              AND deadline_at IS NOT NULL AND deadline_at <= #{expiredAt}
+            """)
+    int expireAgentRunFenced(
+            @Param("id") Long id,
+            @Param("owner") String owner,
+            @Param("executionAttempt") int executionAttempt,
+            @Param("expiredAt") LocalDateTime expiredAt
     );
 
     @Update("""

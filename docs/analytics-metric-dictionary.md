@@ -24,6 +24,7 @@
 - 时区：全部日期边界按 `Asia/Shanghai`；`dateTo` 为包含日，服务内部转换为次日开区间。
 - 包含条件：仅对应的 `E_*`；排除 draft、reviewed、legacy_unverified、excluded、物理删除和失效来源链。
 - 多标签处理：按包含该标签的唯一 canonical case 计数；一个案例可进入多个 bucket，占比和可超过 100%。
+- 地区角色：案例正式默认 `operation`，且只计审核通过的 `primary` 主要经营/落地关系；`secondary operation` 只进入显式足迹明细或未来专门指标，不进入默认地区分布。`registration` 独立统计，`legacy_related_region` 仅用于历史 Yellow “相关地区分布”；政策固定 `policy_applicability`。来源地区不进入案例分布，country 政策不向省级复制。
 - 缺失值：不进入分子或数值分布，进入 `missingCount`；不静默回退其他字段。
 - 下钻：必须返回同一 dataVersion 与 filters 对应的服务端游标；下钻 ID 集合与聚合黄金测试一致。
 - 数字：API 返回原始整数/Decimal，百分比由后端给出 ratio 原值、前端格式化。
@@ -58,10 +59,10 @@
 ### `overview.covered_regions` — 覆盖地区数量
 
 - 用户问题/用途：资料覆盖多少个地区；概览与地域筛选提示。
-- 定义/公式/分子/分母：`COUNT(DISTINCT region_id)` over selected eligible cases/policies；分母不适用。
-- 表与字段：`case_items.region_id`、`policies.region_id`、`regions.id,level,parent_id`；去重键 region.id。
+- 定义/公式/分子/分母：按 entityType 与 regionRole 分别 `COUNT(DISTINCT region_id)`；案例与政策不同角色不得混成一个无角色总数，分母不适用。
+- 表与字段：待新增 case region relation、`policies.region_id`、`regions.id,level,parent_id`；去重键 region.id。当前 `case_items.region_id` 只映射 legacy_related_region。
 - 时间/维度：默认全部；政策用 publish_date，案例 date filter 暂不可用；regionLevel 可选，行业/技术过滤遵循审核关系。
-- 样本/限制/readiness：至少 2 个地区；当前 union 26；案例地区语义含混；`Yellow`，下钻地区排名。
+- 样本/限制/readiness：至少 2 个地区；当前 legacy case 23、policy applicability 21，审计 union 26 只作历史事实而不成为正式混合 KPI；`Yellow`，下钻地区排名。
 
 ### `overview.covered_industries` — 覆盖行业数量
 
@@ -82,10 +83,12 @@
 ### `overview.data_completeness` — 数据完整度
 
 - 用户问题/用途：当前筛选结果在哪些关键维度可用于决策；概览质量卡，而非营销分数。
-- 定义/公式/分子/分母：返回字段向量及宏平均；case fields=`source,region,industry,businessTime,technology,revenue`，policy fields=`source,region,publishDate,industry`；分子为已填合格字段单元格，分母为 eligible records × 适用字段数。
-- 表与字段：上述关系和规范化字段；去重键对应 canonical ID；每个 component 单独返回 numerator/denominator。
+- 定义/公式/分子/分母：先独立计算 component ratio，再做组件宏平均。case components 固定为 `source,operationRegion,industry,businessTime,technology,revenue`，`caseScore=(r1+r2+r3+r4+r5+r6)/6`；policy components 固定为 `source,applicabilityRegion,publishDate,industryApplicability`，`policyScore=(p1+p2+p3+p4)/4`。
+- 表与字段：上述关系和规范化字段；去重键对应 canonical ID；每个 component 单独返回 numerator、denominator、ratio。不得把所有字段单元格合并后做微平均。
 - 时间/维度：与当前 filters 一致；无粒度；region/industry/technology 支持；收入本身无单位。
 - 样本/限制/readiness：至少 10 个合格对象；权重固定在 metricVersion，不能隐藏 0% component；`Yellow`，下钻质量明细。
+
+宏平均黄金示例：测试夹具的 case component ratios 为 `[1.00,0.75,0.50,0.25,0,0]`，则 `caseScore=2.50/6=0.4166667`；policy ratios 为 `[1.00,1.00,0.50,0]`，则 `policyScore=2.50/4=0.625`。页面展示两个 score 和完整 component vector，不再计算混合案例与政策的营销式总分。增删 component 或改变权重必须提升 metricVersion。
 
 ## 3. 行业指标
 
@@ -116,10 +119,10 @@
 ### `industry.region_distribution` — 行业地区分布
 
 - 用户问题/用途：某行业案例主要集中在哪些地区；选址与市场研究。
-- 定义/公式/分子/分母：按 region 的 industry.case_count；分母可为该行业全部 canonical cases 以返回 ratio。
-- 表与字段：case region、industry relation、canonical mapping；去重键 canonical_case_id。
+- 定义/公式/分子/分母：按指定 regionRole 的 industry.case_count；分母可为该行业全部 canonical cases 以返回 ratio。
+- 表与字段：case region relation、industry relation、canonical mapping；去重键 canonical_case_id。当前只能用 legacy_related_region。
 - 时间/维度：默认全部；regionLevel=province；行业必选 1–10，technology 可选；无收入单位。
-- 样本/限制/readiness：总样本至少 10，bucket 少于 3 标低样本；case 地区语义未固化；`Yellow`。
+- 样本/限制/readiness：总样本至少 10，bucket 少于 3 标低样本；历史图必须命名“相关地区分布”，不能称经营地区；`Yellow`。
 
 ### `industry.related_policy_count` — 行业相关政策数量
 
@@ -173,29 +176,33 @@
 
 ## 5. 收入指标
 
-所有收入指标只接受同 `currency + revenue_period + revenue_type` 可比组；estimated 与 actual 分系列，withheld/unknown 仅进 missing breakdown。默认不换汇、不做通胀调整。
+所有收入指标只接受同 `currency + revenue_period + revenue_type` 可比组。收入状态唯一使用 `value_status=actual|estimated|unknown|withheld`，不再并存 `revenue_is_estimated`：actual 与 estimated 分系列，unknown 与 withheld 只进入缺失分解。默认不换汇、不做通胀调整。
+
+收入分桶规则绑定 metricVersion：单值或 `min=max` 进入数值分布；区间完整落在一个 bucket 时进入该 bucket；跨越多个 bucket 时进入稳定 bucket `spans_multiple_bins`，不得用中点猜测。P25/P50/P75 首期仅使用 `value_status=actual` 且 `min=max` 的 point values，区间与 estimated 默认不进入 percentile。
+
+Percentile 固定使用 Hyndman-Fan Type 7：排序后 `x[1..n]`，对概率 `p` 计算 `h=1+(n-1)p`、`j=floor(h)`、`g=h-j`，结果为 `(1-g)*x[j]+g*x[j+1]`（边界取端点）。bins 和算法任何变化都提升 metricVersion。
 
 ### `revenue.range_distribution` — 收入区间分布
 
 - 用户问题/用途：可比案例的收入落在哪些区间；机会尺度判断。
-- 定义/公式/分子/分母：以 revenue_min/max 或规范化单值落入后端版本化 bins 的 canonical case 数；分母为可比收入样本。
-- 表与字段：待新增 revenue_min/max,currency,period,type,is_estimated,disclosure_status,as_of_date,source_id；去重 canonical_case_id。
+- 定义/公式/分子/分母：按上述单值/区间规则进入版本化 bins 的 canonical case 数；跨 bucket 区间进入 spans_multiple_bins；分母为可比 actual 或 estimated 系列样本。
+- 表与字段：待新增 revenue_min/max,currency,period,type,value_status,as_of_date,source_id；去重 canonical_case_id。
 - 时间/维度：默认最近 36 月 as_of_date；year；region/industry/technology；收入单位由 currency+period+type 明示。
 - 样本/限制/readiness：同组至少 30、覆盖率至少 40%；当前 0/105；`Red`。
 
 ### `revenue.median` — 收入中位数
 
 - 用户问题/用途：可比案例的典型收入水平；避免均值被离群值主导。
-- 定义/公式/分子/分母：可比实际值的 P50；区间案例用后端明确策略并单列，不与单值静默混合；分母为数值样本数。
-- 表与字段：同 revenue.range_distribution；estimated 默认排除，可由显式 filter 单独查询。
+- 定义/公式/分子/分母：可比 actual point values 的 Type 7 P50；区间和 estimated 排除并单列计数；分母为 actual point value 样本数。
+- 表与字段：同 revenue.range_distribution；value_status 必须为 actual 且 min=max。
 - 时间/维度：同上；region/industry/technology 支持；必须返回 currency/period/type。
 - 样本/限制/readiness：n>=30，异常规则通过；当前字段不存在；`Red`。
 
 ### `revenue.quartiles` — 收入四分位数
 
 - 用户问题/用途：收入分散程度如何；技术/行业比较的稳健区间。
-- 定义/公式/分子/分母：同一可比组 P25/P50/P75，算法固定在 metricVersion；分母为数值样本数。
-- 表与字段：同收入字段；去重 canonical_case_id；排除 unknown/withheld/不兼容组。
+- 定义/公式/分子/分母：同一可比组 actual point values 的 Type 7 P25/P50/P75；分母为 actual point value 数量。
+- 表与字段：同收入字段；去重 canonical_case_id；排除 interval、estimated、unknown、withheld 和不兼容组。
 - 时间/维度：同 median；必须明示单位。
 - 样本/限制/readiness：n>=40；当前 0；`Red`。
 
@@ -211,15 +218,15 @@
 
 - 用户问题/用途：可比收入在地区间是否不同；选址研究。
 - 定义/公式/分子/分母：每地区返回 n、P25/P50/P75；去重 canonical_case_id。
-- 表与字段：收入字段 + 语义明确的 operation_region；当前 case.region_id 不足以直接承担。
+- 表与字段：收入字段 + `regionRole=operation` 的规范化案例地区关系；当前 legacy_related_region 不得承担。
 - 时间/维度：默认 36 月；year；regionLevel=province；industry/technology 支持；固定收入单位。
 - 样本/限制/readiness：每地区 n>=30；字段和地区语义均不足；`Red`。
 
 ### `revenue.completeness` — 收入数据覆盖率
 
 - 用户问题/用途：有多少合格案例具备可比较收入；决定其他收入图是否开放。
-- 定义/公式/分子/分母：满足金额、currency、period、type、disclosure、source 的 E_case / 全部 E_case；estimated 也算完整但单列。
-- 表与字段：规范化收入字段；去重 canonical_case_id；unknown/withheld 不计分子但分别计数。
+- 定义/公式/分子/分母：`value_status in (actual,estimated)` 且金额、currency、period、type、as_of_date、source 完整的 E_case / 全部 E_case；actual 与 estimated 分别返回。unknown/withheld 不计分子但分别计 missing breakdown。
+- 表与字段：规范化收入字段与 value_status；去重 canonical_case_id。
 - 时间/维度：默认全部；region/industry/technology 可筛；无粒度；单位为 percentage ratio。
 - 样本/限制/readiness：分母至少 1；当前 0/105，可如实返回；质量指标 `Green`，收入业务图 Red。
 
@@ -244,26 +251,26 @@
 ### `region.case_count` — 地区案例数量
 
 - 用户问题/用途：各地区有多少业务案例；地区排名与下钻。
-- 定义/公式/分子/分母：按 region 的 `COUNT(DISTINCT canonical_case_id)`；可返回占全部 E_case ratio。
-- 表与字段：case region + canonical mapping；未来需 region_role=registered|operating。
+- 定义/公式/分子/分母：正式图按 `regionRole=operation` 且 relation_role=`primary`、review_status=`approved` 的 `COUNT(DISTINCT canonical_case_id)`；secondary 不进入默认排名。注册地以 registration 独立请求；过渡 Yellow 图可显式使用 legacy_related_region。
+- 表与字段：规范化 case-region relation + canonical mapping；关系 role=`operation|registration` 且 operation 支持 `primary|secondary`。当前 case.region_id 仅映射 legacy_related_region。
 - 时间/维度：默认全部；regionLevel=province；industry/technology 可筛；案例时间字段可用后支持粒度。
-- 样本/限制/readiness：bucket n>=3 可画；重复和地区语义未解；`Yellow`。
+- 样本/限制/readiness：bucket n>=3 可画。`operation|registration` 关系未建立或未完成审核时，业务指标 readiness=`Red`，API 必须 200/unavailable、空 data、caveat=`CASE_REGION_ROLE_NOT_READY`，不得把 sampleSize=0 解释为“0 个经营/注册地区案例”。显式 `legacy_related_region` 为 `Yellow`，只可 200/partial 并命名“相关地区分布”，caveat=`LEGACY_REGION_SEMANTICS`。只有规范化角色已就绪且当前筛选确实无记录时才是 200/empty、sampleSize=0。
 
 ### `region.policy_count` — 地区政策数量
 
 - 用户问题/用途：各地区有多少适用政策；地区政策入口。
-- 定义/公式/分子/分母：按 applicability region 的 `COUNT(DISTINCT policy.id)`；分母为当前 E_policy 可选。
+- 定义/公式/分子/分母：按 `regionRole=policy_applicability` 的 `COUNT(DISTINCT policy.id)`；分母为当前 E_policy 可选。country 政策只计 country bucket，不复制进各省。
 - 表与字段：policies.region_id、regions、sources；去重 policy.id。
 - 时间/维度：默认 36 月；month/quarter/year；regionLevel、industry/technology 支持条件同上。
-- 样本/限制/readiness：bucket n>=1；当前字段完整但数据库语义未显式命名；`Yellow`。
+- 样本/限制/readiness：bucket n>=1；正式语义已冻结为 policy_applicability；`Green`。
 
 ### `region.industry_distribution` — 地区行业分布
 
 - 用户问题/用途：某地区的案例集中在哪些行业；地区到案例联动。
-- 定义/公式/分子/分母：该 region 内每 industry 的 unique canonical case count / 该 region E_case。
-- 表与字段：case region、industry relations、canonical mapping；多标签统一处理。
+- 定义/公式/分子/分母：指定 regionRole 内每 industry 的 unique canonical case count / 该角色下该 region E_case。
+- 表与字段：case region relation、industry relations、canonical mapping；多标签统一处理。当前 legacy 图必须显式标“相关地区”。
 - 时间/维度：默认全部；region 必选 1–10，industry/technology 可选；无收入单位。
-- 样本/限制/readiness：地区总 n>=10、bucket n>=3；重复和语义限制；`Yellow`。
+- 样本/限制/readiness：地区总 n>=10、bucket n>=3；状态矩阵与 `region.case_count` 相同。operation/registration 未就绪为 Red/unavailable；显式 legacy 为 Yellow/partial“相关地区分布”；规范化关系已就绪但筛选无记录才为 empty。
 
 ## 7. 质量指标
 
@@ -310,10 +317,10 @@
 ### `quality.region_completeness` — 地区字段完整率
 
 - 用户问题/用途：多少对象有可解释的地区关系；地区图门槛。
-- 定义/公式/分子/分母：非空且存在 regions 的 E_case/E_policy / 各自 eligible total；语义 role 完整率另列。
-- 表与字段：region_id、regions、待新增 region_role；去重对应业务 ID。
+- 定义/公式/分子/分母：案例为具有审核通过 operation relation 的 E_case / E_case，另返 registration 与 legacy presence；政策为有效 applicability region 的 E_policy / E_policy。
+- 表与字段：规范化 case region relation、policies.region_id、regions；去重对应业务 ID。
 - 时间/维度：默认全部；entityType/industry/technology 可筛；无粒度和收入单位。
-- 样本/限制/readiness：当前 case 105/105、policy 57/57，但 case role semantic 0%；`Green`（字段存在率）。
+- 样本/限制/readiness：当前 case operation 0/105、legacy presence 105/105、policy applicability 57/57；该质量向量可如实返回，`Green`（质量事实）。Green 只证明“覆盖率确实为 0”，不能把 operation/registration 业务分布从 Red/unavailable 解锁；legacy 业务图仍 Yellow/partial。
 
 ## 8. 展示门槛与变更治理
 

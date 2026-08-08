@@ -617,7 +617,7 @@ body {
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transition: opacity 1400ms cubic-bezier(0.645, 0.045, 0.355, 1);
+  transition: opacity var(--feature-video-crossfade-duration, 2200ms) cubic-bezier(0.45, 0, 0.55, 1);
   will-change: opacity;
 }
 
@@ -4535,6 +4535,52 @@ body.is-resizing-admin-column * {
   color: var(--prisma-muted-strong) !important;
   font-size: 0.82rem !important;
   line-height: 1.65 !important;
+}
+
+.route-case-list .active-scope-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid #c4c9c3;
+  border-radius: 6px;
+  background: #f5f6f3;
+}
+
+.route-case-list .active-scope-filter > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.route-case-list .active-scope-filter span {
+  color: var(--prisma-muted-strong);
+  font-size: 0.78rem;
+}
+
+.route-case-list .active-scope-filter strong {
+  overflow-wrap: anywhere;
+  color: var(--prisma-ink);
+  font-size: 0.95rem;
+}
+
+.route-case-list .active-scope-filter .button {
+  min-width: 64px;
+  min-height: 44px;
+  flex: 0 0 auto;
+}
+
+.route-case-list .active-scope-filter .button:focus-visible {
+  outline: 2px solid var(--prisma-ink);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .route-case-list .active-scope-filter {
+    align-items: stretch;
+  }
 }
 
 .route-source-ledger .source-ledger-row > .status-pill {

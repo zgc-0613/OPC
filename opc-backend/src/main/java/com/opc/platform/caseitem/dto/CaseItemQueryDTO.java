@@ -9,6 +9,8 @@ public class CaseItemQueryDTO {
 
     private Long regionId;
 
+    private Long industryTagId;
+
     private String category;
 
     private String status;

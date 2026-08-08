@@ -373,6 +373,9 @@ CREATE TABLE IF NOT EXISTS ai_agent_sessions (
     status VARCHAR(20) NOT NULL DEFAULT 'active',
     profile_json JSON NULL,
     research_context_json JSON NULL,
+    task_context_version VARCHAR(40) NULL,
+    task_context_json JSON NULL,
+    task_context_hash CHAR(64) NULL,
     version BIGINT NOT NULL DEFAULT 0,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -389,7 +392,8 @@ CREATE TABLE IF NOT EXISTS ai_agent_sessions (
     INDEX idx_agent_sessions_user_activity (user_id, status, last_message_at, id),
     INDEX idx_agent_sessions_history_active (user_id, deleted_at, pinned_at, last_message_at, id),
     INDEX idx_agent_sessions_history_archived (user_id, archived_at, last_message_at, id),
-    INDEX idx_agent_sessions_purge_due (purge_after, purged_at, id)
+    INDEX idx_agent_sessions_purge_due (purge_after, purged_at, id),
+    INDEX idx_agent_sessions_task_context_hash (task_context_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='User-owned Agent research sessions';
 
@@ -437,6 +441,11 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     case_id BIGINT NULL,
     session_id BIGINT NULL,
     session_content_generation BIGINT NOT NULL DEFAULT 0,
+    analytics_snapshot_id BIGINT NULL,
+    analytics_metric_id VARCHAR(80) NULL,
+    analytics_data_version VARCHAR(128) NULL,
+    analytics_filters_json JSON NULL,
+    analytics_snapshot_json JSON NULL,
     user_message_id BIGINT NULL,
     idempotency_key VARCHAR(64) NULL,
     request_content_hash CHAR(64) NULL,
@@ -498,12 +507,37 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
     INDEX idx_ai_analysis_case_created (case_id, created_at),
     INDEX idx_ai_analysis_status_created (status, created_at),
     INDEX idx_ai_runs_session (session_id, created_at, id),
+    INDEX idx_ai_runs_analytics_snapshot (analytics_snapshot_id),
+    INDEX idx_ai_runs_analytics_data_version (analytics_data_version),
     INDEX idx_ai_runs_running_deadline (status, deadline_at),
     INDEX idx_ai_runs_agent_lease (status, next_attempt_at, lease_expires_at, id)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
   COMMENT='Persisted AI task results and usage metadata';
+
+CREATE TABLE IF NOT EXISTS ai_analytics_snapshots (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    idempotency_key VARCHAR(64) NOT NULL,
+    request_hash CHAR(64) NOT NULL,
+    metric_id VARCHAR(80) NOT NULL,
+    normalized_filters_json JSON NOT NULL,
+    selected_dimension VARCHAR(80) NULL,
+    selected_bucket_ids_json JSON NOT NULL,
+    data_version VARCHAR(128) NOT NULL,
+    snapshot_json JSON NOT NULL,
+    snapshot_hash CHAR(64) NOT NULL,
+    run_id BIGINT NULL,
+    expires_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    UNIQUE KEY uk_ai_analytics_snapshots_owner_idempotency (user_id, idempotency_key),
+    INDEX idx_ai_analytics_snapshots_owner_expiry (user_id, expires_at, id),
+    INDEX idx_ai_analytics_snapshots_expiry (expires_at, id),
+    INDEX idx_ai_analytics_snapshots_run (run_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='User-owned server reconstructed analytics research snapshots';
 
 ALTER TABLE ai_agent_messages
     ADD CONSTRAINT fk_agent_messages_run FOREIGN KEY (run_id) REFERENCES ai_analysis_runs(id)
@@ -575,6 +609,26 @@ CREATE TABLE IF NOT EXISTS ai_evidence_reviews (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
   COMMENT='Administrator AI evidence review audit trail';
+
+CREATE TABLE IF NOT EXISTS ai_agent_run_feedback (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    run_id BIGINT NOT NULL,
+    rating VARCHAR(20) NOT NULL,
+    reason VARCHAR(40) NOT NULL,
+    comment_text VARCHAR(1000) NULL,
+    revision BIGINT NOT NULL DEFAULT 1,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    UNIQUE KEY uk_ai_agent_run_feedback_owner_run (user_id, run_id),
+    INDEX idx_ai_agent_run_feedback_run_created (run_id, created_at),
+    INDEX idx_ai_agent_run_feedback_reason_created (reason, created_at),
+    CONSTRAINT chk_ai_agent_run_feedback_rating CHECK (rating IN ('helpful','not_helpful')),
+    CONSTRAINT chk_ai_agent_run_feedback_revision CHECK (revision > 0)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='Bounded user feedback for owned Agent research runs';
 
 INSERT INTO ai_model_settings (
     id, provider, api_format, temperature, max_output_tokens,

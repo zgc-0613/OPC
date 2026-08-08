@@ -29,6 +29,21 @@
       </div>
       <p class="case-summary-note">统计口径：基于当前资料库记录，随筛选条件实时更新；类型字段按标签合并统计。</p>
 
+      <div
+        v-if="query.industryTagId"
+        class="active-scope-filter"
+        data-testid="active-industry-filter"
+        role="status"
+      >
+        <div>
+          <span>行业范围</span>
+          <strong>{{ selectedIndustryLabel }}</strong>
+        </div>
+        <button class="button button-ghost" type="button" aria-label="清除行业筛选" @click="clearIndustryFilter">
+          清除
+        </button>
+      </div>
+
       <div class="auto-filter-grid">
         <label>
           <span>关键词检索</span>
@@ -169,6 +184,7 @@ import { getCases } from '@/api/case'
 import { getRegions } from '@/api/region'
 import { getVisitRankings } from '@/api/visit'
 import { recordSearchKeyword } from '@/api/searchLog'
+import { getIndustryTags } from '@/api/tag'
 
 const route = useRoute()
 const loading = ref(false)
@@ -176,6 +192,7 @@ const error = ref('')
 const cases = ref([])
 const allCases = ref([])
 const regions = ref([])
+const industryTags = ref([])
 const caseVisitRankings = ref([])
 const currentPage = ref(1)
 const regionMenuOpen = ref(false)
@@ -185,10 +202,13 @@ const sortMode = ref('latest')
 const pageSize = 10
 let revealObserver
 let searchLogTimer = null
+let casesLoaded = false
+let loadedIndustryTagId = ''
 const query = reactive({
-  keyword: '',
-  regionId: '',
-  category: '',
+  keyword: route.query.keyword ? String(route.query.keyword).slice(0, 100) : '',
+  regionId: route.query.regionId ? String(route.query.regionId) : '',
+  industryTagId: normalizePositiveInteger(route.query.industryTagId),
+  category: route.query.category ? String(route.query.category).slice(0, 100) : '',
 })
 
 const sortOptions = [
@@ -212,7 +232,7 @@ const visibleRegions = computed(() => {
   return regions.value.filter((region) => usedRegionIds.has(region.id)).slice(0, 24)
 })
 
-const hasActiveFilter = computed(() => Boolean(query.keyword || query.regionId || query.category))
+const hasActiveFilter = computed(() => Boolean(query.keyword || query.regionId || query.industryTagId || query.category))
 
 const selectedRegionLabel = computed(() => {
   if (!query.regionId) {
@@ -222,6 +242,12 @@ const selectedRegionLabel = computed(() => {
 })
 
 const selectedCategoryLabel = computed(() => query.category || '全部类型')
+
+const selectedIndustryLabel = computed(() => {
+  const selectedId = Number(query.industryTagId)
+  return industryTags.value.find((item) => Number(item.tagId ?? item.id) === selectedId)?.name
+    || `行业标签 #${query.industryTagId}`
+})
 
 const selectedSortLabel = computed(() => sortOptions.find((item) => item.value === sortMode.value)?.label || '最新收录')
 
@@ -278,6 +304,9 @@ const resultText = computed(() => {
   if (query.keyword) {
     parts.push(`关键词：${query.keyword}`)
   }
+  if (query.industryTagId) {
+    parts.push(`行业：${selectedIndustryLabel.value}`)
+  }
   return parts.length ? `当前筛选 ${parts.join(' / ')}，共 ${cases.value.length} 条。` : `当前展示全部案例，共 ${cases.value.length} 条。`
 })
 
@@ -293,8 +322,10 @@ async function loadCases() {
   loading.value = true
   error.value = ''
   try {
-    if (!allCases.value.length) {
-      allCases.value = await getCases()
+    if (!casesLoaded || loadedIndustryTagId !== query.industryTagId) {
+      allCases.value = await getCases(caseRequestParams())
+      loadedIndustryTagId = query.industryTagId
+      casesLoaded = true
     }
     cases.value = filterCases(allCases.value)
     currentPage.value = 1
@@ -310,11 +341,29 @@ async function loadCases() {
 function resetFilters() {
   query.keyword = ''
   query.regionId = ''
+  query.industryTagId = ''
   query.category = ''
   regionMenuOpen.value = false
   categoryMenuOpen.value = false
   sortMenuOpen.value = false
   currentPage.value = 1
+}
+
+function clearIndustryFilter() {
+  query.industryTagId = ''
+}
+
+function normalizePositiveInteger(value) {
+  const raw = value == null ? '' : String(value).trim()
+  if (!/^[1-9]\d*$/.test(raw)) {
+    return ''
+  }
+  const parsed = Number(raw)
+  return Number.isSafeInteger(parsed) ? String(parsed) : ''
+}
+
+function caseRequestParams() {
+  return query.industryTagId ? { industryTagId: Number(query.industryTagId) } : {}
 }
 
 function filterCases(list) {
@@ -485,7 +534,7 @@ watch(
 )
 
 watch(
-  () => [query.regionId, query.category],
+  () => [query.regionId, query.industryTagId, query.category],
   loadCases,
 )
 
@@ -495,15 +544,18 @@ onMounted(async () => {
   loading.value = true
   error.value = ''
   try {
-    const [regionList, caseList] = await Promise.all([
+    const [regionList, industryList, caseList] = await Promise.all([
       getRegions(),
-      getCases(),
+      getIndustryTags().catch(() => []),
+      getCases(caseRequestParams()),
     ])
     const visitRankingList = await getVisitRankings({ targetType: 'case', limit: 200 }).catch(() => [])
     regions.value = regionList
+    industryTags.value = industryList
     allCases.value = caseList
+    casesLoaded = true
+    loadedIndustryTagId = query.industryTagId
     caseVisitRankings.value = visitRankingList || []
-    query.regionId = route.query.regionId ? String(route.query.regionId) : ''
     cases.value = filterCases(caseList)
     currentPage.value = 1
   } catch (err) {

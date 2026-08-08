@@ -4,28 +4,43 @@ import { nextTick, ref } from 'vue'
 
 const api = vi.hoisted(() => ({
   archive: vi.fn(), cancel: vi.fn(), checkReadiness: vi.fn(), create: vi.fn(), getCapabilities: vi.fn(),
-  getEvidence: vi.fn(), getHistory: vi.fn(), getMessages: vi.fn(), getRun: vi.fn(), getSession: vi.fn(), getUsage: vi.fn(),
-  purge: vi.fn(), resolveIndustry: vi.fn(), restore: vi.fn(), send: vi.fn(), start: vi.fn(), trash: vi.fn(), unarchive: vi.fn(), update: vi.fn(),
-  getRegions: vi.fn(), getIndustryTags: vi.fn(),
+  getBranch: vi.fn(), getEvidence: vi.fn(), getFeedback: vi.fn(), getHistory: vi.fn(), getMessages: vi.fn(), getRun: vi.fn(), getSession: vi.fn(), getUsage: vi.fn(), updateFeedback: vi.fn(),
+  getReports: vi.fn(), exportReport: vi.fn(), saveReport: vi.fn(), updateReport: vi.fn(), trashReport: vi.fn(), restoreReport: vi.fn(), permanentReport: vi.fn(), startAnalytics: vi.fn(),
+  clearPreferences: vi.fn(), getPreferences: vi.fn(), purge: vi.fn(), resolveIndustry: vi.fn(), restore: vi.fn(), send: vi.fn(), start: vi.fn(), trash: vi.fn(), unarchive: vi.fn(), update: vi.fn(), updatePreferences: vi.fn(),
+  getRegions: vi.fn(), getIndustryTags: vi.fn(), getCases: vi.fn(), getSources: vi.fn(),
 }))
 const auth = vi.hoisted(() => ({ profile: { userId: 42, username: 'researcher' } }))
+const route = vi.hoisted(() => ({ query: {} }))
+const router = vi.hoisted(() => ({ replace: vi.fn().mockResolvedValue() }))
 
 vi.mock('@/api/ai', () => ({
   archiveResearchSessionExplicit: api.archive, cancelResearchRun: api.cancel,
   checkEntrepreneurshipReadiness: api.checkReadiness, createResearchSession: api.create,
   getAiCapabilities: api.getCapabilities, getResearchHistory: api.getHistory,
+  getResearchBranchMaterial: api.getBranch,
   getResearchMessages: api.getMessages, getResearchRun: api.getRun, getResearchSession: api.getSession,
   getResearchRunEvidence: api.getEvidence,
+  getResearchRunFeedback: api.getFeedback, updateResearchRunFeedback: api.updateFeedback,
+  exportResearchReport: api.exportReport, getResearchReports: api.getReports,
+  clearResearchPreferences: api.clearPreferences, getResearchPreferences: api.getPreferences,
   getResearchUsage: api.getUsage, permanentlyDeleteResearchSession: api.purge,
   restoreResearchSession: api.restore, sendResearchMessage: api.send,
+  restoreResearchReport: api.restoreReport, saveResearchReport: api.saveReport,
   resolveIndustryWithAi: api.resolveIndustry,
   startResearchSession: api.start,
+  startResearchFromAnalytics: api.startAnalytics,
   trashResearchSession: api.trash, unarchiveResearchSession: api.unarchive,
+  trashResearchReport: api.trashReport, permanentlyDeleteResearchReport: api.permanentReport,
   updateResearchSession: api.update,
+  updateResearchReport: api.updateReport,
+  updateResearchPreferences: api.updatePreferences,
 }))
 vi.mock('@/api/region', () => ({ getRegions: api.getRegions }))
 vi.mock('@/api/tag', () => ({ getIndustryTags: api.getIndustryTags }))
+vi.mock('@/api/case', () => ({ getCases: api.getCases }))
+vi.mock('@/api/source', () => ({ getSources: api.getSources }))
 vi.mock('@/api/auth', () => ({ getUserProfile: () => auth.profile }))
+vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => router }))
 
 import AssistantView from '@/views/AssistantView.vue'
 import assistantSource from '@/views/AssistantView.vue?raw'
@@ -63,6 +78,7 @@ describe('AssistantView research workspace', () => {
     vi.clearAllMocks()
     localStorage.clear()
     sessionStorage.clear()
+    route.query = {}
     document.body.innerHTML = ''
     Element.prototype.scrollTo = vi.fn()
     window.matchMedia = vi.fn(() => ({ matches: false }))
@@ -72,10 +88,32 @@ describe('AssistantView research workspace', () => {
     api.getIndustryTags.mockResolvedValue([{ tagId: 7, name: '人工智能应用' }])
     api.getCapabilities.mockResolvedValue({ provider: { available: true, provider: 'deepseek', model: 'deepseek-v4-flash' }, capabilities: [{ id: 'agent-runtime', available: true }] })
     api.getUsage.mockResolvedValue({ usedTokens: 120, limitTokens: 10000, remainingTokens: 9880, unlimited: false })
+    api.getPreferences.mockResolvedValue(null)
+    api.getCases.mockResolvedValue([
+      { id: 11, title: 'Verified case A', regionName: 'Region' },
+      { id: 12, title: 'Verified case B', regionName: 'Region' },
+    ])
+    api.getSources.mockResolvedValue([{ id: 71, title: 'Verified source', publisher: 'Public publisher' }])
     api.getHistory.mockResolvedValue({ items: [session()], nextCursor: null, hasMore: false })
+    api.getReports.mockResolvedValue([])
     api.getSession.mockResolvedValue(detail())
     api.getRun.mockResolvedValue(activeRun)
     api.getEvidence.mockResolvedValue({ runId: 301, status: 'completed', items: [], groups: {} })
+    api.getFeedback.mockResolvedValue(null)
+    api.getBranch.mockResolvedValue({
+      sourceSessionId: 101,
+      sourceRunId: 301,
+      requestedIntent: 'case_comparison',
+      taskContext: {
+        version: 'phase3-task-v1', taskType: 'case_comparison', caseIds: [11, 12],
+        comparisonDimensions: ['businessModel'], outputDepth: 'standard',
+      },
+      taskContextVersion: 'phase3-task-v1',
+      taskContextHash: 'frozen-task-context',
+      resultSummary: '两个已核验案例采用不同的获客路径。',
+      citations: [{ sourceId: 8, claim: '案例一采用渠道合作' }, { sourceId: 9, claim: '案例二采用直接销售' }],
+      evidenceVersion: 'evidence-v7',
+    })
     api.checkReadiness.mockResolvedValue({ readinessStatus: 'sufficient', verifiedCaseCount: 2, selectedPolicyCount: 3, verifiedSourceCount: 4 })
   })
 
@@ -117,6 +155,172 @@ describe('AssistantView research workspace', () => {
 
     expect(wrapper.get('details.profile-editor').attributes('open')).toBeUndefined()
     expect(wrapper.get('textarea[aria-label="研究问题"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['case_analysis', async (wrapper) => {
+      await wrapper.get('[data-testid="task-case-selector"]').setValue('11')
+    }, { caseIds: [11], comparisonDimensions: [] }],
+    ['case_comparison', async (wrapper) => {
+      await wrapper.get('[data-testid="task-case-selector"]').setValue(['11', '12'])
+      await wrapper.get('input[value="businessModel"]').setValue(true)
+    }, { caseIds: [11, 12], comparisonDimensions: ['businessModel'] }],
+    ['technology_assessment', async (wrapper) => {
+      await wrapper.get('[data-testid="task-technology-text"]').setValue('controlled technology')
+    }, { technologyText: 'controlled technology' }],
+    ['policy_lookup', async () => {}, { caseIds: [], comparisonDimensions: [] }],
+    ['source_verification', async (wrapper) => {
+      await wrapper.get('[data-testid="task-source-selector"]').setValue('71')
+    }, { sourceId: 71 }],
+    ['general_research', async () => {}, { caseIds: [], comparisonDimensions: [] }],
+  ])('starts %s with a controlled Phase Three task context only after send', async (taskType, configure, expectedContext) => {
+    api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
+    api.getRegions.mockResolvedValue([{ id: 42, name: 'Region' }])
+    api.getIndustryTags.mockResolvedValue([{ tagId: 7, name: 'AI' }])
+    api.getSession.mockResolvedValue(detail({ session: session({ sessionId: 202 }) }))
+    api.start.mockResolvedValue({ session: session({ sessionId: 202 }), messageId: 402, runId: 502, status: 'received' })
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    await wrapper.findAll('.profile-fields select')[1].setValue('42')
+    await wrapper.get('[role="combobox"]').setValue('AI')
+    await vi.advanceTimersByTimeAsync(420)
+    await flushPromises()
+
+    expect(api.start).not.toHaveBeenCalled()
+    await wrapper.get(`[data-testid="research-task-${taskType}"]`).trigger('click')
+    await configure(wrapper)
+    await wrapper.get('textarea[aria-label="研究问题"]').setValue(`verify ${taskType} controlled research task`)
+    await wrapper.get('form.composer').trigger('submit')
+    await flushPromises()
+
+    expect(api.start).toHaveBeenCalledWith(expect.objectContaining({
+      requestedIntent: taskType,
+      taskContext: expect.objectContaining({
+        version: 'phase3-task-v1',
+        taskType,
+        outputDepth: 'standard',
+        ...expectedContext,
+      }),
+      idempotencyKey: expect.any(String),
+    }))
+    wrapper.unmount()
+  })
+
+  it('offers run feedback only when the server marks the restored result eligible', async () => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    api.getSession.mockResolvedValue(detail({
+      latestRun: { ...activeRun, status: 'completed', currentStage: 'completed', feedbackEligible: true },
+    }))
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="open-run-feedback"]').exists()).toBe(true)
+    expect(api.getFeedback).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('creates a local branch draft without copying the source unsent draft or creating server state', async () => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    api.getSession.mockResolvedValue(detail({
+      session: session({
+        profile: { regionId: 42, industryTagId: 7, industry: '人工智能应用' },
+      }),
+      latestRun: { ...activeRun, status: 'completed', currentStage: 'completed' },
+    }))
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    await wrapper.get('textarea[aria-label="研究问题"]').setValue('源会话尚未发送的草稿')
+    await wrapper.get('button[aria-label="基于当前研究条件新建研究"]').trigger('click')
+    await flushPromises()
+
+    expect(api.getBranch).toHaveBeenCalledWith(301)
+    expect(api.start).not.toHaveBeenCalled()
+    expect(api.create).not.toHaveBeenCalled()
+    expect(latestEventValue(wrapper, 'workspace-title')).toBe('新研究')
+    expect(wrapper.get('[data-testid="branch-research-context"]').text()).toContain('两个已核验案例采用不同的获客路径。')
+    expect(wrapper.get('[data-testid="branch-research-context"]').text()).toContain('2 条引用')
+    expect(wrapper.get('textarea[aria-label="研究问题"]').element.value).not.toContain('源会话尚未发送的草稿')
+    expect(localStorage.getItem('opc_assistant:user:42:draft:101')).toBe('源会话尚未发送的草稿')
+    expect(JSON.parse(sessionStorage.getItem('opc_assistant:user:42:branch-draft-v1'))).not.toHaveProperty('status')
+    wrapper.unmount()
+  })
+
+  it('creates an independent session on the first valid send from a branch draft', async () => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    const sourceDetail = detail({
+      session: session({ profile: { regionId: 42, industryTagId: 7, industry: '人工智能应用' } }),
+      latestRun: { ...activeRun, status: 'completed', currentStage: 'completed' },
+    })
+    const branchSession = session({ sessionId: 202, title: '独立研究分支', profile: { regionId: 42, industryTagId: 7, industry: '人工智能应用' } })
+    api.getSession.mockResolvedValueOnce(sourceDetail).mockResolvedValueOnce(detail({ session: branchSession }))
+    api.start.mockResolvedValue({ session: branchSession, messageId: 402, runId: 502, status: 'received' })
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    await wrapper.get('button[aria-label="基于当前研究条件新建研究"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(420)
+    await flushPromises()
+    await wrapper.get('textarea[aria-label="研究问题"]').setValue('把比较范围调整到首批付费客户验证')
+    await wrapper.get('form.composer').trigger('submit')
+    await flushPromises()
+
+    expect(api.send).not.toHaveBeenCalled()
+    expect(api.start).toHaveBeenCalledWith(expect.objectContaining({
+      content: '把比较范围调整到首批付费客户验证',
+      requestedIntent: 'case_comparison',
+      taskContext: expect.objectContaining({
+        version: 'phase3-task-v1', taskType: 'case_comparison', caseIds: [11, 12],
+      }),
+      idempotencyKey: expect.any(String),
+    }))
+    expect(api.getSession).toHaveBeenLastCalledWith(202)
+    expect(sessionStorage.getItem('opc_assistant:user:42:branch-draft-v1')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('only applies an explicit long-term preference to the local new-research draft', async () => {
+    api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
+    api.getPreferences.mockResolvedValue({
+      memoryEnabled: true,
+      commonRegion: '湖北省',
+      commonIndustry: '人工智能应用',
+      ventureStage: 'validation',
+      budgetRange: 'under_100k',
+      existingResources: '产品原型',
+    })
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    expect(api.getPreferences).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="open-research-preferences"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="apply-research-preferences"]').trigger('click')
+    await flushPromises()
+
+    expect(api.start).not.toHaveBeenCalled()
+    expect(wrapper.findAll('.profile-fields select')[1].element.value).toBe('42')
+    expect(wrapper.get('[role="combobox"]').element.value).toBe('人工智能应用')
+    expect(JSON.parse(localStorage.getItem('opc_assistant:user:42:new-profile-v3'))).toMatchObject({
+      regionId: '42', industryTagId: '7', existingResources: '产品原型',
+    })
+    wrapper.unmount()
+  })
+
+  it('keeps saved reports in the research workspace and reads them only when opened', async () => {
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    expect(api.getReports).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="open-research-reports"]').trigger('click')
+    await flushPromises()
+
+    expect(api.getReports).toHaveBeenCalledWith({ scope: 'active', q: '', limit: 30 })
     wrapper.unmount()
   })
 
@@ -414,7 +618,7 @@ describe('AssistantView research workspace', () => {
     wrapper.unmount()
   })
 
-  it('sends a starter intent once and returns to auto after the prompt is rewritten', async () => {
+  it('turns a comparison starter into an explicit, controlled comparison task', async () => {
     api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
     api.start.mockResolvedValue({
       session: session({ sessionId: 106, title: 'New research', profile: { regionId: 42, industry: 'AI' } }),
@@ -436,11 +640,15 @@ describe('AssistantView research workspace', () => {
     await wrapper.findAll('.starter-grid button')[1].trigger('click')
     expect(wrapper.findComponent({ name: 'AssistantConversation' }).emitted('prefill')).toBeTruthy()
     expect(wrapper.get('form.composer textarea').element.value).toContain('比较')
+    expect(wrapper.get('button.send-command').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="task-case-selector"]').setValue(['11', '12'])
+    await wrapper.get('input[value="businessModel"]').setValue(true)
     expect(wrapper.get('button.send-command').attributes('disabled')).toBeUndefined()
     await wrapper.get('form.composer').trigger('submit')
     await flushPromises()
     expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({
       requestedIntent: 'case_comparison',
+      taskContext: expect.objectContaining({ caseIds: [11, 12], comparisonDimensions: ['businessModel'] }),
     }))
     wrapper.unmount()
 
@@ -457,11 +665,16 @@ describe('AssistantView research workspace', () => {
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
     await rewritten.findAll('.starter-grid button')[1].trigger('click')
+    await rewritten.get('[data-testid="task-case-selector"]').setValue(['11', '12'])
+    await rewritten.get('input[value="businessModel"]').setValue(true)
     await rewritten.get('form.composer textarea').setValue('帮我梳理下一步创业方向')
     await rewritten.get('form.composer').trigger('submit')
     await flushPromises()
 
-    expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ requestedIntent: 'auto' }))
+    expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({
+      requestedIntent: 'case_comparison',
+      taskContext: expect.objectContaining({ caseIds: [11, 12], comparisonDimensions: ['businessModel'] }),
+    }))
     rewritten.unmount()
   })
 
@@ -751,6 +964,291 @@ describe('AssistantView research workspace', () => {
     wrapper.unmount()
   })
 
+  it('performs one final server refresh at the run deadline without inventing a failed state', async () => {
+    vi.setSystemTime(new Date('2026-08-02T10:00:00.000Z'))
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    const deadlineAt = new Date(Date.now() + 500).toISOString()
+    const runningAtDeadline = { ...activeRun, deadlineAt }
+    api.getSession.mockResolvedValue(detail({ activeRun: runningAtDeadline }))
+    api.getRun.mockResolvedValue(runningAtDeadline)
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(200)
+    await flushPromises()
+
+    expect(api.getRun).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('服务器正在完成结算')
+    expect(wrapper.text()).toContain('重新获取状态')
+    expect(wrapper.text()).not.toContain('研究运行未完成')
+
+    await vi.advanceTimersByTimeAsync(30000)
+    await flushPromises()
+    expect(api.getRun).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('lets a user re-fetch a deadline-limited run and accepts the next terminal server status', async () => {
+    vi.setSystemTime(new Date('2026-08-02T10:00:00.000Z'))
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    const deadlineAt = new Date(Date.now() + 500).toISOString()
+    const runningAtDeadline = { ...activeRun, deadlineAt }
+    api.getSession.mockResolvedValue(detail({ activeRun: runningAtDeadline }))
+    api.getRun.mockResolvedValue(runningAtDeadline)
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+    expect(wrapper.get('button[aria-label="重新获取当前研究状态"]').exists()).toBe(true)
+
+    api.getRun.mockResolvedValue({ ...runningAtDeadline, status: 'completed', currentStage: 'completed', completedAt: '2026-08-02T10:00:01' })
+    await wrapper.get('button[aria-label="重新获取当前研究状态"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+
+    expect(api.getRun).toHaveBeenCalledTimes(3)
+    expect(wrapper.text()).toContain('研究已完成')
+    expect(wrapper.find('button[aria-label="重新获取当前研究状态"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('uses the bounded network backoff and allows a paused run to recover manually', async () => {
+    vi.setSystemTime(new Date('2026-08-02T10:00:00.000Z'))
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    const running = { ...activeRun, deadlineAt: new Date(Date.now() + 60000).toISOString() }
+    api.getSession.mockResolvedValue(detail({ activeRun: running }))
+    api.getRun.mockRejectedValue(new Error('network down'))
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    await vi.advanceTimersByTimeAsync(300)
+    for (const delay of [1000, 2000, 4000, 8000, 10000]) await vi.advanceTimersByTimeAsync(delay)
+    await flushPromises()
+
+    expect(api.getRun).toHaveBeenCalledTimes(6)
+    expect(wrapper.text()).toContain('自动恢复已暂停')
+    expect(wrapper.get('button[aria-label="重新获取当前研究状态"]').text()).toContain('重新获取状态')
+
+    api.getRun.mockResolvedValue(running)
+    await wrapper.get('button[aria-label="重新获取当前研究状态"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+
+    expect(api.getRun).toHaveBeenCalledTimes(7)
+    expect(wrapper.text()).not.toContain('自动恢复已暂停')
+    wrapper.unmount()
+  })
+
+  it.each(['completed', 'evidence_insufficient', 'failed', 'cancelled', 'expired', 'clarification_needed'])('stops polling after the server returns %s', async (status) => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    const terminalRun = { ...activeRun, status, currentStage: status }
+    api.getSession.mockResolvedValue(detail({ activeRun }))
+    api.getRun.mockResolvedValue(terminalRun)
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10000)
+    await flushPromises()
+
+    expect(api.getRun).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('keeps a completed run visible and synchronizes its session details only when the user requests recovery', async () => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    const completedRun = { ...activeRun, status: 'completed', currentStage: 'completed', completedAt: '2026-08-02T10:00:01' }
+    const completedMessage = { messageId: 210, sequenceNo: 2, role: 'assistant', runId: 301, content: '已同步的研究结果', citations: [] }
+    api.getSession
+      .mockResolvedValueOnce(detail({ activeRun }))
+      .mockRejectedValue(new Error('会话详情网络中断'))
+    api.getRun.mockResolvedValue(completedRun)
+
+    const wrapper = mount(AssistantView, { attachTo: document.body })
+    try {
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('研究已完成')
+      expect(wrapper.text()).toContain('会话内容仍在同步')
+      expect(wrapper.text()).not.toContain('安全重试')
+      expect(wrapper.get('textarea[aria-label="研究问题"]').attributes('disabled')).toBeDefined()
+      const sync = wrapper.get('button[aria-label="同步研究结果"]')
+      sync.element.focus()
+      expect(document.activeElement).toBe(sync.element)
+
+      await vi.advanceTimersByTimeAsync(30000)
+      await flushPromises()
+      expect(api.getRun).toHaveBeenCalledTimes(1)
+
+      api.getSession.mockResolvedValueOnce(detail({ messages: [completedMessage], latestRun: completedRun }))
+      await sync.trigger('click')
+      await flushPromises()
+
+      expect(api.getRun).toHaveBeenCalledTimes(2)
+      expect(wrapper.text()).toContain('已同步的研究结果')
+      expect(wrapper.find('button[aria-label="同步研究结果"]').exists()).toBe(false)
+      expect(wrapper.get('textarea[aria-label="研究问题"]').attributes('disabled')).toBeUndefined()
+      expect(api.send).not.toHaveBeenCalled()
+      expect(api.start).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('uses result synchronization instead of safe retry until failed terminal details are available', async () => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    const failedRun = { ...activeRun, status: 'failed', currentStage: 'failed', retryContent: '只重试关联问题' }
+    api.getSession
+      .mockResolvedValueOnce(detail({ activeRun }))
+      .mockRejectedValueOnce(new Error('会话详情网络中断'))
+      .mockResolvedValueOnce(detail({ latestRun: failedRun, messages: [] }))
+    api.getRun.mockResolvedValue(failedRun)
+
+    const wrapper = mount(AssistantView)
+    try {
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('研究运行未完成')
+      expect(wrapper.text()).toContain('会话内容仍在同步')
+      expect(wrapper.text()).not.toContain('安全重试')
+      expect(wrapper.get('button[aria-label="同步研究结果"]').text()).toContain('同步结果')
+
+      await wrapper.get('button[aria-label="同步研究结果"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('button[aria-label="同步研究结果"]').exists()).toBe(false)
+      expect(wrapper.text()).toContain('安全重试')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('ignores a delayed terminal detail response after the user switches sessions', async () => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    const sessionA = session({ sessionId: 101, title: '研究 A' })
+    const sessionB = session({ sessionId: 102, title: '研究 B' })
+    const completedRun = { ...activeRun, sessionId: 101, status: 'completed', currentStage: 'completed' }
+    const delayedDetail = deferred()
+    api.getHistory.mockResolvedValue({ items: [sessionA, sessionB], nextCursor: null, hasMore: false })
+    api.getSession
+      .mockResolvedValueOnce(detail({ session: sessionA, activeRun }))
+      .mockReturnValueOnce(delayedDetail.promise)
+      .mockResolvedValueOnce(detail({ session: sessionB, messages: [{ messageId: 220, sequenceNo: 1, role: 'user', content: '会话 B 的问题', citations: [] }] }))
+    api.getRun.mockResolvedValue(completedRun)
+
+    const wrapper = mount(AssistantView)
+    try {
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+
+      const sessionBRow = wrapper.findAll('.history-row-main').find((row) => row.text().includes('研究 B'))
+      await sessionBRow.trigger('click')
+      await flushPromises()
+      delayedDetail.resolve(detail({ session: sessionA, latestRun: completedRun, messages: [{ messageId: 221, sequenceNo: 2, role: 'assistant', content: '研究 A 的迟到结果', citations: [] }] }))
+      await flushPromises()
+
+      expect(latestEventValue(wrapper, 'workspace-title')).toBe('研究 B')
+      expect(wrapper.text()).toContain('会话 B 的问题')
+      expect(wrapper.text()).not.toContain('研究 A 的迟到结果')
+      expect(wrapper.find('button[aria-label="同步研究结果"]').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('does not apply a delayed terminal detail response after the workspace unmounts', async () => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    const completedRun = { ...activeRun, status: 'completed', currentStage: 'completed' }
+    const delayedDetail = deferred()
+    api.getSession
+      .mockResolvedValueOnce(detail({ activeRun }))
+      .mockReturnValueOnce(delayedDetail.promise)
+    api.getRun.mockResolvedValue(completedRun)
+
+    const wrapper = mount(AssistantView)
+    try {
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+      const usageCallsBeforeUnmount = api.getUsage.mock.calls.length
+      wrapper.unmount()
+
+      delayedDetail.resolve(detail({ latestRun: completedRun, messages: [{ messageId: 222, sequenceNo: 2, role: 'assistant', content: '卸载后的迟到结果', citations: [] }] }))
+      await flushPromises()
+
+      expect(api.getUsage).toHaveBeenCalledTimes(usageCallsBeforeUnmount)
+    } finally {
+      if (wrapper.exists()) wrapper.unmount()
+    }
+  })
+
+  it('does not apply a late response from a previous run after switching sessions', async () => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    const sessionA = session({ sessionId: 101, title: '研究 A' })
+    const sessionB = session({ sessionId: 102, title: '研究 B' })
+    const oldRun = { ...activeRun, sessionId: 101 }
+    const delayedRun = deferred()
+    api.getHistory.mockResolvedValue({ items: [sessionA, sessionB], nextCursor: null, hasMore: false })
+    api.getSession
+      .mockResolvedValueOnce(detail({ session: sessionA, activeRun: oldRun }))
+      .mockResolvedValueOnce(detail({ session: sessionB, messages: [{ messageId: 220, sequenceNo: 1, role: 'user', content: '会话 B 的问题', citations: [] }] }))
+    api.getRun.mockReturnValue(delayedRun.promise)
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(300)
+
+    const sessionBRow = wrapper.findAll('.history-row-main').find((row) => row.text().includes('研究 B'))
+    await sessionBRow.trigger('click')
+    await flushPromises()
+    delayedRun.resolve({ ...oldRun, visibleProgress: '旧运行的迟到状态' })
+    await flushPromises()
+
+    expect(latestEventValue(wrapper, 'workspace-title')).toBe('研究 B')
+    expect(wrapper.text()).toContain('会话 B 的问题')
+    expect(wrapper.text()).not.toContain('旧运行的迟到状态')
+    wrapper.unmount()
+  })
+
+  it('uses a finite local polling guard when the server has not returned a deadline', async () => {
+    vi.setSystemTime(new Date('2026-08-02T10:00:00.000Z'))
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    api.getSession.mockResolvedValue(detail({ activeRun }))
+    api.getRun.mockResolvedValue(activeRun)
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    await vi.advanceTimersByTimeAsync(120000)
+    await flushPromises()
+    const requestCount = api.getRun.mock.calls.length
+
+    expect(wrapper.text()).toContain('暂时无法确认服务器最终状态')
+    await vi.advanceTimersByTimeAsync(30000)
+    await flushPromises()
+    expect(api.getRun).toHaveBeenCalledTimes(requestCount)
+    wrapper.unmount()
+  })
+
+  it('clears the pending polling timer when the workspace unmounts', async () => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    api.getSession.mockResolvedValue(detail({ activeRun }))
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    wrapper.unmount()
+
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+    expect(api.getRun).not.toHaveBeenCalled()
+  })
+
   it('resumes polling when cancellation fails for the current session', async () => {
     localStorage.setItem(SELECTED_SESSION_KEY, '101')
     api.getSession.mockResolvedValue(detail({ activeRun }))
@@ -938,6 +1436,112 @@ describe('AssistantView research workspace', () => {
     await flushPromises()
 
     expect(wrapper.get('[role="alert"]').text()).toContain('请先登录')
+    wrapper.unmount()
+  })
+
+  it('keeps an analytics dashboard handoff local until the user explicitly sends it', async () => {
+    sessionStorage.setItem('opc_analytics_research_draft:user:42', JSON.stringify({
+      version: 1,
+      metricId: 'overview.verified_cases',
+      metricLabel: '已核验案例',
+      dataVersion: 'analytics-v1:9d18c2',
+      filters: {},
+      selectedBucketIds: [],
+      userQuestion: '请基于“已核验案例”这一已核验数据指标，说明它对当前创业研究范围意味着什么；区分可确认事实、推断、风险和下一步行动。',
+    }))
+    route.query = { handoff: 'analytics' }
+    api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
+    api.getSession.mockResolvedValue(detail({ session: session({ sessionId: 501 }) }))
+    api.startAnalytics.mockResolvedValue({
+      session: session({ sessionId: 501 }), messageId: 701, runId: 801, status: 'received',
+      analyticsSnapshotId: 91, metricId: 'overview.verified_cases', dataVersion: 'analytics-v1:9d18c2',
+    })
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    expect(api.start).not.toHaveBeenCalled()
+    expect(api.startAnalytics).not.toHaveBeenCalled()
+    expect(wrapper.get('textarea[aria-label="研究问题"]').element.value).toContain('已核验案例')
+    expect(wrapper.text()).toContain('数据看板条件')
+    await vi.advanceTimersByTimeAsync(2201)
+    await flushPromises()
+    expect(wrapper.text()).toContain('analytics-v1:9d18c2')
+
+    await wrapper.get('form.composer').trigger('submit')
+    await flushPromises()
+
+    expect(api.start).not.toHaveBeenCalled()
+    expect(api.startAnalytics).toHaveBeenCalledWith(expect.objectContaining({
+      metricId: 'overview.verified_cases', dataVersion: 'analytics-v1:9d18c2', filters: {}, selectedBucketIds: [],
+      userQuestion: expect.stringContaining('已核验案例'),
+      idempotencyKey: expect.any(String),
+    }))
+    expect(sessionStorage.getItem('opc_analytics_research_draft:user:42')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('preserves an industry bucket and its data version through the explicit analytics start', async () => {
+    sessionStorage.setItem('opc_analytics_research_draft:user:42', JSON.stringify({
+      version: 1,
+      metricId: 'industry.case_count',
+      metricLabel: '行业案例数量：人工智能服务',
+      dataVersion: 'analytics-v1:industry',
+      filters: { industryTagId: 7 },
+      selectedBucketIds: ['industry:7'],
+      userQuestion: '请基于人工智能服务行业的已核验案例统计继续研究。',
+    }))
+    route.query = { handoff: 'analytics' }
+    api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
+    api.getSession.mockResolvedValue(detail({ session: session({ sessionId: 502 }) }))
+    api.startAnalytics.mockResolvedValue({
+      session: session({ sessionId: 502 }), messageId: 702, runId: 802, status: 'received',
+      analyticsSnapshotId: 92, metricId: 'industry.case_count', dataVersion: 'analytics-v1:industry',
+    })
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    expect(api.startAnalytics).not.toHaveBeenCalled()
+    expect(wrapper.get('textarea[aria-label="研究问题"]').element.value).toContain('人工智能服务')
+    await wrapper.get('form.composer').trigger('submit')
+    await flushPromises()
+
+    expect(api.startAnalytics).toHaveBeenCalledWith(expect.objectContaining({
+      metricId: 'industry.case_count',
+      dataVersion: 'analytics-v1:industry',
+      filters: { industryTagId: 7 },
+      selectedBucketIds: ['industry:7'],
+    }))
+    expect(sessionStorage.getItem('opc_analytics_research_draft:user:42')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('preserves the handoff and asks for a refreshed dashboard version when it becomes stale', async () => {
+    sessionStorage.setItem('opc_analytics_research_draft:user:42', JSON.stringify({
+      version: 1,
+      metricId: 'overview.verified_cases',
+      metricLabel: '已核验案例',
+      dataVersion: 'analytics-v1:stale',
+      filters: {},
+      selectedBucketIds: [],
+      userQuestion: '请基于“已核验案例”这一已核验数据指标，说明它对当前创业研究范围意味着什么；区分可确认事实、推断、风险和下一步行动。',
+    }))
+    route.query = { handoff: 'analytics' }
+    api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
+    api.startAnalytics.mockRejectedValue(Object.assign(new Error('数据版本不再可用'), {
+      businessCode: 409,
+      diagnosticCode: 'ANALYTICS_DATA_VERSION_STALE',
+    }))
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    await wrapper.get('form.composer').trigger('submit')
+    await flushPromises()
+
+    expect(api.start).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('数据版本已更新，请返回数据看板刷新后重新带入研究。')
+    expect(sessionStorage.getItem('opc_analytics_research_draft:user:42')).not.toBeNull()
     wrapper.unmount()
   })
 })

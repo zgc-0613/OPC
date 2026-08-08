@@ -1,6 +1,7 @@
 package com.opc.platform.ai.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opc.platform.ai.dto.AgentSessionUpdateDTO;
 import com.opc.platform.ai.entity.AiAgentMessage;
@@ -10,6 +11,7 @@ import com.opc.platform.ai.mapper.AiAgentMessageMapper;
 import com.opc.platform.ai.mapper.AiAgentSessionMapper;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
 import com.opc.platform.ai.mapper.AiAnalysisRunMapper;
+import com.opc.platform.ai.mapper.AgentResearchReportMapper;
 import com.opc.platform.ai.mapper.AgentUsageLedgerRow;
 import com.opc.platform.ai.provider.AiRuntimeSettingsProvider;
 import com.opc.platform.ai.vo.AgentMessagePageVO;
@@ -52,6 +54,7 @@ public class AgentSessionHistoryService {
     private final ObjectMapper objectMapper;
     private final String cursorSecret;
     private final AgentContentPurgeAuditService purgeAuditService;
+    private final AgentResearchReportMapper reportMapper;
 
     public AgentSessionHistoryService(
             AiAgentSessionMapper sessionMapper,
@@ -62,7 +65,8 @@ public class AgentSessionHistoryService {
             ObjectMapper objectMapper,
             @Value("${opc.ai.agent.history-cursor-secret:${OPC_ASSISTANT_CURSOR_HMAC_SECRET:}}")
             String cursorSecret,
-            AgentContentPurgeAuditService purgeAuditService
+            AgentContentPurgeAuditService purgeAuditService,
+            AgentResearchReportMapper reportMapper
     ) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
@@ -72,6 +76,7 @@ public class AgentSessionHistoryService {
         this.objectMapper = objectMapper;
         this.cursorSecret = cursorSecret;
         this.purgeAuditService = purgeAuditService;
+        this.reportMapper = reportMapper;
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -269,6 +274,7 @@ public class AgentSessionHistoryService {
         messageMapper.purgeSessionContent(session.getId());
         toolCallMapper.purgeSessionContent(session.getId());
         runMapper.purgeSessionContent(session.getId());
+        reportMapper.markSourceSessionUnavailable(session.getId(), session.getUserId(), now);
         if (sessionMapper.purgeSessionContent(session.getId(), PURGED_TITLE, "manual", now) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "研究会话状态已变化");
         }
@@ -324,25 +330,53 @@ public class AgentSessionHistoryService {
     }
 
     private AgentSessionVO toSession(AiAgentSession session) {
+        JsonNode taskContext = parseOptionalJson(session.getTaskContextJson());
         return new AgentSessionVO(
                 session.getId(), session.getTitle(), session.getTitleMode(), session.getStatus(),
                 parseJson(session.getProfileJson(), true), session.getPinnedAt() != null,
                 session.getArchivedAt(), session.getDeletedAt(), session.getPurgeAfter(),
                 session.getActiveRunStatus(), session.getCreatedAt(), session.getUpdatedAt(),
-                session.getLastMessageAt()
+                session.getLastMessageAt(), null, null, null, taskType(taskContext)
         );
     }
 
     public AgentSessionVO view(AiAgentSession session) {
-        return toSession(session);
+        JsonNode taskContext = parseOptionalJson(session.getTaskContextJson());
+        return new AgentSessionVO(
+                session.getId(), session.getTitle(), session.getTitleMode(), session.getStatus(),
+                parseJson(session.getProfileJson(), true), session.getPinnedAt() != null,
+                session.getArchivedAt(), session.getDeletedAt(), session.getPurgeAfter(),
+                session.getActiveRunStatus(), session.getCreatedAt(), session.getUpdatedAt(),
+                session.getLastMessageAt(), taskContext, session.getTaskContextVersion(),
+                session.getTaskContextHash(), taskType(taskContext)
+        );
+    }
+
+    private String taskType(JsonNode taskContext) {
+        return taskContext != null && taskContext.path("taskType").isTextual()
+                ? taskContext.path("taskType").asText() : null;
     }
 
     private AgentMessageVO toMessage(AiAgentMessage message) {
         return new AgentMessageVO(
                 message.getId(), message.getRole(), message.getContent(), message.getStatus(),
                 message.getSequenceNo(), message.getRunId(), parseJson(message.getCitationsJson(), false),
+                messageStructuredResult(message),
+                messageAnalyticsSnapshot(message),
                 message.getCreatedAt()
         );
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode messageStructuredResult(AiAgentMessage message) {
+        if (!"assistant".equals(message.getRole()) || !"completed".equals(message.getStatus())) return null;
+        var result = parseOptionalJson(message.getStructuredResultJson());
+        return result != null && result.isObject() ? result : null;
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode messageAnalyticsSnapshot(AiAgentMessage message) {
+        if (!"assistant".equals(message.getRole()) || !"completed".equals(message.getStatus())) return null;
+        var snapshot = parseOptionalJson(message.getAnalyticsSnapshotJson());
+        return snapshot != null && snapshot.isObject() ? snapshot : null;
     }
 
     private com.fasterxml.jackson.databind.JsonNode parseJson(String value, boolean objectFallback) {
@@ -353,6 +387,10 @@ public class AgentSessionHistoryService {
         } catch (JsonProcessingException exception) {
             return objectFallback ? objectMapper.createObjectNode() : objectMapper.createArrayNode();
         }
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode parseOptionalJson(String value) {
+        return value == null ? null : parseJson(value, true);
     }
 
     private String normalizeScope(String scope) {

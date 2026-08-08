@@ -69,6 +69,16 @@
           <small>Data analysis</small>
         </RouterLink>
         <RouterLink
+          to="/analytics"
+          aria-label="研究数据看板"
+          active-class="route-link-active"
+          exact-active-class="route-link-exact-active"
+          :class="{ 'nav-active': isNavActive('analytics') }"
+        >
+          <span>研究数据看板</span>
+          <small>Research metrics</small>
+        </RouterLink>
+        <RouterLink
           to="/regions"
           aria-label="地区目录"
           active-class="route-link-active"
@@ -134,7 +144,7 @@
           <h1>{{ routeTitle }}</h1>
           <p>{{ routeSubtitle }}</p>
         </div>
-        <div v-if="route.name !== 'analysis-overview'" class="topbar-status">
+        <div v-if="route.name !== 'analysis-overview' && route.name !== 'analytics-dashboard'" class="topbar-status">
           <span></span>
           公开索引模式
         </div>
@@ -186,6 +196,7 @@ const routeTitle = computed(() => {
   const titles = {
     home: '首页概览',
     'analysis-overview': '资料分析',
+    'analytics-dashboard': '研究数据看板',
     'region-directory': '地区目录',
     'policy-list': '政策索引',
     'policy-detail': '政策详情',
@@ -201,6 +212,7 @@ const routeSubtitle = computed(() => {
   const subtitles = {
     home: '汇总全国 AI + OPC 相关政策、案例、来源与地区覆盖情况。',
     'analysis-overview': '呈现平台访问热度、地区资料排行、政策趋势走向、来源覆盖度与案例分布概况。',
+    'analytics-dashboard': '查看当前可用于研究的已发布、已核验数据指标及其数据版本。',
     'region-directory': '按省份查看政策与案例资料覆盖情况，便于识别资料集中的重点区域。',
     'policy-list': '按地区、政策类型及关键词快速检索目标政策。',
     'policy-detail': '查看政策摘要、支持措施、来源链接和关键字段。',
@@ -216,6 +228,7 @@ function isNavActive(section) {
   const sectionMap = {
     home: ['home'],
     analysis: ['analysis-overview'],
+    analytics: ['analytics-dashboard'],
     regions: ['region-directory'],
     policies: ['policy-list', 'policy-detail'],
     cases: ['case-list', 'case-detail'],

@@ -12,6 +12,8 @@ public record AgentMessageVO(
         Integer sequenceNo,
         Long runId,
         JsonNode citations,
+        JsonNode structuredResult,
+        JsonNode analyticsSnapshot,
         LocalDateTime createdAt
 ) {
 }

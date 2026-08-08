@@ -117,6 +117,28 @@ describe('AssistantResearchProfile industry combobox', () => {
     expect(toggle.attributes('aria-label')).toBe('展开行业选项')
   })
 
+  it('keeps DOM focus on the combobox while the visible toggle remains keyboard reachable', async () => {
+    const wrapper = mount(AssistantResearchProfile, {
+      attachTo: document.body,
+      props: { modelValue, editable: true, industries },
+    })
+    const input = wrapper.get('[role="combobox"]')
+    const toggle = wrapper.get('.industry-combobox-toggle')
+
+    expect(toggle.attributes('tabindex')).not.toBe('-1')
+    toggle.element.focus()
+    expect(document.activeElement).toBe(toggle.element)
+    await input.trigger('click')
+    expect(wrapper.findAll('[role="option"]')).toHaveLength(2)
+    expect(wrapper.findAll('[role="option"]').every((option) => option.attributes('tabindex') === '-1')).toBe(true)
+
+    await input.element.focus()
+    await input.trigger('keydown', { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(input.element)
+    expect(input.attributes('aria-activedescendant')).toBe('assistant-industry-option-7')
+    wrapper.unmount()
+  })
+
   it('distinguishes the selected standard tag from the keyboard active option', async () => {
     const wrapper = mount(AssistantResearchProfile, {
       props: { modelValue: { ...modelValue, industryTagId: '7', industry: '人工智能应用' }, editable: true, industries },

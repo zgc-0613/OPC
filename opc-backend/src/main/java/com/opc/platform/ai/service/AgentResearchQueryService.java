@@ -43,14 +43,15 @@ public class AgentResearchQueryService {
     private final AiAnalysisRunMapper runMapper;
     private final ObjectMapper objectMapper;
     private final AgentProfilePolicy profilePolicy;
+    private final AgentRunFeedbackService feedbackService;
 
     public AgentSessionVO createSession(AuthenticatedUser user, AgentSessionCreateDTO request) {
         String profileJson = profilePolicy.canonicalJson(request == null ? null : request.getProfile());
-        return toSession(sessionService.create(user, request == null ? null : request.getTitle(), profileJson));
+        return toSession(sessionService.create(user, request == null ? null : request.getTitle(), profileJson), true);
     }
 
     public List<AgentSessionVO> listSessions(AuthenticatedUser user) {
-        return sessionService.list(user).stream().map(this::toSession).toList();
+        return sessionService.list(user).stream().map(session -> toSession(session, false)).toList();
     }
 
     public AgentSessionDetailVO sessionDetail(AuthenticatedUser user, Long sessionId) {
@@ -62,15 +63,15 @@ public class AgentResearchQueryService {
         java.util.Collections.reverse(messages);
         AiAnalysisRun activeRun = runMapper.selectActiveAgentRunForSession(sessionId);
         AiAnalysisRun latest = runMapper.selectLatestAgentRunForSession(sessionId);
-        AgentRunStatusVO active = activeRun == null ? null : toRun(activeRun);
+        AgentRunStatusVO active = activeRun == null ? null : toRun(activeRun, session);
         session.setActiveRunStatus(activeRun == null ? null : activeRun.getStatus());
         return new AgentSessionDetailVO(
-                toSession(session),
+                toSession(session, true),
                 (messages == null ? List.<AiAgentMessage>of() : messages).stream().map(this::toMessage).toList(),
                 hasMore && !messages.isEmpty() ? messages.get(0).getSequenceNo() : null,
                 hasMore,
                 active,
-                latest == null ? null : toRun(latest)
+                latest == null ? null : toRun(latest, session)
         );
     }
 
@@ -81,7 +82,7 @@ public class AgentResearchQueryService {
     public AgentRunStatusVO run(AuthenticatedUser user, Long runId) {
         AiAnalysisRun run = runMapper.selectOwnedAgentRun(runId, user.userId());
         if (run == null) throw new BusinessException(ErrorCode.NOT_FOUND, "研究运行不存在");
-        return toRun(run);
+        return toRun(run, sessionService.requireOwned(user, run.getSessionId()));
     }
 
     @Transactional
@@ -93,7 +94,7 @@ public class AgentResearchQueryService {
         return run(user, runId);
     }
 
-    private AgentRunStatusVO toRun(AiAnalysisRun run) {
+    private AgentRunStatusVO toRun(AiAnalysisRun run, AiAgentSession session) {
         AiAgentMessage userMessage = run.getUserMessageId() == null
                 ? null : messageMapper.selectById(run.getUserMessageId());
         AiAgentMessage finalMessage = messageMapper.selectFinalByRun(run.getId());
@@ -101,11 +102,14 @@ public class AgentResearchQueryService {
         JsonNode result = parseJson(run.getResultJson(), true);
         JsonNode structuredResult = result.path("structuredResult").isObject()
                 ? result.path("structuredResult") : null;
+        JsonNode taskContext = parseOptionalJson(session.getTaskContextJson());
+        String taskType = taskType(run, taskContext, structuredResult);
         return new AgentRunStatusVO(
                 run.getId(), run.getSessionId(), run.getStatus(),
                 retryContent(run, userMessage),
                 run.getCurrentStage() == null ? run.getStatus() : run.getCurrentStage(),
                 safe(run.getStepCount()), safe(run.getToolCallCount()), run.getVisibleProgress(),
+                researchPlan(taskType),
                 finalMessage == null ? null : toMessage(finalMessage),
                 finalMessage == null ? objectMapper.createArrayNode()
                         : parseJson(finalMessage.getCitationsJson(), false),
@@ -114,8 +118,39 @@ public class AgentResearchQueryService {
                 run.getProvider(), run.getModelId(), run.getPromptVersion(), run.getDiagnosticCode(),
                 run.getFinishReason(), run.getProviderRequestId(), run.getLatencyMs(),
                 structuredResult,
-                run.getCreatedAt(), run.getCompletedAt()
+                analyticsSnapshot(result),
+                run.getCreatedAt(), run.getCompletedAt(),
+                taskType, session.getTaskContextHash(),
+                feedbackService.feedbackEligible(run, finalMessage),
+                run.getDeadlineAt()
         );
+    }
+
+    private String taskType(AiAnalysisRun run, JsonNode taskContext, JsonNode structuredResult) {
+        String taskType = taskContext != null && taskContext.path("taskType").isTextual()
+                ? taskContext.path("taskType").asText() : run.getRequestedIntent();
+        if (taskType == null || taskType.isBlank() || "auto".equals(taskType)) {
+            taskType = structuredResult != null && structuredResult.path("intent").isTextual()
+                    ? structuredResult.path("intent").asText() : "general_research";
+        }
+        return taskType;
+    }
+
+    private List<String> researchPlan(String taskType) {
+        return switch (taskType) {
+            case "case_analysis" -> List.of(
+                    "理解案例分析目标与适用条件", "检索并核对目标案例", "核验关键事实与来源", "整理可借鉴做法、风险与行动");
+            case "case_comparison" -> List.of(
+                    "理解比较对象与统一维度", "检索并核对各案例", "比较差异、共性与证据强弱", "整理适用场景、风险与行动");
+            case "technology_assessment" -> List.of(
+                    "理解技术目标与约束", "检索相关案例、政策与来源", "评估成熟度、成本、依赖与替代路线", "整理风险与实施建议");
+            case "policy_lookup" -> List.of(
+                    "理解研究目标与适用条件", "检索匹配政策", "核验政策来源与时效", "整理适配性、限制与申请路径");
+            case "source_verification" -> List.of(
+                    "理解需要核验的结论或来源", "读取来源身份与发布时间", "检查链接、证据链与交叉证据", "整理可信度、冲突与限制");
+            default -> List.of(
+                    "理解研究目标与边界", "检索匹配案例与政策", "核验关键来源与证据覆盖", "整理事实、推断、建议与风险");
+        };
     }
 
     private String retryContent(AiAnalysisRun run, AiAgentMessage userMessage) {
@@ -133,13 +168,20 @@ public class AgentResearchQueryService {
         );
     }
 
-    private AgentSessionVO toSession(AiAgentSession session) {
+    private AgentSessionVO toSession(AiAgentSession session, boolean includeTaskContext) {
+        JsonNode taskContext = parseOptionalJson(session.getTaskContextJson());
+        String taskType = taskContext != null && taskContext.path("taskType").isTextual()
+                ? taskContext.path("taskType").asText() : null;
         return new AgentSessionVO(
                 session.getId(), session.getTitle(), session.getTitleMode(), session.getStatus(),
                 parseJson(session.getProfileJson(), true), session.getPinnedAt() != null,
                 session.getArchivedAt(), session.getDeletedAt(), session.getPurgeAfter(),
                 session.getActiveRunStatus(),
-                session.getCreatedAt(), session.getUpdatedAt(), session.getLastMessageAt()
+                session.getCreatedAt(), session.getUpdatedAt(), session.getLastMessageAt(),
+                includeTaskContext ? taskContext : null,
+                includeTaskContext ? session.getTaskContextVersion() : null,
+                includeTaskContext ? session.getTaskContextHash() : null,
+                taskType
         );
     }
 
@@ -147,8 +189,27 @@ public class AgentResearchQueryService {
         return new AgentMessageVO(
                 message.getId(), message.getRole(), message.getContent(), message.getStatus(),
                 message.getSequenceNo(), message.getRunId(), parseJson(message.getCitationsJson(), false),
+                messageStructuredResult(message),
+                messageAnalyticsSnapshot(message),
                 message.getCreatedAt()
         );
+    }
+
+    private JsonNode messageStructuredResult(AiAgentMessage message) {
+        if (!"assistant".equals(message.getRole()) || !"completed".equals(message.getStatus())) return null;
+        JsonNode result = parseOptionalJson(message.getStructuredResultJson());
+        return result != null && result.isObject() ? result : null;
+    }
+
+    private JsonNode messageAnalyticsSnapshot(AiAgentMessage message) {
+        if (!"assistant".equals(message.getRole()) || !"completed".equals(message.getStatus())) return null;
+        JsonNode snapshot = parseOptionalJson(message.getAnalyticsSnapshotJson());
+        return snapshot != null && snapshot.isObject() ? snapshot : null;
+    }
+
+    private JsonNode analyticsSnapshot(JsonNode result) {
+        JsonNode snapshot = result == null ? null : result.path("analyticsSnapshot");
+        return snapshot != null && snapshot.isObject() ? snapshot : null;
     }
 
     private String validateAndWriteProfile(JsonNode profile) {
@@ -172,6 +233,10 @@ public class AgentResearchQueryService {
         } catch (JsonProcessingException exception) {
             return objectFallback ? objectMapper.createObjectNode() : objectMapper.createArrayNode();
         }
+    }
+
+    private JsonNode parseOptionalJson(String value) {
+        return value == null ? null : parseJson(value, true);
     }
 
     private int safe(Integer value) {

@@ -137,7 +137,11 @@
 
       <div class="prisma-feature-grid">
         <article class="prisma-feature-card prisma-feature-card--video scroll-reveal" style="--feature-index: 0">
-          <div class="prisma-feature-video-loop" aria-hidden="true">
+          <div
+            class="prisma-feature-video-loop"
+            :style="{ '--feature-video-crossfade-duration': `${featureVideoFadeDuration}ms` }"
+            aria-hidden="true"
+          >
             <video
               ref="featureVideoPrimary"
               class="prisma-feature-video-layer is-active"
@@ -336,8 +340,8 @@ let featureVideoTransitionTimer
 let activeFeatureVideoIndex = 0
 let featureVideoTransitioning = false
 
-const featureVideoFadeDuration = 1400
-const featureVideoFadeLead = 1.7
+const featureVideoFadeDuration = 2200
+const featureVideoFadeLead = 2.6
 
 const aboutSegments = [
   { text: 'SoloFirm，', className: 'prisma-about-normal' },
@@ -485,6 +489,8 @@ function getFeatureVideoPlayers() {
 function resetFeatureVideoLayer(video, index) {
   video.pause()
   video.loop = false
+  video.muted = true
+  video.preload = 'auto'
   video.classList.remove('is-active', 'is-incoming', 'is-outgoing')
   if (index === 0) {
     video.classList.add('is-active')
@@ -524,6 +530,7 @@ async function beginFeatureVideoCrossfade() {
 
   featureVideoTransitioning = true
   window.clearTimeout(featureVideoTransitionTimer)
+  incoming.pause()
   incoming.classList.remove('is-active', 'is-outgoing')
   incoming.classList.add('is-incoming')
 
@@ -538,14 +545,15 @@ async function beginFeatureVideoCrossfade() {
     return
   }
 
+  // Force the transparent starting state to paint before both layers fade in opposite directions.
+  void incoming.offsetWidth
   outgoing.classList.add('is-outgoing')
-  window.requestAnimationFrame(() => {
-    window.requestAnimationFrame(() => incoming.classList.add('is-active'))
-  })
+  outgoing.classList.remove('is-active')
+  incoming.classList.add('is-active')
 
   featureVideoTransitionTimer = window.setTimeout(() => {
     finishFeatureVideoCrossfade(outgoing, incoming, incomingIndex)
-  }, featureVideoFadeDuration + 80)
+  }, featureVideoFadeDuration + 100)
 }
 
 function monitorFeatureVideoLoop() {
@@ -576,6 +584,13 @@ function setupFeatureVideoLoop() {
   players.forEach(resetFeatureVideoLayer)
   activeFeatureVideoIndex = 0
   featureVideoTransitioning = false
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    players[0].loop = true
+    players[0].play().catch(() => {})
+    return
+  }
+
   players[0].play().catch(() => {})
   featureVideoFrame = window.requestAnimationFrame(monitorFeatureVideoLoop)
 }

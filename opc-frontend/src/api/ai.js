@@ -32,6 +32,10 @@ export function startResearchSession(payload) {
   return request.post('/ai/research/sessions/start', payload, { timeout: 30000 })
 }
 
+export function startResearchFromAnalytics(payload) {
+  return request.post('/ai/research/from-analytics', payload, { timeout: 30000 })
+}
+
 export function getResearchSessions() {
   return request.get('/ai/research/sessions')
 }
@@ -84,6 +88,18 @@ export function getResearchUsage() {
   return request.get('/ai/research/usage')
 }
 
+export function getResearchPreferences() {
+  return request.get('/ai/research/preferences')
+}
+
+export function updateResearchPreferences(payload) {
+  return request.patch('/ai/research/preferences', payload)
+}
+
+export function clearResearchPreferences() {
+  return request.delete('/ai/research/preferences')
+}
+
 export function sendResearchMessage(sessionId, payload) {
   return request.post(`/ai/research/sessions/${sessionId}/messages`, payload, { timeout: 30000 })
 }
@@ -92,8 +108,53 @@ export function getResearchRun(runId) {
   return request.get(`/ai/research/runs/${runId}`)
 }
 
+export function getResearchBranchMaterial(runId) {
+  return request.get(`/ai/research/runs/${runId}/branch-material`)
+}
+
 export function getResearchRunEvidence(runId) {
   return request.get(`/ai/research/runs/${runId}/evidence`)
+}
+
+export function getResearchRunFeedback(runId) {
+  return request.get(`/ai/research/runs/${runId}/feedback`)
+}
+
+export function updateResearchRunFeedback(runId, payload) {
+  return request.put(`/ai/research/runs/${runId}/feedback`, payload)
+}
+
+export function getResearchReports({ scope = 'active', q = '', cursor, limit = 30 } = {}) {
+  return request.get('/ai/research/reports/page', {
+    params: { scope, q, cursor: cursor || undefined, limit },
+  })
+}
+
+export function saveResearchReport(sessionId, payload) {
+  return request.post(`/ai/research/sessions/${sessionId}/reports`, payload)
+}
+
+export function updateResearchReport(reportId, payload) {
+  return request.patch(`/ai/research/reports/${reportId}`, payload)
+}
+
+export function trashResearchReport(reportId, payload) {
+  return request.post(`/ai/research/reports/${reportId}/trash`, payload)
+}
+
+export function restoreResearchReport(reportId, payload) {
+  return request.post(`/ai/research/reports/${reportId}/restore`, payload)
+}
+
+export function permanentlyDeleteResearchReport(reportId, payload) {
+  return request.delete(`/ai/research/reports/${reportId}/permanent`, { data: payload })
+}
+
+export function exportResearchReport(reportId, format = 'markdown') {
+  return request.get(`/ai/research/reports/${reportId}/export`, {
+    params: { format },
+    responseType: 'blob',
+  })
 }
 
 export function cancelResearchRun(runId) {
@@ -106,4 +167,8 @@ export function getAdminAgentRuns(limit = 50) {
 
 export function getAdminAgentRun(runId) {
   return request.get(`/admin/ai-agent-runs/${runId}`)
+}
+
+export function getAdminResearchQuality(params = {}) {
+  return request.get('/admin/ai/research/quality', { params })
 }

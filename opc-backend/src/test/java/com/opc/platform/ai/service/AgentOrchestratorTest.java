@@ -7,6 +7,7 @@ import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
 import com.opc.platform.ai.mapper.AgentEvidenceToolMapper;
 import com.opc.platform.ai.provider.AgentRuntimeConfig;
 import com.opc.platform.ai.provider.AiProviderResponse;
+import com.opc.platform.ai.contract.AgentResearchContract;
 import com.opc.platform.ai.tool.AgentTool;
 import com.opc.platform.ai.tool.AgentToolContext;
 import com.opc.platform.ai.tool.AgentToolRegistry;
@@ -19,6 +20,8 @@ import com.opc.platform.ai.tool.SearchCasesArguments;
 import com.opc.platform.ai.tool.SearchCasesTool;
 import com.opc.platform.ai.tool.SearchPoliciesTool;
 import com.opc.platform.ai.tool.SearchPoliciesArguments;
+import com.opc.platform.ai.tool.PhaseThreeEvidenceBundle;
+import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.region.mapper.RegionMapper;
 import com.opc.platform.source.mapper.SourceMapper;
 import jakarta.validation.Validation;
@@ -38,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AgentOrchestratorTest {
@@ -127,18 +131,31 @@ class AgentOrchestratorTest {
                             10, 5, 15, 10, "continue", "stop");
                 }
                 case 3 -> new AiProviderResponse("""
-                        {"action":"final","answer":"The verified cases support a comparison.",
+                        {"action":"final","answer":"The first final response was truncated."}
+                        """, 10, 5, 15, 10, "final-truncated", "length");
+                case 4 -> {
+                    assertTrue(request.messages().stream().anyMatch(message ->
+                            message.content().contains("previous final JSON was truncated")));
+                    assertFalse(request.responseSchema().contains("caseInsights"));
+                    yield new AiProviderResponse("""
+                        {"action":"final","intent":"case_comparison",
+                         "directAnswer":"The verified cases support a comparison.",
+                         "keyFindings":[{"text":"The cases use distinct verified approaches.","evidenceType":"fact","sourceIds":[801,802]}],
+                         "recommendations":[{"priority":"high","reason":"Use the verified comparison.","nextAction":"Choose the closer operating model.","sourceIds":[801,802]}],
                          "citations":[{"sourceId":801,"claim":"First case"},{"sourceId":802,"claim":"Second case"}],
-                         "confidence":0.8}
+                         "confidence":0.8,
+                         "evidenceCoverage":{"status":"sufficient","caseCount":2,"policyCount":0,"sourceCount":2,"limitations":[]}}
                         """, 10, 5, 15, 10, "final", "stop");
+                }
                 default -> throw new AssertionError("unexpected model round");
             };
         }, progress -> { });
 
         assertEquals("completed", outcome.status());
-        assertEquals(3, outcome.modelRounds());
+        assertEquals(4, outcome.modelRounds());
         assertEquals(2, outcome.toolCallCount());
         assertEquals(returnedCaseIds.get(), compared.get().getCaseIds());
+        assertTrue(outcome.structuredResult().path("caseInsights").isArray());
     }
 
     @Test
@@ -214,6 +231,170 @@ class AgentOrchestratorTest {
         assertEquals(2, outcome.modelRounds());
         assertEquals(2, outcome.toolCallCount());
         assertEquals(returnedSourceId.get(), loaded.get().getSourceId());
+    }
+
+    @Test
+    void sourceVerificationFallsBackToPolicyEvidenceWhenInitialCaseSearchIsEmpty() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AiAgentToolCallMapper callMapper = guardedCallMapper();
+        AtomicReference<GetSourceArguments> loaded = new AtomicReference<>();
+        AgentTool<SearchCasesArguments> cases = new AgentTool<>() {
+            public String name() { return "search_cases"; }
+            public String description() { return "search verified cases"; }
+            public Class<SearchCasesArguments> argumentType() { return SearchCasesArguments.class; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}";
+            }
+            public AgentToolResult execute(AgentToolContext context, SearchCasesArguments arguments) {
+                return new AgentToolResult(objectMapper.createObjectNode().putArray("items"),
+                        0, "a".repeat(64), Set.of(), Set.of());
+            }
+        };
+        AgentTool<SearchPoliciesArguments> policies = new AgentTool<>() {
+            public String name() { return "search_policies"; }
+            public String description() { return "search verified policies"; }
+            public Class<SearchPoliciesArguments> argumentType() { return SearchPoliciesArguments.class; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}";
+            }
+            public AgentToolResult execute(AgentToolContext context, SearchPoliciesArguments arguments) {
+                var output = objectMapper.createObjectNode();
+                output.putArray("items").addObject()
+                        .put("policyId", 701L).put("sourceId", 901L).put("title", "Fallback policy");
+                return new AgentToolResult(output, 1, "b".repeat(64), Set.of(901L), Set.of());
+            }
+        };
+        AgentTool<GetSourceArguments> source = new AgentTool<>() {
+            public String name() { return "get_source"; }
+            public String description() { return "load an authorized source"; }
+            public Class<GetSourceArguments> argumentType() { return GetSourceArguments.class; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"sourceId\"],"
+                        + "\"properties\":{\"sourceId\":{\"type\":\"integer\"}}}";
+            }
+            public AgentToolResult execute(AgentToolContext context, GetSourceArguments arguments) {
+                loaded.set(arguments);
+                assertTrue(context.allowedSourceIds().contains(arguments.getSourceId()));
+                return new AgentToolResult(objectMapper.valueToTree(java.util.Map.of(
+                        "sourceId", arguments.getSourceId(), "title", "Verified fallback source")),
+                        1, "c".repeat(64), Set.of(arguments.getSourceId()), Set.of());
+            }
+        };
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper,
+                new AgentToolRegistry(List.of(cases, policies, source), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), callMapper)
+        );
+        AtomicInteger round = new AtomicInteger();
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(new AgentOrchestratorInput(
+                91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                "Verify the primary source", List.of(), config()), request -> switch (round.incrementAndGet()) {
+            case 1 -> new AiProviderResponse("""
+                    {"action":"plan","intent":"source_verification","researchQuestions":["verify source"],
+                     "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                     "comparisonDimensions":[],"outputSections":["directAnswer","citations"]}
+                    """, 10, 5, 15, 10, "plan", "stop");
+            case 2 -> new AiProviderResponse("""
+                    {"action":"final","answer":"The fallback policy source was verified.",
+                     "citations":[{"sourceId":901,"claim":"Verified fallback source"}],"confidence":0.8}
+                    """, 10, 5, 15, 10, "final", "stop");
+            default -> throw new AssertionError("unexpected model round");
+        }, progress -> { });
+
+        assertEquals("completed", outcome.status());
+        assertEquals(3, outcome.toolCallCount());
+        assertEquals(901L, loaded.get().getSourceId());
+    }
+
+    @Test
+    void deadlineFallbackUsesOnlyVerifiedEvidenceWithoutAnotherProviderResponse() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> cases = fixtureTool(
+                "search_cases", SearchCasesArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}",
+                objectMapper, 101L, 11L
+        );
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper, new AgentToolRegistry(List.of(cases), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper()));
+        AtomicInteger requests = new AtomicInteger();
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                        "Verify the case", List.of(), null,
+                        new AgentRuntimeConfig(true, 4, 4, 12000, 12,
+                                Duration.ofSeconds(120), "json_plan"),
+                        "case_analysis"),
+                request -> {
+                    if (requests.incrementAndGet() == 1) {
+                        return new AiProviderResponse("""
+                                {"action":"plan","intent":"case_analysis","researchQuestions":["case"],
+                                 "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                                 "comparisonDimensions":[],"outputSections":["directAnswer","keyFindings","citations"]}
+                                """, 10, 5, 15, 10, "plan", "stop");
+                    }
+                    throw new AgentOrchestratorException(
+                            ErrorCode.UPSTREAM_ERROR, AgentResearchContract.AGENT_DEADLINE_FALLBACK,
+                            "The lifecycle retained time for final settlement");
+                },
+                progress -> { }
+        );
+
+        assertEquals("completed", outcome.status());
+        assertEquals(1, outcome.modelRounds());
+        assertEquals(1, outcome.toolCallCount());
+        assertEquals(2, requests.get());
+        assertEquals("stop", outcome.finishReason());
+        assertEquals(AgentResearchContract.AGENT_DEADLINE_FALLBACK, outcome.diagnosticCode());
+        assertEquals(Set.of(101L), outcome.citations().stream()
+                .map(AgentCitation::sourceId).collect(java.util.stream.Collectors.toSet()));
+        assertFalse(outcome.answer().contains("The lifecycle retained time"));
+        assertEquals(AgentResearchContract.AGENT_DEADLINE_FALLBACK,
+                outcome.structuredResult().path("diagnosticCode").asText());
+    }
+
+    @Test
+    void sourceVerificationDeadlineFallbackWithoutSourceVerificationIsEvidenceInsufficient() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> cases = fixtureTool(
+                "search_cases", SearchCasesArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}",
+                objectMapper, 101L, 11L
+        );
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper, new AgentToolRegistry(List.of(cases), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper()));
+        AtomicInteger requests = new AtomicInteger();
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                        "Verify the source", List.of(), null,
+                        new AgentRuntimeConfig(true, 4, 4, 12000, 12,
+                                Duration.ofSeconds(120), "native"),
+                        "source_verification"),
+                request -> {
+                    if (requests.incrementAndGet() == 1) {
+                        return new AiProviderResponse(
+                                "", 10, 5, 15, 10, "source-search", "tool_calls",
+                                List.of(new com.opc.platform.ai.provider.AiProviderToolCall(
+                                        "case-search", "search_cases", "{}")));
+                    }
+                    throw new AgentOrchestratorException(
+                            ErrorCode.UPSTREAM_ERROR, AgentResearchContract.AGENT_DEADLINE_FALLBACK,
+                            "The lifecycle retained time for final settlement");
+                },
+                progress -> { }
+        );
+
+        assertEquals("evidence_insufficient", outcome.status());
+        assertEquals(1, outcome.toolCallCount());
+        assertTrue(outcome.citations().isEmpty());
+        assertTrue(outcome.structuredResult().path("keyFindings").isEmpty());
+        assertFalse(outcome.answer().contains("101"));
+        assertEquals(AgentResearchContract.AGENT_DEADLINE_FALLBACK, outcome.diagnosticCode());
     }
 
     @Test
@@ -948,10 +1129,29 @@ class AgentOrchestratorTest {
                 "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"scope\":{\"type\":\"string\"}}}",
                 objectMapper, 2L, null
         );
+        PhaseThreeEvidenceBundle evidenceBundle = new PhaseThreeEvidenceBundle(
+                List.of(new PhaseThreeEvidenceBundle.EntityEvidence(
+                        11L, 1L, "sha256:" + "a".repeat(64), "published_verified")),
+                List.of(new PhaseThreeEvidenceBundle.EntityEvidence(
+                        21L, 1L, "sha256:" + "b".repeat(64), "published_verified")),
+                List.of(
+                        new PhaseThreeEvidenceBundle.SourceEvidence(
+                                1L, "来源 1", "测试发布者", "https://example.invalid/source/1",
+                                1L, "sha256:" + "c".repeat(64), "published_verified"),
+                        new PhaseThreeEvidenceBundle.SourceEvidence(
+                                2L, "来源 2", "测试发布者", "https://example.invalid/source/2",
+                                1L, "sha256:" + "d".repeat(64), "published_verified")
+                ),
+                List.of(new PhaseThreeEvidenceBundle.CaseSourceLink(11L, 1L)),
+                List.of(new PhaseThreeEvidenceBundle.PolicySourceLink(21L, 2L))
+        );
+        PhaseThreeEvidenceResolver evidenceResolver = mock(PhaseThreeEvidenceResolver.class);
+        when(evidenceResolver.resolve(any(), any(), any(), any())).thenReturn(evidenceBundle);
         AgentOrchestrator orchestrator = new AgentOrchestrator(
                 objectMapper,
                 new AgentToolRegistry(List.of(cases, policies), objectMapper,
-                        Validation.buildDefaultValidatorFactory().getValidator(), callMapper)
+                        Validation.buildDefaultValidatorFactory().getValidator(), callMapper),
+                evidenceResolver
         );
         ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
                 new AiProviderResponse("""
@@ -972,8 +1172,8 @@ class AgentOrchestratorTest {
                          "policyInsights":[{"text":"湖北存在通用创业支持政策。","evidenceType":"fact","sourceIds":[2]}],
                          "comparison":[],
                          "recommendations":[{"priority":"high","reason":"当前预算有限且处于验证阶段。","nextAction":"两周内访谈五位潜在客户。","sourceIds":[2]}],
-                         "risks":["政策适用条件仍需逐条核验"],"assumptions":["团队以一人公司形式起步"],
-                         "uncertainties":["客户付费意愿尚未验证"],"nextQuestions":["首批客户来自哪个细分行业？"],
+                         "risks":["政策适用条件仍需逐条核验"],"assumptions":[],
+                         "uncertainties":[],"nextQuestions":["首批客户来自哪个细分行业？"],
                          "citations":[{"sourceId":1,"claim":"武汉案例支持小预算验证路径。"},{"sourceId":2,"claim":"湖北政策支持创业行动。"}],
                          "confidence":0.78,
                          "evidenceCoverage":{"status":"partial","caseCount":99,"policyCount":88,"sourceCount":77,"limitations":["模型声明仅供参考"]}}
@@ -986,7 +1186,8 @@ class AgentOrchestratorTest {
                 new AgentOrchestratorInput(
                         91L, 42L,
                         "{\"ventureType\":\"solo_company\",\"regionId\":2,\"industryTagId\":7,\"industry\":\"AI\",\"stage\":\"validation\",\"budgetRange\":\"under_100k\",\"goal\":\"validate demand\",\"resources\":\"prototype\"}",
-                        "研究湖北人工智能一人公司的案例、政策和下一步行动", List.of(), config()
+                        "研究湖北人工智能一人公司的案例、政策和下一步行动", List.of(), null, config(), "auto",
+                        "{\"version\":\"phase3-task-v1\",\"taskType\":\"general_research\",\"outputDepth\":\"standard\"}"
                 ),
                 request -> {
                     modelCalls.incrementAndGet();
@@ -1004,25 +1205,52 @@ class AgentOrchestratorTest {
         assertEquals(2L, executedCaseContext.get().primaryRegionId());
         assertEquals(7L, executedCaseContext.get().primaryIndustryTagId());
         assertEquals(2, outcome.citations().size());
-        assertEquals("mixed_research", outcome.structuredResult().path("intent").asText());
+        Set<String> topLevelFields = new java.util.HashSet<>();
+        outcome.structuredResult().fieldNames().forEachRemaining(topLevelFields::add);
+        assertEquals(Set.of(
+                "schemaVersion", "taskType", "directAnswer", "keyFindings", "recommendations",
+                "risks", "assumptions", "uncertainties", "nextQuestions", "citations",
+                "taskSelectedEvidence", "authorizedEvidence", "evidenceCoverage", "confidence",
+                "evidenceVersion", "dataVersion", "generatedAt", "taskResult"
+        ), topLevelFields);
         assertEquals("fact", outcome.structuredResult().path("keyFindings").get(0)
-                .path("evidenceType").asText());
+                .path("kind").asText());
         assertEquals(1, outcome.structuredResult().path("keyFindings").get(0)
-                .path("sourceIds").size());
-        assertEquals(1, outcome.structuredResult().path("caseInsights").get(0)
                 .path("sourceIds").size());
         assertEquals(1, outcome.structuredResult().path("recommendations").get(0)
                 .path("sourceIds").size());
         assertEquals(2, outcome.structuredResult().path("citations").size());
-        assertEquals("sufficient", outcome.structuredResult().path("evidenceCoverage").path("status").asText());
-        assertEquals(1, outcome.structuredResult().path("evidenceCoverage").path("caseCount").asInt());
-        assertEquals(1, outcome.structuredResult().path("evidenceCoverage").path("policyCount").asInt());
-        assertEquals(2, outcome.structuredResult().path("evidenceCoverage").path("sourceCount").asInt());
-        assertEquals("EVIDENCE_COVERAGE_MISMATCH", outcome.structuredResult()
-                .path("evidenceCoverage").path("diagnosticCode").asText());
+        assertEquals("phase3-structured-result-v1", outcome.structuredResult()
+                .path("schemaVersion").asText());
+        assertEquals("general_research", outcome.structuredResult().path("taskType").asText());
+        assertEquals("high", outcome.structuredResult().path("confidence").asText());
+        assertTrue(outcome.structuredResult().path("dataVersion").isNull());
+        assertEquals("general_research", outcome.structuredResult().path("taskResult").path("type").asText());
+        assertTrue(outcome.structuredResult().path("taskSelectedEvidence").path("caseIds").isEmpty());
+        assertTrue(outcome.structuredResult().path("taskSelectedEvidence").path("policyIds").isEmpty());
+        assertTrue(outcome.structuredResult().path("taskSelectedEvidence").path("sourceIds").isEmpty());
+        assertTrue(outcome.structuredResult().path("evidenceVersion").asText()
+                .startsWith("sha256:"));
+        assertEquals(2, outcome.structuredResult().path("evidenceCoverage")
+                .path("factClaimCount").asInt());
+        assertEquals(2, outcome.structuredResult().path("evidenceCoverage")
+                .path("citedFactClaimCount").asInt());
+        assertEquals(0, outcome.structuredResult().path("evidenceCoverage")
+                .path("missingEvidenceFactCount").asInt());
+        assertEquals(1D, outcome.structuredResult().path("evidenceCoverage").path("ratio").asDouble());
+        assertEquals(1, outcome.structuredResult().path("authorizedEvidence").path("caseIds").size());
+        assertEquals(1, outcome.structuredResult().path("authorizedEvidence").path("policyIds").size());
+        assertEquals(2, outcome.structuredResult().path("authorizedEvidence").path("sourceIds").size());
         assertTrue(outcome.structuredResult().path("citations").get(0).path("sourceId").isIntegralNumber());
+        assertEquals("来源 1", outcome.structuredResult().path("citations").get(0).path("title").asText());
+        assertEquals("测试发布者", outcome.structuredResult().path("citations").get(0).path("publisher").asText());
+        assertEquals("https://example.invalid/source/1",
+                outcome.structuredResult().path("citations").get(0).path("url").asText());
+        assertEquals(1, outcome.structuredResult().path("citations").get(0).path("evidenceRevision").asLong());
+        assertEquals("current", outcome.structuredResult().path("citations").get(0).path("availability").asText());
         assertTrue(outcome.answer().contains("高优先级"));
         assertEquals("agent-research-v2", requests.get(0).promptVersion());
+        assertTrue(requests.get(0).messages().get(1).content().contains("\"taskType\":\"general_research\""));
         var planningSchema = objectMapper.readTree(requests.get(0).responseSchema());
         assertEquals(1, planningSchema.path("oneOf").size());
         assertEquals("plan", planningSchema.path("oneOf").get(0)
@@ -1518,6 +1746,594 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    void invalidInitialJsonIsDiscardedBeforeCompactPlanningRecovery() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> cases = fixtureTool(
+                "search_cases", SearchCasesArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}",
+                objectMapper, 1L, 701L
+        );
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper,
+                new AgentToolRegistry(List.of(cases), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper())
+        );
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("planning prose outside json", 10, 5, 15, 10,
+                        "invalid-json", "stop"),
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"case_analysis","researchQuestions":["case"],
+                         "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse(
+                        "{\"action\":\"final\",\"answer\":\"Case found.\",\"citations\":[{\"sourceId\":1,\"claim\":\"Case\"}],\"confidence\":0.7}",
+                        10, 5, 15, 10, "final", "stop")
+        ));
+        List<com.opc.platform.ai.provider.AiProviderRequest> requests = new ArrayList<>();
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                input(new AgentRuntimeConfig(true, 5, 4, 24000, 12, Duration.ofSeconds(120), "json_plan")),
+                request -> {
+                    requests.add(request);
+                    return responses.removeFirst();
+                }, progress -> { }
+        );
+
+        assertEquals("completed", outcome.status());
+        assertEquals(3, outcome.modelRounds());
+        assertTrue(requests.get(1).systemPrompt().contains("compact planning recovery"));
+        assertTrue(requests.get(1).messages().get(requests.get(1).messages().size() - 1).content()
+                .contains("INVALID_JSON"));
+        assertFalse(requests.get(1).messages().stream().anyMatch(message ->
+                message.content() != null && message.content().contains("planning prose outside json")));
+    }
+
+    @Test
+    void repeatedPlanningTruncationUsesBoundedServerPlanWithoutAnotherProviderRequest() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper,
+                registryWithComparisonEvidence(objectMapper));
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("discarded planning text", 100, 3200, 3300, 10,
+                        "plan-truncated-1", "length"),
+                new AiProviderResponse("discarded compact planning text", 100, 3200, 3300, 10,
+                        "plan-truncated-2", "length"),
+                new AiProviderResponse("discarded final planning text", 100, 3200, 3300, 10,
+                        "plan-truncated-3", "length"),
+                new AiProviderResponse("""
+                        {"action":"final","intent":"case_comparison","directAnswer":"Verified comparison.",
+                         "keyFindings":[],"caseInsights":[],"policyInsights":[],"comparison":[],
+                         "recommendations":[],"risks":[],"assumptions":[],"uncertainties":[],
+                         "nextQuestions":[],"citations":[{"sourceId":101,"claim":"Verified case evidence."}],
+                         "confidence":0.7,"evidenceCoverage":{"status":"sufficient","caseCount":2,
+                         "policyCount":0,"sourceCount":2,"limitations":[]}}
+                        """, 100, 300, 400, 10, "final", "stop")
+        ));
+        List<com.opc.platform.ai.provider.AiProviderRequest> requests = new ArrayList<>();
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                        "Compare two verified cases", List.of(), null,
+                        new AgentRuntimeConfig(true, 5, 6, 28000, 12,
+                                Duration.ofSeconds(120), "json_plan"),
+                        "case_comparison"),
+                request -> {
+                    requests.add(request);
+                    return responses.removeFirst();
+                },
+                progress -> { }
+        );
+
+        assertEquals("completed", outcome.status());
+        assertEquals(AgentResearchContract.PLANNING_RESPONSE_TRUNCATED_FALLBACK,
+                outcome.diagnosticCode());
+        assertEquals(4, requests.size());
+        assertTrue(responses.isEmpty());
+        assertFalse(outcome.answer().contains("discarded"));
+        assertTrue(outcome.citations().stream().allMatch(citation ->
+                Set.of(101L, 102L).contains(citation.sourceId())));
+    }
+
+    @Test
+    void repeatedFinalTruncationReturnsServerBoundedFallbackWithLegalCitations() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchPoliciesArguments> policies = fixtureTool(
+                "search_policies", SearchPoliciesArguments.class,
+                """
+                        {"type":"object","additionalProperties":false,"properties":{}}
+                        """,
+                objectMapper, 101L, null
+        );
+        AtomicInteger caseCall = new AtomicInteger();
+        AgentTool<SearchCasesArguments> cases = new AgentTool<>() {
+            public String name() { return "search_cases"; }
+            public String description() { return "fixture search_cases"; }
+            public Class<SearchCasesArguments> argumentType() { return SearchCasesArguments.class; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}";
+            }
+            public AgentToolResult execute(AgentToolContext context, SearchCasesArguments arguments) {
+                long caseId = caseCall.incrementAndGet() == 1 ? 701L : 702L;
+                var item = objectMapper.createObjectNode()
+                        .put("caseId", caseId).put("sourceId", 201L).put("title", "search_cases");
+                var output = objectMapper.createObjectNode();
+                output.putArray("items").add(item);
+                return new AgentToolResult(
+                        output, 1, "b".repeat(64), Set.of(201L), Set.of(caseId));
+            }
+        };
+        AgentTool<CompareCasesArguments> compare = new AgentTool<>() {
+            public String name() { return "compare_cases"; }
+            public String description() { return "fixture compare_cases"; }
+            public Class<CompareCasesArguments> argumentType() { return CompareCasesArguments.class; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,"
+                        + "\"required\":[\"caseIds\"],\"properties\":{"
+                        + "\"caseIds\":{\"type\":\"array\"},\"dimensions\":{\"type\":\"array\"}}}";
+            }
+            public AgentToolResult execute(AgentToolContext context, CompareCasesArguments arguments) {
+                var output = objectMapper.createObjectNode();
+                var items = output.putArray("cases");
+                arguments.getCaseIds().forEach(caseId ->
+                        items.addObject().put("caseId", caseId).put("sourceId", 201L));
+                return new AgentToolResult(
+                        output, arguments.getCaseIds().size(), "c".repeat(64),
+                        Set.of(201L), Set.copyOf(arguments.getCaseIds()));
+            }
+        };
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper,
+                new AgentToolRegistry(List.of(policies, cases, compare), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper())
+        );
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"policy_lookup","researchQuestions":["policy"],
+                         "toolRequests":[{"requestId":"pol1","toolName":"search_policies","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","keyFindings","recommendations","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("""
+                        {"action":"continue","toolRequests":[
+                          {"requestId":"pol2","toolName":"search_policies","arguments":{},"dependsOn":[]},
+                          {"requestId":"case1","toolName":"search_cases","arguments":{},"dependsOn":[]},
+                          {"requestId":"case2","toolName":"search_cases","arguments":{},"dependsOn":[]}
+                        ]}
+                        """, 10, 5, 15, 10, "continue", "stop"),
+                new AiProviderResponse("""
+                        {"action":"final","directAnswer":"truncated"}
+                        """,
+                        100, 3200, 3300, 10, "final-truncated", "length"),
+                new AiProviderResponse("""
+                        {"action":"final","directAnswer":"still truncated"}
+                        """,
+                        100, 3200, 3300, 10, "recovery-truncated", "length")
+        ));
+        List<com.opc.platform.ai.provider.AiProviderRequest> requests = new ArrayList<>();
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                        "Research local AI opportunities", List.of(), null,
+                        new AgentRuntimeConfig(true, 5, 6, 28000, 12,
+                                Duration.ofSeconds(120), "json_plan"),
+                        "case_comparison"),
+                request -> {
+                    requests.add(request);
+                    return responses.removeFirst();
+                },
+                progress -> { }
+        );
+
+        assertEquals("completed", outcome.status());
+        assertEquals(4, outcome.modelRounds());
+        assertEquals(4, outcome.toolCallCount());
+        assertEquals("length", outcome.finishReason());
+        assertEquals(4, requests.size());
+        assertTrue(responses.isEmpty());
+        assertEquals(AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK,
+                outcome.diagnosticCode());
+        assertFalse(outcome.citations().isEmpty());
+        assertEquals(Set.of(101L, 201L), outcome.citations().stream()
+                .map(AgentCitation::sourceId).collect(java.util.stream.Collectors.toSet()));
+        assertFalse(outcome.answer().contains("still truncated"));
+        assertTrue(outcome.answer().contains("模型最终合成连续截断"));
+        assertEquals("sufficient", outcome.structuredResult().path("evidenceCoverage").path("status").asText());
+        assertEquals(2, outcome.structuredResult().path("evidenceCoverage").path("sourceCount").asInt());
+        assertTrue(outcome.structuredResult().path("recommendations").isArray());
+    }
+
+    @Test
+    void invalidComparisonStructureReturnsServerBoundedFallbackWithLegalCitations() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper, registryWithComparisonEvidence(objectMapper));
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"case_comparison",
+                         "researchQuestions":["compare the verified cases"],
+                         "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":["businessModel"],
+                         "outputSections":["directAnswer","comparison","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("""
+                        {"action":"final","intent":"case_comparison","directAnswer":"discarded model text",
+                         "keyFindings":[],"caseInsights":[],"policyInsights":[],"comparison":[],
+                         "recommendations":[],"risks":[],"assumptions":[],"uncertainties":[],
+                         "nextQuestions":[],"citations":[],"confidence":0.5,
+                         "evidenceCoverage":{"status":"partial","caseCount":2,"policyCount":0,"sourceCount":2,"limitations":[]},
+                         "unknownField":"must be discarded"}
+                        """, 20, 10, 30, 10, "invalid-final", "stop")
+        ));
+        List<AiProviderResponse> consumed = new ArrayList<>();
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                        "Compare verified cases", List.of(), null,
+                        new AgentRuntimeConfig(true, 4, 6, 8000, 12,
+                                Duration.ofSeconds(120), "json_plan"),
+                        "case_comparison"),
+                request -> {
+                    AiProviderResponse response = responses.removeFirst();
+                    consumed.add(response);
+                    return response;
+                },
+                progress -> { }
+        );
+
+        assertEquals("completed", outcome.status());
+        assertEquals(2, consumed.size());
+        assertEquals(AgentResearchContract.FINAL_RESPONSE_INVALID_STRUCTURED_FALLBACK,
+                outcome.diagnosticCode());
+        assertEquals("stop", outcome.finishReason());
+        assertFalse(outcome.answer().contains("discarded model text"));
+        assertEquals(Set.of(101L, 102L), outcome.citations().stream()
+                .map(AgentCitation::sourceId).collect(java.util.stream.Collectors.toSet()));
+        assertTrue(outcome.structuredResult().path("keyFindings").isArray());
+    }
+
+    @Test
+    void invalidEvidenceCoverageReturnsServerBoundedFallbackWithLegalCitations() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper, registryWithComparisonEvidence(objectMapper));
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"case_analysis",
+                         "researchQuestions":["verify the case"],
+                         "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","keyFindings","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("""
+                        {"action":"final","intent":"case_analysis","directAnswer":"discarded coverage text",
+                         "keyFindings":[],"caseInsights":[],"policyInsights":[],"comparison":[],
+                         "recommendations":[],"risks":[],"assumptions":[],"uncertainties":[],
+                         "nextQuestions":[],"citations":[{"sourceId":101,"claim":"Verified case evidence."}],
+                         "confidence":0.5,
+                         "evidenceCoverage":{"status":"invalid","caseCount":1,"policyCount":0,"sourceCount":1,"limitations":[]}}
+                        """, 20, 10, 30, 10, "invalid-coverage", "stop")
+        ));
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                input(new AgentRuntimeConfig(true, 4, 6, 8000, 12,
+                        Duration.ofSeconds(120), "json_plan")),
+                request -> responses.removeFirst(),
+                progress -> { }
+        );
+
+        assertEquals("completed", outcome.status());
+        assertEquals(AgentResearchContract.FINAL_RESPONSE_INVALID_STRUCTURED_FALLBACK,
+                outcome.diagnosticCode());
+        assertEquals("stop", outcome.finishReason());
+        assertFalse(outcome.answer().contains("discarded coverage text"));
+        assertEquals(Set.of(101L, 102L), outcome.citations().stream()
+                .map(AgentCitation::sourceId).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    @Test
+    void malformedFinalJsonUsesServerBoundedFallbackWithoutAnotherModelRequest() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> cases = fixtureTool(
+                "search_cases", SearchCasesArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}",
+                objectMapper, 101L, 11L
+        );
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper, new AgentToolRegistry(List.of(cases), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper()));
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"case_analysis",
+                         "researchQuestions":["verify the case"],
+                         "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","keyFindings","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("{malformed-final-do-not-use", 20, 10, 30, 10,
+                        "malformed-final", "stop")
+        ));
+        AtomicInteger requests = new AtomicInteger();
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                        "Verify the case", List.of(), null,
+                        new AgentRuntimeConfig(true, 4, 6, 8000, 12,
+                                Duration.ofSeconds(120), "json_plan"),
+                        "case_analysis"),
+                request -> {
+                    requests.incrementAndGet();
+                    return responses.removeFirst();
+                },
+                progress -> { }
+        );
+
+        assertEquals("completed", outcome.status());
+        assertEquals(2, requests.get());
+        assertTrue(responses.isEmpty());
+        assertEquals(AgentResearchContract.FINAL_RESPONSE_INVALID_JSON_FALLBACK, outcome.diagnosticCode());
+        assertEquals("stop", outcome.finishReason());
+        assertEquals(Set.of(101L), outcome.citations().stream()
+                .map(AgentCitation::sourceId).collect(java.util.stream.Collectors.toSet()));
+        assertFalse(outcome.answer().contains("malformed-final-do-not-use"));
+    }
+
+    @Test
+    void repeatedFinalContractFailureFallsBackWithoutAThirdModelRequest() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> cases = fixtureTool(
+                "search_cases", SearchCasesArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}",
+                objectMapper, 101L, 11L
+        );
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper, new AgentToolRegistry(List.of(cases), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper()));
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"case_analysis",
+                         "researchQuestions":["verify the case"],
+                         "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","keyFindings","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                invalidFinalWithUncitedFact("first invalid"),
+                invalidFinalWithUncitedFact("second invalid")
+        ));
+        AtomicInteger requests = new AtomicInteger();
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                        "Verify the case", List.of(), null,
+                        new AgentRuntimeConfig(true, 5, 4, 12000, 12,
+                                Duration.ofSeconds(120), "json_plan"),
+                        "case_analysis"),
+                request -> {
+                    requests.incrementAndGet();
+                    return responses.removeFirst();
+                },
+                progress -> { }
+        );
+
+        assertEquals("completed", outcome.status());
+        assertEquals(3, requests.get());
+        assertTrue(responses.isEmpty());
+        assertEquals(AgentResearchContract.FINAL_RESPONSE_CONTRACT_FALLBACK,
+                outcome.diagnosticCode());
+        assertEquals(Set.of(101L), outcome.citations().stream()
+                .map(AgentCitation::sourceId).collect(java.util.stream.Collectors.toSet()));
+        assertFalse(outcome.answer().contains("second invalid"));
+    }
+
+    private AiProviderResponse invalidFinalWithUncitedFact(String text) {
+        return new AiProviderResponse("""
+                {"action":"final","intent":"case_analysis","directAnswer":"%s",
+                 "keyFindings":[{"text":"unsupported fact","evidenceType":"fact","sourceIds":[]}],
+                 "caseInsights":[],"policyInsights":[],"comparison":[],"recommendations":[],
+                 "risks":[],"assumptions":[],"uncertainties":[],"nextQuestions":[],"citations":[],
+                 "confidence":0.5,
+                 "evidenceCoverage":{"status":"partial","caseCount":1,"policyCount":0,"sourceCount":1,"limitations":[]}}
+                """.formatted(text), 20, 10, 30, 10, "invalid-" + text, "stop");
+    }
+
+    @Test
+    void repeatedFinalTruncationWithoutEvidenceReturnsInsufficientWithoutFacts() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper, registryWithSearch(objectMapper));
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"case_analysis","researchQuestions":["case"],
+                         "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","keyFindings","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("""
+                        {"action":"final","directAnswer":"truncated"}
+                        """, 100, 3200, 3300, 10, "final-truncated", "length"),
+                new AiProviderResponse("""
+                        {"action":"final","directAnswer":"still truncated"}
+                        """, 100, 3200, 3300, 10, "recovery-truncated", "length")
+        ));
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                input(new AgentRuntimeConfig(true, 3, 4, 12000, 12,
+                        Duration.ofSeconds(120), "json_plan")),
+                request -> responses.removeFirst(),
+                progress -> { }
+        );
+
+        assertEquals("evidence_insufficient", outcome.status());
+        assertEquals(3, outcome.modelRounds());
+        assertEquals(1, outcome.toolCallCount());
+        assertEquals("length", outcome.finishReason());
+        assertEquals(AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK,
+                outcome.diagnosticCode());
+        assertTrue(outcome.citations().isEmpty());
+        assertTrue(outcome.structuredResult().path("keyFindings").isEmpty());
+        assertEquals("insufficient", outcome.structuredResult().path("evidenceCoverage")
+                .path("status").asText());
+        assertFalse(outcome.answer().contains("still truncated"));
+    }
+
+    @Test
+    void finalTruncationOnLastAllowedRoundUsesBoundedFallbackWithoutRecoveryRequest() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> cases = fixtureTool(
+                "search_cases", SearchCasesArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}",
+                objectMapper, 101L, 11L
+        );
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper, new AgentToolRegistry(List.of(cases), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper()));
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"case_analysis","researchQuestions":["case"],
+                         "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","keyFindings","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("""
+                        {"action":"final","directAnswer":"truncated"}
+                        """, 100, 3200, 3300, 10, "final-truncated", "length")
+        ));
+        List<com.opc.platform.ai.provider.AiProviderRequest> requests = new ArrayList<>();
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                input(new AgentRuntimeConfig(true, 2, 4, 12000, 12,
+                        Duration.ofSeconds(120), "json_plan")),
+                request -> {
+                    requests.add(request);
+                    return responses.removeFirst();
+                },
+                progress -> { }
+        );
+
+        assertEquals("completed", outcome.status());
+        assertEquals(2, outcome.modelRounds());
+        assertEquals(2, requests.size());
+        assertTrue(responses.isEmpty());
+        assertEquals("length", outcome.finishReason());
+        assertEquals(AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK,
+                outcome.diagnosticCode());
+        assertFalse(outcome.answer().contains("truncated"));
+    }
+
+    @Test
+    void compatibilityFinalTruncationIncludesServerEvidenceVersionWithoutTaskContext() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> cases = fixtureTool(
+                "search_cases", SearchCasesArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}",
+                objectMapper, 101L, 11L
+        );
+        PhaseThreeEvidenceBundle evidenceBundle = new PhaseThreeEvidenceBundle(
+                List.of(new PhaseThreeEvidenceBundle.EntityEvidence(
+                        11L, 1L, "sha256:" + "a".repeat(64), "published_verified")),
+                List.of(),
+                List.of(new PhaseThreeEvidenceBundle.SourceEvidence(
+                        101L, "Source 101", "Publisher", "https://example.invalid/source/101",
+                        1L, "sha256:" + "b".repeat(64), "published_verified")),
+                List.of(new PhaseThreeEvidenceBundle.CaseSourceLink(11L, 101L)),
+                List.of()
+        );
+        PhaseThreeEvidenceResolver evidenceResolver = mock(PhaseThreeEvidenceResolver.class);
+        when(evidenceResolver.resolve(any(), any(), any(), any())).thenReturn(evidenceBundle);
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper,
+                new AgentToolRegistry(List.of(cases), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper()),
+                evidenceResolver
+        );
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"case_analysis","researchQuestions":["case"],
+                         "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","keyFindings","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("""
+                        {"action":"final","directAnswer":"truncated"}
+                        """, 100, 3200, 3300, 10, "final-truncated", "length")
+        ));
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                        "Verify the case", List.of(), null,
+                        new AgentRuntimeConfig(true, 2, 4, 12000, 12,
+                                Duration.ofSeconds(120), "json_plan"),
+                        "case_analysis"),
+                request -> responses.removeFirst(),
+                progress -> { }
+        );
+
+        assertEquals(AgentResearchContract.FINAL_RESPONSE_TRUNCATED_FALLBACK, outcome.diagnosticCode());
+        assertEquals("length", outcome.finishReason());
+        assertEquals(Set.of(101L), outcome.citations().stream()
+                .map(AgentCitation::sourceId).collect(java.util.stream.Collectors.toSet()));
+        assertTrue(outcome.structuredResult().path("evidenceVersion").asText().startsWith("sha256:"));
+        verify(evidenceResolver).resolve(any(), any(), any(), org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void compatibilityStructuredFinalIncludesServerEvidenceVersionWithoutTaskContext() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> cases = fixtureTool(
+                "search_cases", SearchCasesArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}",
+                objectMapper, 101L, 11L
+        );
+        PhaseThreeEvidenceBundle evidenceBundle = new PhaseThreeEvidenceBundle(
+                List.of(new PhaseThreeEvidenceBundle.EntityEvidence(
+                        11L, 1L, "sha256:" + "a".repeat(64), "published_verified")),
+                List.of(),
+                List.of(new PhaseThreeEvidenceBundle.SourceEvidence(
+                        101L, "Source 101", "Publisher", "https://example.invalid/source/101",
+                        1L, "sha256:" + "b".repeat(64), "published_verified")),
+                List.of(new PhaseThreeEvidenceBundle.CaseSourceLink(11L, 101L)),
+                List.of()
+        );
+        PhaseThreeEvidenceResolver evidenceResolver = mock(PhaseThreeEvidenceResolver.class);
+        when(evidenceResolver.resolve(any(), any(), any(), any())).thenReturn(evidenceBundle);
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper,
+                new AgentToolRegistry(List.of(cases), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper()),
+                evidenceResolver
+        );
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"case_analysis","researchQuestions":["case"],
+                         "toolRequests":[{"requestId":"cases","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","keyFindings","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("""
+                        {"action":"final","intent":"case_analysis","directAnswer":"verified result",
+                         "keyFindings":[{"text":"verified source-backed finding","evidenceType":"fact","sourceIds":[101]}],
+                         "caseInsights":[],"policyInsights":[],"comparison":[],"recommendations":[],
+                         "risks":[],"assumptions":[],"uncertainties":[],"nextQuestions":[],
+                         "citations":[{"sourceId":101,"claim":"verified source-backed finding"}],"confidence":0.8,
+                         "evidenceCoverage":{"status":"partial","caseCount":1,"policyCount":0,"sourceCount":1,"limitations":[]}}
+                        """, 20, 10, 30, 10, "final", "stop")
+        ));
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}",
+                        "Verify the case", List.of(), null,
+                        new AgentRuntimeConfig(true, 2, 4, 12000, 12,
+                                Duration.ofSeconds(120), "json_plan"),
+                        "case_analysis"),
+                request -> responses.removeFirst(),
+                progress -> { }
+        );
+
+        assertEquals("completed", outcome.status());
+        assertTrue(outcome.structuredResult().path("evidenceVersion").asText().startsWith("sha256:"));
+    }
+
+    @Test
     void twoDistinctPlanningFailuresGetTwoBoundedRecoveriesBeforeToolExecution() {
         ObjectMapper objectMapper = new ObjectMapper();
         AiAgentToolCallMapper callMapper = mock(AiAgentToolCallMapper.class);
@@ -1831,6 +2647,48 @@ class AgentOrchestratorTest {
                 List.of(search), objectMapper,
                 Validation.buildDefaultValidatorFactory().getValidator(), mapper
         );
+    }
+
+    private AgentToolRegistry registryWithComparisonEvidence(ObjectMapper objectMapper) {
+        AgentTool<SearchCasesArguments> search = new AgentTool<>() {
+            public String name() { return "search_cases"; }
+            public String description() { return "search verified cases"; }
+            public Class<SearchCasesArguments> argumentType() { return SearchCasesArguments.class; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}";
+            }
+            public AgentToolResult execute(AgentToolContext context, SearchCasesArguments arguments) {
+                var output = objectMapper.createObjectNode();
+                output.putArray("items")
+                        .addObject().put("caseId", 11L).put("sourceId", 101L).put("title", "Case 11")
+                        .put("status", "published");
+                output.withArray("items")
+                        .addObject().put("caseId", 12L).put("sourceId", 102L).put("title", "Case 12")
+                        .put("status", "published");
+                return new AgentToolResult(output, 2, "a".repeat(64),
+                        Set.of(101L, 102L), Set.of(11L, 12L));
+            }
+        };
+        AgentTool<CompareCasesArguments> compare = new AgentTool<>() {
+            public String name() { return "compare_cases"; }
+            public String description() { return "compare authorized cases"; }
+            public Class<CompareCasesArguments> argumentType() { return CompareCasesArguments.class; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"caseIds\"],"
+                        + "\"properties\":{\"caseIds\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":3,"
+                        + "\"items\":{\"type\":\"integer\"}},\"dimensions\":{\"type\":\"array\"}}}";
+            }
+            public AgentToolResult execute(AgentToolContext context, CompareCasesArguments arguments) {
+                var output = objectMapper.createObjectNode();
+                var cases = output.putArray("cases");
+                cases.addObject().put("caseId", 11L).put("sourceId", 101L);
+                cases.addObject().put("caseId", 12L).put("sourceId", 102L);
+                return new AgentToolResult(output, 2, "b".repeat(64),
+                        Set.of(101L, 102L), Set.of(11L, 12L));
+            }
+        };
+        return new AgentToolRegistry(List.of(search, compare), objectMapper,
+                Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper());
     }
 
     private <T> AgentTool<T> fixtureTool(
