@@ -1,5 +1,6 @@
 package com.opc.platform.ai.service;
 
+import com.opc.platform.ai.contract.AgentResearchContract;
 import com.opc.platform.ai.mapper.AdminAgentQualityFeedbackRow;
 import com.opc.platform.ai.mapper.AdminAgentQualityMapper;
 import com.opc.platform.ai.mapper.AdminAgentQualityRunRow;
@@ -25,10 +26,7 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class AdminAgentQualityService {
 
-    private static final Set<String> TASK_TYPES = Set.of(
-            "auto", "case_analysis", "case_comparison", "technology_assessment",
-            "policy_lookup", "source_verification", "general_research"
-    );
+    private static final Set<String> TASK_TYPES = AgentResearchContract.REQUESTED_INTENTS;
     private static final Set<String> GRANULARITIES = Set.of("day", "week", "month");
     private static final Set<String> FAILURE_STATUSES = Set.of("failed", "expired");
     private static final Pattern CONTROLLED_DIAGNOSTIC_CODE = Pattern.compile("[A-Z][A-Z0-9_]{0,59}");

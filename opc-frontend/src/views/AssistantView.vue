@@ -3,79 +3,113 @@
     <section v-if="pageLoading" class="page-state" role="status"><span class="spinner"></span><div><strong>正在准备研究工作台</strong><p>读取研究画像、历史会话与智能体状态。</p></div></section>
     <section v-else-if="pageError" class="page-state is-error" role="alert"><AlertTriangle :size="22" /><div><strong>研究助手暂时无法读取</strong><p>{{ pageError }}</p></div><button class="secondary-command" type="button" @click="loadPage"><RefreshCw :size="16" />重新读取</button></section>
 
-    <div v-else class="assistant-workspace" :class="{ 'history-collapsed': historyCollapsed }">
+    <div v-else class="assistant-workspace" :class="{ 'history-collapsed': historyCollapsed, 'history-motion': historyMotionPhase, [`history-motion-${historyMotionPhase}`]: historyMotionPhase, 'inspector-open': inspectorOpen }">
       <AssistantHistorySidebar
         :items="historyItems" :scope="historyScope" :search-query="historyQuery" :selected-id="selectedSessionId"
         :loading="historyLoading" :searching="historySearching" :has-more="historyHasMore" :error="historyError"
-        :collapsed="historyCollapsed" :mobile-open="mobileHistoryOpen"
-        @toggle="toggleHistory" @close-mobile="closeMobileHistory" @new="startNewResearch" @search="scheduleHistorySearch"
+        :collapsed="historyCollapsed" :mobile-open="mobileHistoryOpen" :mobile-motion="mobileHistoryMotion" :motion-phase="historyMotionPhase"
+        @toggle="toggleHistory" @close-mobile="closeMobileHistory($event)" @new="startNewResearch" @search="scheduleHistorySearch"
         @scope="changeHistoryScope" @select="selectHistorySession" @load-more="loadHistory(false)"
         @rename="renameSession" @pin="pinSession" @archive="archiveSession" @unarchive="unarchiveSession"
         @trash="trashSession" @restore="restoreSession" @purge="purgeSession"
       />
 
       <main class="research-desk" data-layout="bounded-workspace" aria-label="Assistant 研究对话">
-        <AssistantResearchProfile
-          v-model="profile" :editable="!currentSession" :regions="regions" :industries="industries"
-          :readiness="readiness" :readiness-loading="readinessLoading" :readiness-error="readinessError"
-          :industry-resolution-loading="industryResolutionLoading" :industry-resolution-error="industryResolutionError"
-          :industry-resolution-rejected="industryResolutionRejected"
-          :industry-suggestion="industrySuggestion" :agent-ready="agentReady" :provider-label="providerLabel"
-          :forking="forking"
-          @confirm-industry="confirmSuggestedIndustry" @reject-industry="rejectSuggestedIndustry" @fork="forkResearch"
+        <AssistantSessionHeader
+          :title="workspaceTitle" :scope="researchScopeLabel" :session-id="currentSession?.sessionId"
+          :has-run="Boolean(currentRun?.runId)" :is-new="!currentSession" :conditions-open="inspectorOpen && inspectorMode === 'conditions'"
+          @conditions="openInspector('conditions', $event)" @materials="openEvidenceInspector($event)" @reports="openInspector('reports', $event)"
         />
-
-        <AssistantResearchTask
-          v-model="researchTask"
-          :editable="!currentSession && !branchResearchDraft && !analyticsResearchDraft"
-          :case-options="researchCaseOptions" :source-options="researchSourceOptions"
-          :loading="researchCandidatesLoading" :candidate-error="researchCandidatesError"
-        />
-
-        <p v-if="analyticsResearchDraft" class="analytics-research-context" role="status">
-          <span>数据看板条件</span><strong>{{ analyticsResearchDraft.metricLabel }}</strong><small>数据版本 {{ analyticsResearchDraft.dataVersion }}</small>
-        </p>
-
-        <section v-if="branchResearchDraft" class="branch-research-context" data-testid="branch-research-context" aria-labelledby="branch-research-context-title">
-          <div>
-            <span>研究分支</span>
-            <strong id="branch-research-context-title">来自运行 #{{ branchResearchDraft.sourceRunId }}</strong>
-            <small>{{ branchCitationLabel }}</small>
-          </div>
-          <p>{{ branchResearchDraft.resultSummary }}</p>
-          <button type="button" aria-label="移除研究分支条件" @click="discardBranchResearchDraft"><X :size="16" /></button>
-        </section>
-
-        <AssistantResearchPreferences :can-apply="!currentSession" @apply="applyResearchPreferences" />
-
-        <AssistantReportsPanel :session-id="currentSession?.sessionId" :run="currentRun" @re-research="restartReportResearch" />
 
         <section v-if="!agentReady" class="desk-notice" role="status"><BrainCircuit :size="22" /><div><strong>智能体运行时尚未启用</strong><p>管理员需要启用模型 Provider 与 Agent Runtime；本页不会回退到虚假回答。</p></div></section>
 
+        <AssistantResearchStarter
+          v-if="!currentSession"
+          v-model="composer"
+          :profile-summary="researchProfileSummary"
+          :task-summary="researchTaskSummary"
+          :disabled="Boolean(starterInputDisabledReason)"
+          :launch-disabled="Boolean(composerDisabledReason)"
+          :launch-disabled-reason="composerDisabledReason"
+          :starting="submitting"
+          :error="composerError"
+          @conditions="openInspector('conditions', $event)"
+          @start="sendMessage"
+        />
+
         <AssistantConversation
+          v-else
           ref="conversation" :messages="messages" :run="currentRun" :has-more="hasMoreMessages"
           :evidence-run-id="currentRun?.runId" :evidence-items="evidenceItems"
           :evidence-summary="evidenceSummary"
           :evidence-loading="evidenceLoading" :evidence-error="evidenceError"
-          :loading-older="loadingOlder" :draft-mode="!currentSession" :network-status="networkStatus" :cancelling="cancelling"
+          :loading-older="loadingOlder" :draft-mode="false" :network-status="networkStatus" :cancelling="cancelling"
           :terminal-sync-status="terminalSyncStatus"
           @load-older="loadOlderMessages" @prefill="prefillQuestion($event)" @citations="openCitations" @process="openProcess"
-          @evidence="openEvidenceDrawer"
+          @evidence="openEvidenceInspector"
           @cancel="cancelRun" @retry="retryLast" @resume="resumePolling"
         />
 
         <AssistantRunFeedback :run="currentRun" />
 
-        <p v-if="composerError" class="composer-error" role="alert">{{ composerError }}</p>
+        <p v-if="composerError && currentSession" class="composer-error" role="alert">{{ composerError }}</p>
         <AssistantComposer
+          v-if="currentSession"
           ref="composerControl" v-model="composer" :disabled="Boolean(composerDisabledReason)" :disabled-reason="composerDisabledReason"
-          :sending="submitting" :running="runActive" :new-research="!currentSession" :usage="usage" @send="sendMessage" @cancel="cancelRun"
+          :sending="submitting" :running="runActive" :new-research="false" :usage="usage" :show-usage="false" @send="sendMessage" @cancel="cancelRun"
         />
       </main>
-    </div>
 
-    <AssistantCitationDrawer :open="drawerOpen" :restore-focus="drawerRestoreFocus" :mode="drawerMode" :citations="drawerCitations" :run="drawerRun" :evidence-run-id="currentRun?.runId" :evidence-items="evidenceItems" :evidence-summary="evidenceSummary" :loading="drawerMode === 'evidence' ? evidenceLoading : drawerLoading" :error="drawerMode === 'evidence' ? evidenceError : drawerError" @close="closeDrawer" />
-    <p v-if="toast" class="assistant-toast" role="status">{{ toast }}</p>
+      <AssistantInspector
+        :open="inspectorOpen" :title="inspectorTitle" :caption="inspectorCaption" :restore-focus="inspectorRestoreFocus" :motion="inspectorMotion"
+        @close="closeInspector(true, $event)"
+      >
+        <template v-if="inspectorMode === 'conditions'">
+          <AssistantResearchProfile
+            v-model="profile" :editable="!currentSession" :regions="regions" :industries="industries"
+            :readiness="readiness" :readiness-loading="readinessLoading" :readiness-error="readinessError"
+            :industry-resolution-loading="industryResolutionLoading" :industry-resolution-error="industryResolutionError"
+            :industry-resolution-rejected="industryResolutionRejected"
+            :industry-suggestion="industrySuggestion" :agent-ready="agentReady" :provider-label="providerLabel"
+            :forking="forking"
+            @confirm-industry="confirmSuggestedIndustry" @reject-industry="rejectSuggestedIndustry" @fork="forkResearch"
+          />
+
+          <AssistantResearchTask
+            v-model="researchTask"
+            :editable="!currentSession && !branchResearchDraft && !analyticsResearchDraft"
+            :case-options="researchCaseOptions" :source-options="researchSourceOptions"
+            :technology-options="researchTechnologyOptions" :profile-resources="profile.existingResources"
+            :loading="researchCandidatesLoading" :candidate-error="researchCandidatesError"
+          />
+
+          <p v-if="analyticsResearchDraft" class="analytics-research-context" role="status">
+            <span>数据看板条件</span><strong>{{ analyticsResearchDraft.metricLabel }}</strong><small>数据版本 {{ analyticsResearchDraft.dataVersion }}</small>
+          </p>
+
+          <section v-if="branchResearchDraft" class="branch-research-context" data-testid="branch-research-context" aria-labelledby="branch-research-context-title">
+            <div>
+              <span>研究分支</span>
+              <strong id="branch-research-context-title">来自运行 #{{ branchResearchDraft.sourceRunId }}</strong>
+              <small>{{ branchCitationLabel }}</small>
+            </div>
+            <p>{{ branchResearchDraft.resultSummary }}</p>
+            <button type="button" aria-label="移除研究分支条件" @click="discardBranchResearchDraft"><X :size="16" /></button>
+          </section>
+
+          <AssistantResearchPreferences :can-apply="!currentSession" @apply="applyResearchPreferences" />
+        </template>
+        <AssistantReportsPanel v-else-if="inspectorMode === 'reports'" :session-id="currentSession?.sessionId" :run="currentRun" auto-open @re-research="restartReportResearch" />
+        <AssistantInspectorDetails
+          v-else
+          :mode="inspectorMode" :citations="inspectorCitations" :run="inspectorRun"
+          :evidence-run-id="currentRun?.runId" :evidence-items="evidenceItems" :evidence-summary="evidenceSummary"
+          :loading="inspectorMode === 'evidence' ? evidenceLoading : inspectorLoading"
+          :error="inspectorMode === 'evidence' ? evidenceError : inspectorError"
+        />
+      </AssistantInspector>
+    </div>
+    <Transition name="assistant-toast"><p v-if="toast" class="assistant-toast" role="status">{{ toast }}</p></Transition>
   </div>
 </template>
 
@@ -83,14 +117,17 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlertTriangle, BrainCircuit, RefreshCw, X } from 'lucide-vue-next'
-import AssistantCitationDrawer from '@/components/assistant/AssistantCitationDrawer.vue'
 import AssistantComposer from '@/components/assistant/AssistantComposer.vue'
 import AssistantConversation from '@/components/assistant/AssistantConversation.vue'
 import AssistantHistorySidebar from '@/components/assistant/AssistantHistorySidebar.vue'
+import AssistantInspector from '@/components/assistant/AssistantInspector.vue'
+import AssistantInspectorDetails from '@/components/assistant/AssistantInspectorDetails.vue'
 import AssistantResearchProfile from '@/components/assistant/AssistantResearchProfile.vue'
+import AssistantResearchStarter from '@/components/assistant/AssistantResearchStarter.vue'
 import AssistantResearchTask from '@/components/assistant/AssistantResearchTask.vue'
 import AssistantResearchPreferences from '@/components/assistant/AssistantResearchPreferences.vue'
 import AssistantReportsPanel from '@/components/assistant/AssistantReportsPanel.vue'
+import AssistantSessionHeader from '@/components/assistant/AssistantSessionHeader.vue'
 import AssistantRunFeedback from '@/components/assistant/AssistantRunFeedback.vue'
 import {
   archiveResearchSessionExplicit, cancelResearchRun, checkEntrepreneurshipReadiness,
@@ -99,7 +136,7 @@ import {
   unarchiveResearchSession, updateResearchSession,
 } from '@/api/ai'
 import { getRegions } from '@/api/region'
-import { getIndustryTags } from '@/api/tag'
+import { getIndustryTags, getTags } from '@/api/tag'
 import { getCases } from '@/api/case'
 import { getSources } from '@/api/source'
 import { getUserProfile } from '@/api/auth'
@@ -110,6 +147,7 @@ import {
   industrySuggestionKey, isDeterministicRequestFailure, readinessPresentation,
 } from '@/utils/assistantWorkflow'
 import { mergeMessagePages } from '@/utils/assistantWorkspace'
+import { COMPARISON_DIMENSIONS, RESEARCH_TASK_TYPE_SET, researchTaskLabel } from '@/constants/researchTasks'
 
 const route = useRoute()
 const router = useRouter()
@@ -124,8 +162,9 @@ const TERMINAL = new Set(['completed', 'clarification_needed', 'evidence_insuffi
 const POLLING_INTERVAL_MS = 1200
 const POLLING_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 10000]
 const LOCAL_POLLING_MAX_WAIT_MS = 120000
+const HISTORY_BUTTON_STAGE_MS = 120
+const HISTORY_RAIL_DURATION_MS = 500
 const defaultProfile = () => ({ ventureType: 'solo_company', regionId: '', industryTagId: '', industry: '', stage: 'validation', budgetRange: 'under_100k', goal: '', existingResources: '' })
-const PHASE_THREE_TASK_TYPES = new Set(['case_analysis', 'case_comparison', 'technology_assessment', 'policy_lookup', 'source_verification', 'general_research'])
 const drafts = createAssistantDraftStore(globalThis.localStorage, USER_NAMESPACE)
 const historyGate = createLatestRequestGate()
 const sessionGate = createLatestRequestGate()
@@ -136,8 +175,10 @@ const processGate = createLatestRequestGate()
 const evidenceGate = createLatestRequestGate()
 const emit = defineEmits(['workspace-title', 'workspace-status'])
 const evidenceOpenRequest = inject('assistant-evidence-request', ref(0))
+const evidencePointerMotion = inject('assistant-evidence-motion', ref(false))
 const historyControl = inject('assistant-history-control', {
   request: ref(0),
+  motion: ref(false),
   restoreFocus: () => {},
 })
 
@@ -152,7 +193,9 @@ const historyLoading = ref(false)
 const historySearching = ref(false)
 const historyError = ref('')
 const historyCollapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1')
+const historyMotionPhase = ref('')
 const mobileHistoryOpen = ref(false)
+const mobileHistoryMotion = ref(false)
 const selectedSessionId = ref('')
 const currentSession = ref(null)
 const messages = ref([])
@@ -183,6 +226,7 @@ const profile = ref(restoreNewProfile())
 const researchTask = ref(createNewResearchTask())
 const researchCaseOptions = ref([])
 const researchSourceOptions = ref([])
+const researchTechnologyOptions = ref([])
 const researchCandidatesLoading = ref(false)
 const researchCandidatesError = ref('')
 const evidenceDependencyKey = computed(() => JSON.stringify([
@@ -200,17 +244,19 @@ const industrySuggestion = ref(null)
 const rejectedIndustryKey = ref('')
 const rejectedIndustryQuery = ref('')
 const networkStatus = ref('connected')
-const drawerOpen = ref(false)
-const drawerRestoreFocus = ref(true)
-const drawerMode = ref('citations')
-const drawerCitations = ref([])
-const drawerRun = ref(null)
-const drawerLoading = ref(false)
-const drawerError = ref('')
+const inspectorOpen = ref(false)
+const inspectorMotion = ref(false)
+const inspectorRestoreFocus = ref(true)
+const inspectorMode = ref('conditions')
+const inspectorCitations = ref([])
+const inspectorRun = ref(null)
+const inspectorLoading = ref(false)
+const inspectorError = ref('')
 const toast = ref('')
 const analyticsResearchDraft = ref(null)
 const branchResearchDraft = ref(readStoredBranchDraft())
 let historyTimer
+let historyMotionTimer
 let readinessTimer
 let industryTimer
 let pollingTimer
@@ -238,6 +284,24 @@ const branchCitationLabel = computed(() => {
   const version = branchResearchDraft.value?.evidenceVersion ? ` · 证据版本 ${branchResearchDraft.value.evidenceVersion}` : ''
   return `${citations.length} 条引用${sources ? `（来源 ${sources}）` : ''}${version}`
 })
+const researchProfileSummary = computed(() => {
+  const region = regions.value.find((item) => String(item.id) === String(profile.value.regionId))?.name
+  const industry = profile.value.industry || industries.value.find((item) => String(item.tagId ?? item.id) === String(profile.value.industryTagId))?.name
+  const stage = ({ idea: '想法形成', validation: '需求验证', early_operation: '早期运营', growth: '增长阶段' }[profile.value.stage] || '')
+  return [region, industry, stage].filter(Boolean)
+})
+const researchTaskSummary = computed(() => {
+  const task = normalizeResearchTask(researchTask.value)
+  if (!task.taskType) return '尚未选择'
+  const label = researchTaskLabel(task.taskType)
+  if (task.taskType === 'case_comparison') return `${label} · ${task.caseIds.length} 个案例`
+  if (task.taskType === 'case_analysis') return `${label} · ${task.caseIds.length ? '已选择案例' : '待选择案例'}`
+  if (task.taskType === 'source_verification') return `${label}${task.sourceId ? ' · 已选择来源' : ''}`
+  return label
+})
+const researchScopeLabel = computed(() => researchProfileSummary.value.join(' · ') || '研究条件尚未补充')
+const inspectorTitle = computed(() => ({ conditions: '研究条件', citations: '引用依据', evidence: '研究材料', process: '研究过程', reports: '研究报告' }[inspectorMode.value] || '研究详情'))
+const inspectorCaption = computed(() => ({ conditions: 'RESEARCH CONDITIONS', citations: 'VERIFIED SOURCES', evidence: 'RESEARCH MATERIALS', process: 'RESEARCH TRACE', reports: 'SAVED REPORTS' }[inspectorMode.value] || 'RESEARCH DETAILS'))
 const workspaceTitle = computed(() => currentSession.value?.title || '新研究')
 const workspaceStatus = computed(() => ({
   label: currentSession.value ? sessionStatusLabel.value : '本地草稿',
@@ -277,14 +341,21 @@ const composerDisabledReason = computed(() => {
   }
   return ''
 })
+const starterInputDisabledReason = computed(() => {
+  if (submitting.value) return '正在提交研究'
+  if (!agentReady.value) return '智能体暂不可用'
+  if (forking.value) return '正在创建研究分支'
+  if (quotaExhausted.value) return '今日研究额度已用尽'
+  return ''
+})
 
 watch(workspaceTitle, (title) => emit('workspace-title', title), { immediate: true })
 watch(workspaceStatus, (status) => emit('workspace-status', status), { immediate: true })
-watch(evidenceOpenRequest, openEvidenceDrawer)
-watch(historyControl.request, openMobileHistory)
+watch(evidenceOpenRequest, () => openEvidenceInspector(evidencePointerMotion.value ? { detail: 1 } : null))
+watch(historyControl.request, () => openMobileHistory(historyControl.motion?.value ? { detail: 1 } : null))
 
 onMounted(loadPage)
-onBeforeUnmount(() => { clearTimeout(historyTimer); clearTimeout(industryTimer); clearTimeout(readinessTimer); stopPolling(); clearTimeout(toastTimer) })
+onBeforeUnmount(() => { clearTimeout(historyTimer); clearTimeout(historyMotionTimer); clearTimeout(industryTimer); clearTimeout(readinessTimer); stopPolling(); clearTimeout(toastTimer) })
 watch(profile, (value) => {
   if (!currentSession.value) localStorage.setItem(PROFILE_KEY, JSON.stringify(value))
 }, { deep: true })
@@ -367,10 +438,36 @@ async function changeHistoryScope(scope) {
   historyQuery.value = ''
   await loadHistory(true).catch(() => {})
 }
-function toggleHistory() { historyCollapsed.value = !historyCollapsed.value; localStorage.setItem(SIDEBAR_KEY, historyCollapsed.value ? '1' : '0') }
-function openMobileHistory() { closeDrawer(false); mobileHistoryOpen.value = true }
-async function closeMobileHistory() { mobileHistoryOpen.value = false; await nextTick(); historyControl.restoreFocus() }
-async function selectHistorySession(session) { discardAnalyticsResearchHandoff(); discardBranchResearchDraft(); await loadSession(session.sessionId); closeMobileHistory() }
+function toggleHistory(event = null) {
+  if (historyMotionPhase.value) return
+  const animated = shouldAnimateWorkspaceMotion(event)
+  const targetCollapsed = !historyCollapsed.value
+  clearTimeout(historyMotionTimer)
+  historyCollapsed.value = targetCollapsed
+  localStorage.setItem(SIDEBAR_KEY, targetCollapsed ? '1' : '0')
+  if (!animated) {
+    return
+  }
+  historyMotionPhase.value = targetCollapsed ? 'collapsing' : 'expanding'
+  historyMotionTimer = window.setTimeout(() => {
+    historyMotionPhase.value = ''
+  }, targetCollapsed ? HISTORY_BUTTON_STAGE_MS + HISTORY_RAIL_DURATION_MS : HISTORY_RAIL_DURATION_MS)
+}
+function shouldAnimateWorkspaceMotion(event) {
+  return Boolean((event?.detail > 0 || event === true) && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+}
+function openMobileHistory(event = null) {
+  mobileHistoryMotion.value = shouldAnimateWorkspaceMotion(event)
+  closeInspector(false)
+  mobileHistoryOpen.value = true
+}
+async function closeMobileHistory(event = null) {
+  mobileHistoryMotion.value = shouldAnimateWorkspaceMotion(event)
+  mobileHistoryOpen.value = false
+  await nextTick()
+  historyControl.restoreFocus()
+}
+async function selectHistorySession(session, event = null) { discardAnalyticsResearchHandoff(); discardBranchResearchDraft(); await loadSession(session.sessionId); closeMobileHistory(event) }
 
 function startNewResearch(profileSeed = null, { preserveAnalyticsHandoff = false, preserveBranchHandoff = false } = {}) {
   if (!preserveAnalyticsHandoff) discardAnalyticsResearchHandoff()
@@ -378,7 +475,7 @@ function startNewResearch(profileSeed = null, { preserveAnalyticsHandoff = false
   sessionGate.begin()
   evidenceGate.begin()
   messagePageGate.begin()
-  closeDrawer(false)
+  closeInspector(false)
   saveCurrentDraft()
   stopPolling()
   terminalSync.value = null
@@ -503,7 +600,7 @@ async function loadSession(sessionId) {
   evidenceSummary.value = null
   evidenceLoading.value = false
   evidenceError.value = ''
-  closeDrawer(false)
+  closeInspector(false)
   loadingOlder.value = false
   saveCurrentDraft()
   stopPolling()
@@ -692,7 +789,7 @@ async function sendMessage() {
 function prefillQuestion(value) {
   const payload = typeof value === 'string' ? { prompt: value, requestedIntent: 'auto' } : value
   requestedIntent.value = payload?.requestedIntent || 'auto'
-  if (!currentSession.value && !branchResearchDraft.value && !analyticsResearchDraft.value && PHASE_THREE_TASK_TYPES.has(requestedIntent.value)) {
+  if (!currentSession.value && !branchResearchDraft.value && !analyticsResearchDraft.value && RESEARCH_TASK_TYPE_SET.has(requestedIntent.value)) {
     researchTask.value = normalizeResearchTask({ ...researchTask.value, taskType: requestedIntent.value })
   }
   starterPrompt.value = payload?.prompt || ''
@@ -918,7 +1015,23 @@ async function refreshSessionMessages(sessionId, requestId) {
 }
 
 async function renameSession({ session, title }) { await mutateSession(() => updateResearchSession(session.sessionId, { title }), '标题已更新') }
-async function pinSession(session) { await mutateSession(() => updateResearchSession(session.sessionId, { pinned: !session.pinned }), session.pinned ? '已取消置顶' : '已置顶') }
+async function pinSession(session) {
+  const nextPinned = !isSessionPinned(session)
+  await mutateSession(async () => {
+    const updated = await updateResearchSession(session.sessionId, { pinned: nextPinned })
+    const resolvedPinned = typeof updated?.pinned === 'boolean' ? updated.pinned : nextPinned
+    historyItems.value = historyItems.value.map((item) => (
+      String(item.sessionId) === String(session.sessionId) ? { ...item, pinned: resolvedPinned } : item
+    ))
+    if (String(currentSession.value?.sessionId) === String(session.sessionId)) {
+      currentSession.value = { ...currentSession.value, pinned: resolvedPinned }
+    }
+    return updated
+  }, nextPinned ? '已置顶' : '已取消置顶')
+}
+function isSessionPinned(session) {
+  return session?.pinned === true || session?.pinned === 1 || session?.pinned === '1' || session?.pinned === 'true'
+}
 async function archiveSession(session) { await mutateSession(() => archiveResearchSessionExplicit(session.sessionId), '会话已归档', session) }
 async function unarchiveSession(session) { await mutateSession(() => unarchiveResearchSession(session.sessionId), '会话已恢复到当前研究', session) }
 async function trashSession(session) { await mutateSession(() => trashResearchSession(session.sessionId), '会话已移入回收站', session) }
@@ -1022,27 +1135,34 @@ async function checkReadiness(payload, requestId) {
   }
 }
 
-async function openCitations(message) {
+async function openCitations(message, sourceIdOrEvent = null, maybeEvent = null) {
   const requestId = processGate.begin()
   const runId = message.runId
-  const baseCitations = (message.citations || []).map((citation, index) => ({
+  const requestedSourceId = normalizedSourceId(sourceIdOrEvent)
+  const event = requestedSourceId ? maybeEvent : sourceIdOrEvent
+  const citations = (message.citations || []).map((citation, index) => ({
     ...citation,
     runId,
     citationId: citation.citationId || `${runId || 'legacy'}:${citation.sourceId}:${index + 1}`,
   }))
-  drawerRestoreFocus.value = true
-  drawerMode.value = 'citations'
-  drawerCitations.value = baseCitations
-  drawerRun.value = null
-  drawerError.value = ''
-  drawerLoading.value = Boolean(runId)
-  drawerOpen.value = true
+  const selectedCitations = requestedSourceId
+    ? citations.filter((citation) => String(citation.sourceId) === String(requestedSourceId))
+    : citations
+  const baseCitations = selectedCitations.length ? selectedCitations : citations
+  inspectorMotion.value = shouldAnimateWorkspaceMotion(event)
+  inspectorRestoreFocus.value = true
+  inspectorMode.value = 'citations'
+  inspectorCitations.value = baseCitations
+  inspectorRun.value = null
+  inspectorError.value = ''
+  inspectorLoading.value = Boolean(runId)
+  inspectorOpen.value = true
   if (!runId) return
   try {
     const evidence = await getResearchRunEvidence(runId)
     if (!processGate.isCurrent(requestId)) return
     const bySource = new Map((evidence?.items || []).map((item) => [String(item.sourceId), item]))
-    drawerCitations.value = baseCitations.map((citation) => {
+    inspectorCitations.value = baseCitations.map((citation) => {
       const item = bySource.get(String(citation.sourceId))
       return {
         ...citation,
@@ -1054,45 +1174,85 @@ async function openCitations(message) {
       }
     })
   } catch (error) {
-    if (processGate.isCurrent(requestId)) drawerError.value = error.message || '引用依据读取失败'
+    if (processGate.isCurrent(requestId)) inspectorError.value = error.message || '引用依据读取失败'
   } finally {
-    if (processGate.isCurrent(requestId)) drawerLoading.value = false
+    if (processGate.isCurrent(requestId)) inspectorLoading.value = false
   }
 }
-async function openProcess(message) {
+function normalizedSourceId(value) {
+  const sourceId = Number(value)
+  return Number.isSafeInteger(sourceId) && sourceId > 0 ? sourceId : null
+}
+async function openProcess(message, event = null) {
   const requestId = processGate.begin()
-  drawerRestoreFocus.value = true; drawerMode.value = 'process'; drawerCitations.value = []; drawerRun.value = null; drawerError.value = ''; drawerLoading.value = true; drawerOpen.value = true
+  inspectorMotion.value = shouldAnimateWorkspaceMotion(event)
+  inspectorRestoreFocus.value = true; inspectorMode.value = 'process'; inspectorCitations.value = []; inspectorRun.value = null; inspectorError.value = ''; inspectorLoading.value = true; inspectorOpen.value = true
   try {
     const run = await getResearchRun(message.runId)
-    if (processGate.isCurrent(requestId)) drawerRun.value = run
+    if (processGate.isCurrent(requestId)) inspectorRun.value = run
   } catch (error) {
-    if (processGate.isCurrent(requestId)) drawerError.value = error.message || '研究过程读取失败'
+    if (processGate.isCurrent(requestId)) inspectorError.value = error.message || '研究过程读取失败'
   } finally {
-    if (processGate.isCurrent(requestId)) drawerLoading.value = false
+    if (processGate.isCurrent(requestId)) inspectorLoading.value = false
   }
 }
-function openEvidenceDrawer() {
+function openEvidenceInspector(event = null) {
+  inspectorMotion.value = shouldAnimateWorkspaceMotion(event)
   mobileHistoryOpen.value = false
-  drawerRestoreFocus.value = true
-  drawerMode.value = 'evidence'
-  drawerCitations.value = []
-  drawerRun.value = null
-  drawerError.value = ''
-  drawerLoading.value = false
-  drawerOpen.value = true
+  inspectorRestoreFocus.value = true
+  inspectorMode.value = 'evidence'
+  inspectorCitations.value = []
+  inspectorRun.value = null
+  inspectorError.value = ''
+  inspectorLoading.value = false
+  inspectorOpen.value = true
 }
-function closeDrawer(restoreFocus = true) { processGate.begin(); drawerRestoreFocus.value = restoreFocus; drawerOpen.value = false; drawerRun.value = null; drawerError.value = ''; drawerLoading.value = false }
+function openInspector(mode, event = null) {
+  inspectorMotion.value = shouldAnimateWorkspaceMotion(event)
+  mobileHistoryOpen.value = false
+  inspectorRestoreFocus.value = true
+  inspectorMode.value = mode
+  inspectorCitations.value = []
+  inspectorRun.value = null
+  inspectorError.value = ''
+  inspectorLoading.value = false
+  inspectorOpen.value = true
+}
+function closeInspector(restoreFocus = true, event = null) {
+  processGate.begin()
+  inspectorMotion.value = shouldAnimateWorkspaceMotion(event)
+  inspectorRestoreFocus.value = restoreFocus
+  inspectorOpen.value = false
+  inspectorRun.value = null
+  inspectorError.value = ''
+  inspectorLoading.value = false
+}
 
 async function loadResearchCandidates() {
   researchCandidatesLoading.value = true
   researchCandidatesError.value = ''
-  const [caseResult, sourceResult] = await Promise.allSettled([getCases(), getSources()])
+  const [caseResult, sourceResult, technologyResult] = await Promise.allSettled([
+    getCases(), getSources(), getTags('technology'),
+  ])
   if (caseResult.status === 'fulfilled') researchCaseOptions.value = normalizeResearchCandidates(caseResult.value, 'case')
   if (sourceResult.status === 'fulfilled') researchSourceOptions.value = normalizeResearchCandidates(sourceResult.value, 'source')
-  if (caseResult.status === 'rejected' || sourceResult.status === 'rejected') {
+  if (technologyResult.status === 'fulfilled') researchTechnologyOptions.value = normalizeTechnologyOptions(technologyResult.value)
+  if (caseResult.status === 'rejected' || sourceResult.status === 'rejected' || technologyResult.status === 'rejected') {
     researchCandidatesError.value = '已核验资料暂时无法完整读取，已保留可用选择；稍后可刷新页面重试。'
   }
   researchCandidatesLoading.value = false
+}
+
+function normalizeTechnologyOptions(value) {
+  const rows = Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : []
+  const seen = new Set()
+  return rows.flatMap((item) => {
+    const id = Number(item?.tagId ?? item?.id)
+    const name = String(item?.name || '').trim()
+    if (!Number.isSafeInteger(id) || id <= 0 || !name || seen.has(id)) return []
+    seen.add(id)
+    return [{ id, name }]
+  })
 }
 
 function normalizeResearchCandidates(value, type) {
@@ -1116,7 +1276,11 @@ function createNewResearchTask() {
 }
 
 function emptyResearchTask() {
-  return { taskType: '', caseIds: [], comparisonDimensions: [], sourceId: '', technologyText: '', outputDepth: 'standard' }
+  return {
+    taskType: '', caseIds: [], comparisonDimensions: [], sourceId: '',
+    technologyTagId: '', technologyText: '', applicationScenario: '', teamCapabilities: '',
+    timeline: '', existingResources: '', constraints: '', outputDepth: 'standard',
+  }
 }
 
 function taskDraftFromContext(value) {
@@ -1125,17 +1289,25 @@ function taskDraftFromContext(value) {
 }
 
 function normalizeResearchTask(value = {}) {
-  const taskType = PHASE_THREE_TASK_TYPES.has(value.taskType) ? value.taskType : ''
+  const taskType = RESEARCH_TASK_TYPE_SET.has(value.taskType) ? value.taskType : ''
   const caseIds = [...new Set(Array.isArray(value.caseIds) ? value.caseIds.map(Number).filter(Number.isSafeInteger) : [])].slice(0, 3)
-  const allowedDimensions = new Set(['businessModel', 'technicalPath', 'targetCustomer', 'outcome', 'regionalContext', 'evidenceStrength'])
+  const allowedDimensions = new Set(COMPARISON_DIMENSIONS.map((item) => item.id))
   const comparisonDimensions = [...new Set(Array.isArray(value.comparisonDimensions) ? value.comparisonDimensions.filter((item) => allowedDimensions.has(item)) : [])].slice(0, 3)
   const sourceId = Number(value.sourceId)
+  const technologyTagId = Number(value.technologyTagId)
+  const isTechnologyAssessment = taskType === 'technology_assessment'
   return {
     taskType,
     caseIds: ['case_analysis', 'case_comparison'].includes(taskType) ? caseIds : [],
     comparisonDimensions: taskType === 'case_comparison' ? comparisonDimensions : [],
     sourceId: taskType === 'source_verification' && Number.isSafeInteger(sourceId) && sourceId > 0 ? sourceId : '',
-    technologyText: taskType === 'technology_assessment' ? String(value.technologyText || '').trim().slice(0, 120) : '',
+    technologyTagId: isTechnologyAssessment && Number.isSafeInteger(technologyTagId) && technologyTagId > 0 ? technologyTagId : '',
+    technologyText: isTechnologyAssessment ? boundedTaskText(value.technologyText, 120) : '',
+    applicationScenario: isTechnologyAssessment ? boundedTaskText(value.applicationScenario, 500) : '',
+    teamCapabilities: isTechnologyAssessment ? boundedTaskText(value.teamCapabilities, 500) : '',
+    timeline: isTechnologyAssessment ? boundedTaskText(value.timeline, 120) : '',
+    existingResources: isTechnologyAssessment ? boundedTaskText(value.existingResources, 500) : '',
+    constraints: boundedTaskText(value.constraints, 800),
     outputDepth: ['concise', 'standard', 'deep'].includes(value.outputDepth) ? value.outputDepth : 'standard',
   }
 }
@@ -1146,7 +1318,7 @@ function validateResearchTask(value) {
   if (task.taskType === 'case_analysis' && task.caseIds.length !== 1) return '单案例分析需要选择一个已核验案例'
   if (task.taskType === 'case_comparison' && task.caseIds.length < 2) return '多案例比较需要选择 2-3 个已核验案例'
   if (task.taskType === 'case_comparison' && !task.comparisonDimensions.length) return '多案例比较至少需要选择一个比较维度'
-  if (task.taskType === 'technology_assessment' && !task.technologyText) return '技术路线评估需要填写技术方向'
+  if (task.taskType === 'technology_assessment' && !task.technologyTagId && !task.technologyText) return '技术路线评估需要选择技术标签或填写技术方向'
   return ''
 }
 
@@ -1160,9 +1332,18 @@ function buildResearchTaskContext(value) {
     comparisonDimensions: task.comparisonDimensions,
     outputDepth: task.outputDepth,
   }
+  if (task.technologyTagId) context.technologyTagId = task.technologyTagId
   if (task.technologyText) context.technologyText = task.technologyText
+  for (const field of ['applicationScenario', 'teamCapabilities', 'timeline', 'existingResources']) {
+    if (task[field]) context[field] = task[field]
+  }
+  if (task.constraints) context.constraints = task.constraints
   if (task.sourceId) context.sourceId = task.sourceId
   return context
+}
+
+function boundedTaskText(value, maxLength) {
+  return String(value || '').trim().slice(0, maxLength)
 }
 
 function normalizeBranchMaterial(value = {}) {
@@ -1238,5 +1419,20 @@ function showToast(message) { toast.value = message; clearTimeout(toastTimer); t
 </script>
 
 <style scoped>
-.assistant-page{width:100%;height:100%;min-width:0;min-height:0;color:#20251f;overflow:hidden}.assistant-workspace{display:grid;grid-template-columns:276px minmax(0,1fr);width:100%;height:100%;min-width:0;min-height:0;background:#fbfbf7;overflow:hidden}.assistant-workspace.history-collapsed{grid-template-columns:64px minmax(0,1fr)}.research-desk{display:flex;flex-direction:column;width:100%;height:100%;min-width:0;min-height:0;background:#fbfbf7;overflow:hidden}.desk-notice{display:flex;align-items:flex-start;gap:10px;padding:11px 24px;border-bottom:1px solid #d7c7c2;background:#f7efec;color:#6f3b35;flex:0 0 auto}.desk-notice strong{font-size:.78rem}.desk-notice p{margin:2px 0 0;font-size:.7rem}.analytics-research-context{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0;padding:8px max(24px,calc((100% - 880px)/2));border-bottom:1px solid #b9c3b9;background:#eff3ed;color:#36513d;font-size:.7rem;flex:0 0 auto}.analytics-research-context span{font-weight:700}.analytics-research-context strong{color:#242a24;overflow-wrap:anywhere}.analytics-research-context small{overflow-wrap:anywhere;color:#566056}.branch-research-context{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;margin:0;padding:10px max(24px,calc((100% - 880px)/2));border-bottom:1px solid #c4c7c1;background:#f3f3ee;color:#343a34;flex:0 0 auto}.branch-research-context>div{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 10px;min-width:0}.branch-research-context span{font-size:.68rem;font-weight:700}.branch-research-context strong,.branch-research-context small,.branch-research-context p{overflow-wrap:anywhere}.branch-research-context small{color:#626962;font-size:.68rem}.branch-research-context p{grid-column:1;margin:0;font-size:.72rem;line-height:1.55}.branch-research-context button{grid-column:2;grid-row:1/3;align-self:center;width:44px;height:44px;border:1px solid #b8beb7;border-radius:3px;background:#fbfbf7;color:#3d443d}.branch-research-context button:is(:hover,:focus-visible){border-color:#747b74;background:#e9ebe5}.branch-research-context button:focus-visible{outline:2px solid rgba(74,82,74,.34);outline-offset:2px}.composer-error{margin:0;padding:8px max(24px,calc((100% - 880px)/2));border-top:1px solid #d9c0ba;background:#f8efec;color:#703731;font-size:.72rem;flex:0 0 auto}.page-state{display:flex;align-items:center;justify-content:center;gap:16px;min-height:100%;padding:35px;color:#687068}.page-state p{margin:4px 0 0}.page-state.is-error{color:#7b3f36}.spinner{width:22px;height:22px;border:2px solid #c5cac3;border-top-color:#304e38;border-radius:50%;animation:spin .8s linear infinite}.secondary-command{display:flex;align-items:center;gap:7px;min-height:42px;padding:0 13px;border:1px solid #bfc5bd;border-radius:3px;background:#fff;color:#303630}.secondary-command:is(:hover,:focus-visible){border-color:#747b74;background:#f0f1ec}.secondary-command:focus-visible{outline:2px solid rgba(74,82,74,.34);outline-offset:2px}.secondary-command:active{background:#e5e7e1}.assistant-toast{position:fixed;z-index:120;right:22px;bottom:22px;max-width:min(360px,calc(100vw - 28px));margin:0;padding:11px 14px;border:1px solid #afb5ae;border-radius:3px;background:#282d28;color:#fff;font-size:.75rem}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:840px){.assistant-workspace,.assistant-workspace.history-collapsed{grid-template-columns:1fr;height:100%;min-height:0}}@media(max-width:600px){.assistant-workspace,.assistant-workspace.history-collapsed{height:100%}.desk-notice,.analytics-research-context,.branch-research-context{padding:10px 14px}.composer-error{padding:8px 14px}.assistant-toast{right:14px;bottom:14px}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
+.assistant-page{width:100%;height:100%;min-width:0;min-height:0;color:#20251f;overflow:hidden}.assistant-workspace{display:grid;grid-template-columns:276px minmax(0,1fr);width:100%;height:100%;min-width:0;min-height:0;background:#fbfbf7;overflow:hidden}.assistant-workspace.history-collapsed{grid-template-columns:64px minmax(0,1fr)}.research-desk{display:flex;flex-direction:column;width:100%;height:100%;min-width:0;min-height:0;background:#fbfbf7;overflow:hidden}.desk-notice{display:flex;align-items:flex-start;gap:10px;padding:11px 24px;border-bottom:1px solid #d7c7c2;background:#f7efec;color:#6f3b35;flex:0 0 auto}.desk-notice strong{font-size:.78rem}.desk-notice p{margin:2px 0 0;font-size:.7rem}.analytics-research-context{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0;padding:8px max(24px,calc((100% - 880px)/2));border-bottom:1px solid #b9c3b9;background:#eff3ed;color:#36513d;font-size:.7rem;flex:0 0 auto}.analytics-research-context span{font-weight:700}.analytics-research-context strong{color:#242a24;overflow-wrap:anywhere}.analytics-research-context small{overflow-wrap:anywhere;color:#566056}.branch-research-context{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;margin:0;padding:10px max(24px,calc((100% - 880px)/2));border-bottom:1px solid #c4c7c1;background:#f3f3ee;color:#343a34;flex:0 0 auto}.branch-research-context>div{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 10px;min-width:0}.branch-research-context span{font-size:.68rem;font-weight:700}.branch-research-context strong,.branch-research-context small,.branch-research-context p{overflow-wrap:anywhere}.branch-research-context small{color:#626962;font-size:.68rem}.branch-research-context p{grid-column:1;margin:0;font-size:.72rem;line-height:1.55}.branch-research-context button{grid-column:2;grid-row:1/3;align-self:center;width:44px;height:44px;border:1px solid #b8beb7;border-radius:3px;background:#fbfbf7;color:#3d443d}.branch-research-context button:focus-visible{border-color:#747b74;background:#e9ebe5}.branch-research-context button:focus-visible{outline:2px solid rgba(74,82,74,.34);outline-offset:2px}.composer-error{margin:0;padding:8px max(24px,calc((100% - 880px)/2));border-top:1px solid #d9c0ba;background:#f8efec;color:#703731;font-size:.72rem;flex:0 0 auto}.page-state{display:flex;align-items:center;justify-content:center;gap:16px;min-height:100%;padding:35px;color:#687068}.page-state p{margin:4px 0 0}.page-state.is-error{color:#7b3f36}.spinner{width:22px;height:22px;border:2px solid #c5cac3;border-top-color:#304e38;border-radius:50%;}.secondary-command{display:flex;align-items:center;gap:7px;min-height:42px;padding:0 13px;border:1px solid #bfc5bd;border-radius:3px;background:#fff;color:#303630}.secondary-command:focus-visible{border-color:#747b74;background:#f0f1ec}.secondary-command:focus-visible{outline:2px solid rgba(74,82,74,.34);outline-offset:2px}.secondary-command:active{background:#e5e7e1}.assistant-toast{position:fixed;z-index:120;right:22px;bottom:22px;max-width:min(360px,calc(100vw - 28px));margin:0;padding:11px 14px;border:1px solid #afb5ae;border-radius:3px;background:#282d28;color:#fff;font-size:.75rem}@media(min-width:1024px){.assistant-workspace.inspector-open{grid-template-columns:276px minmax(0,1fr) minmax(300px,360px)}.assistant-workspace.history-collapsed.inspector-open{grid-template-columns:64px minmax(0,1fr) minmax(300px,360px)}}@media(max-width:840px){.assistant-workspace,.assistant-workspace.history-collapsed{grid-template-columns:1fr;height:100%;min-height:0}}@media(max-width:600px){.assistant-workspace,.assistant-workspace.history-collapsed{height:100%}.desk-notice,.analytics-research-context,.branch-research-context{padding:10px 14px}.composer-error{padding:8px 14px}.assistant-toast{right:14px;bottom:14px}}
+</style>
+<style scoped>
+.assistant-toast-enter-active{transition:opacity var(--duration-base) var(--ease-out),transform var(--duration-base) var(--ease-out)}
+.assistant-toast-leave-active{transition:opacity 120ms var(--ease-out),transform 120ms var(--ease-out)}
+.assistant-toast-enter-from,.assistant-toast-leave-to{opacity:0;transform:translateY(6px)}
+@media (hover: hover) and (pointer: fine){.assistant-page :deep(button:not(:disabled)){transition:transform var(--duration-fast) var(--ease-out),background-color var(--duration-fast) ease,border-color var(--duration-fast) ease,color var(--duration-fast) ease}.assistant-page :deep(button:not(:disabled):active){transform:scale(.98)}}
+@media(prefers-reduced-motion:reduce){.assistant-toast-enter-active,.assistant-toast-leave-active{transition:opacity 100ms var(--ease-out)}.assistant-toast-enter-from,.assistant-toast-leave-to{transform:none}.assistant-page :deep(button){transition:none;transform:none!important}}
+</style>
+<style scoped>
+ .assistant-page { --assistant-drawer-duration: 500ms; --assistant-panel-duration: 360ms; --assistant-rail-ease: cubic-bezier(0.32, 0.72, 0, 1); }
+ .assistant-workspace.history-motion { will-change: grid-template-columns; transition: grid-template-columns var(--assistant-drawer-duration) var(--assistant-rail-ease); }
+ .assistant-workspace.history-motion-collapsing { transition: grid-template-columns var(--assistant-drawer-duration) var(--assistant-rail-ease) 120ms; }
+ @media (prefers-reduced-motion: reduce) {
+   .assistant-workspace.history-motion { transition: none; will-change: auto; }
+ }
 </style>

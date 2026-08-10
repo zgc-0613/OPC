@@ -65,6 +65,17 @@ describe('AssistantStructuredResult', () => {
     expect(wrapper.emitted('citations')).toEqual([[[91]]])
   })
 
+  it('scopes heading IDs to the owning message', () => {
+    const first = mount(AssistantStructuredResult, { props: { result, messageId: 101 } })
+    const second = mount(AssistantStructuredResult, { props: { result, messageId: 102 } })
+
+    const firstSummaryId = first.get('.result-summary h3').attributes('id')
+    const secondSummaryId = second.get('.result-summary h3').attributes('id')
+    expect(firstSummaryId).not.toBe(secondSummaryId)
+    expect(first.get('.result-summary').attributes('aria-labelledby')).toBe(firstSummaryId)
+    expect(second.get('.result-summary').attributes('aria-labelledby')).toBe(secondSummaryId)
+  })
+
   it('renders the compatible server result shape without treating recommendations or limitations as raw markdown', () => {
     const serverResult = {
       schemaVersion: 'phase3-structured-result-v1',
@@ -123,5 +134,122 @@ describe('AssistantStructuredResult', () => {
       regionId: '4',
       industryTagId: '9',
     })
+  })
+
+  it.each([
+    ['supports', '支持'],
+    ['partially_supports', '部分支持'],
+    ['does_not_support', '不支持'],
+    ['conflicting', '存在冲突'],
+    ['insufficient', '证据不足'],
+  ])('renders the server-derived source verification verdict %s', (verdict, label) => {
+    const explanation = `服务端核验说明：${label}`
+    const wrapper = mount(AssistantStructuredResult, {
+      props: {
+        result: {
+          ...result,
+          taskType: 'source_verification',
+          taskResult: {
+            type: 'source_verification', verdict, verdictExplanation: explanation,
+            evidenceStatus: verdict === 'insufficient' ? 'insufficient' : 'partial',
+          },
+        },
+      },
+    })
+
+    const status = wrapper.get('.evidence-coverage')
+    expect(status.text()).toContain(label)
+    expect(status.text()).toContain(explanation)
+  })
+
+  it('renders server-owned publisher assessment metadata and unknown publisher caveat', () => {
+    const knownWrapper = mount(AssistantStructuredResult, {
+      props: {
+        result: {
+          ...result,
+          taskType: 'source_verification',
+          taskResult: {
+            type: 'source_verification',
+            verdict: 'supports',
+            verdictExplanation: '已支持',
+            evidenceStatus: 'sufficient',
+            publisherAssessment: {
+              status: 'known',
+              items: [{ id: 'publisher_91', kind: 'fact', text: '服务端发布者', sourceIds: [91], confidence: 'high', missingEvidence: false }],
+              caveat: null,
+            },
+          },
+        },
+      },
+    })
+    expect(knownWrapper.text()).toContain('服务端发布者')
+
+    const unknownWrapper = mount(AssistantStructuredResult, {
+      props: {
+        result: {
+          ...result,
+          taskType: 'source_verification',
+          taskResult: {
+            type: 'source_verification',
+            verdict: 'insufficient',
+            verdictExplanation: '证据不足',
+            evidenceStatus: 'insufficient',
+            publisherAssessment: {
+              status: 'unknown',
+              items: [],
+              caveat: '来源记录未提供发布者信息，无法核验发布者。',
+            },
+          },
+        },
+      },
+    })
+    expect(unknownWrapper.text()).toContain('来源记录未提供发布者信息，无法核验发布者。')
+  })
+
+  it('defensively suppresses legacy facts and citations from an insufficient source-verification payload', () => {
+    const wrapper = mount(AssistantStructuredResult, {
+      props: {
+        result: {
+          ...result,
+          taskType: 'source_verification',
+          directAnswer: 'LEGACY_UNVERIFIED_FACT must not be shown.',
+          keyFindings: [{ id: 'legacy-fact', kind: 'fact', text: 'Legacy fact', sourceIds: [91] }],
+          recommendations: [{ id: 'legacy-advice', kind: 'recommendation', text: 'Legacy advice', sourceIds: [91] }],
+          citations: [{ sourceId: 91, title: 'Legacy source', publisher: 'Legacy publisher', availability: 'current' }],
+          taskResult: {
+            type: 'source_verification',
+            verdict: 'insufficient',
+            verdictExplanation: '当前主张尚未形成可核验的证据链。',
+            evidenceStatus: 'insufficient',
+            publisherAssessment: {
+              status: 'known',
+              items: [{ id: 'legacy-publisher', kind: 'fact', text: 'Legacy publisher', sourceIds: [91] }],
+              caveat: null,
+            },
+            supportedClaims: {
+              status: 'known',
+              items: [{ id: 'legacy-supported', kind: 'fact', text: 'Legacy supported claim', sourceIds: [91] }],
+              caveat: null,
+            },
+            invalidityReasons: {
+              status: 'known',
+              items: [{ id: 'unresolved', kind: 'methodology', text: '主张仍待核验。', sourceIds: [] }],
+              caveat: null,
+            },
+          },
+        },
+      },
+    })
+
+    expect(wrapper.get('.result-summary').text()).toContain('当前没有足够的授权证据完成来源核验结论。')
+    expect(wrapper.text()).toContain('证据不足')
+    expect(wrapper.text()).toContain('当前主张尚未形成可核验的证据链。')
+    expect(wrapper.text()).toContain('主张仍待核验。')
+    expect(wrapper.text()).not.toContain('LEGACY_UNVERIFIED_FACT')
+    expect(wrapper.text()).not.toContain('Legacy fact')
+    expect(wrapper.text()).not.toContain('Legacy advice')
+    expect(wrapper.text()).not.toContain('Legacy source')
+    expect(wrapper.text()).not.toContain('Legacy publisher')
+    expect(wrapper.find('[data-testid="structured-result-citations"]').exists()).toBe(false)
   })
 })

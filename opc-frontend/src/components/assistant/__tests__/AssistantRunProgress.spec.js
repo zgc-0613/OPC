@@ -62,4 +62,35 @@ describe('AssistantRunProgress retry state', () => {
       '核验政策来源与时效',
     ])
   })
+
+  it('keeps progress copy to the controlled stage vocabulary and defers run metadata to the process inspector', () => {
+    const wrapper = mount(AssistantRunProgress, {
+      props: {
+        run: {
+          status: 'running',
+          currentStage: 'tool_running',
+          visibleProgress: '内部 lease lease_expires_at 诊断',
+          provider: 'deepseek',
+          model: 'deepseek-chat',
+          tokenUsage: { totalTokens: 812 },
+          latencyMs: 930,
+          tools: [{ toolName: 'search_policies', evidenceCount: 3, latencyMs: 210 }],
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('正在检索政策')
+    expect(wrapper.text()).not.toContain('内部 lease')
+    expect(wrapper.text()).not.toContain('deepseek')
+    expect(wrapper.text()).not.toContain('812')
+    expect(wrapper.text()).not.toContain('930 ms')
+    expect(wrapper.find('.run-tools').exists()).toBe(false)
+    expect(wrapper.find('footer').exists()).toBe(false)
+  })
+
+  it('uses a reduced-motion-safe opacity transition when the user-visible research stage changes', () => {
+    expect(source).toMatch(/<Transition name="run-stage" mode="out-in">/)
+    expect(source).toMatch(/\.run-stage-enter-active\{transition:opacity/)
+    expect(source).toMatch(/@media\(prefers-reduced-motion:reduce\)/)
+  })
 })

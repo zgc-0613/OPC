@@ -44,4 +44,22 @@ describe('AssistantRunFeedback', () => {
     const wrapper = mount(AssistantRunFeedback, { props: { run: { runId: 30, feedbackEligible: false } } })
     expect(wrapper.find('[data-testid="open-run-feedback"]').exists()).toBe(false)
   })
+
+  it('reloads and resets local feedback state when the run changes', async () => {
+    api.get
+      .mockResolvedValueOnce({ rating: 'not_helpful', reason: 'missing_evidence', comment: 'old run', revision: 4 })
+      .mockResolvedValueOnce(null)
+    const wrapper = mount(AssistantRunFeedback, { props: { run: { runId: 30, feedbackEligible: true } } })
+
+    await wrapper.get('[data-testid="open-run-feedback"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('textarea').element.value).toBe('old run')
+
+    await wrapper.setProps({ run: { runId: 31, feedbackEligible: true } })
+    await flushPromises()
+
+    expect(api.get).toHaveBeenLastCalledWith(31)
+    expect(wrapper.get('textarea').element.value).toBe('')
+    expect(wrapper.get('input[value="helpful"]').element.checked).toBe(true)
+  })
 })

@@ -7,7 +7,7 @@ const api = vi.hoisted(() => ({
   getBranch: vi.fn(), getEvidence: vi.fn(), getFeedback: vi.fn(), getHistory: vi.fn(), getMessages: vi.fn(), getRun: vi.fn(), getSession: vi.fn(), getUsage: vi.fn(), updateFeedback: vi.fn(),
   getReports: vi.fn(), exportReport: vi.fn(), saveReport: vi.fn(), updateReport: vi.fn(), trashReport: vi.fn(), restoreReport: vi.fn(), permanentReport: vi.fn(), startAnalytics: vi.fn(),
   clearPreferences: vi.fn(), getPreferences: vi.fn(), purge: vi.fn(), resolveIndustry: vi.fn(), restore: vi.fn(), send: vi.fn(), start: vi.fn(), trash: vi.fn(), unarchive: vi.fn(), update: vi.fn(), updatePreferences: vi.fn(),
-  getRegions: vi.fn(), getIndustryTags: vi.fn(), getCases: vi.fn(), getSources: vi.fn(),
+  getRegions: vi.fn(), getIndustryTags: vi.fn(), getTags: vi.fn(), getCases: vi.fn(), getSources: vi.fn(),
 }))
 const auth = vi.hoisted(() => ({ profile: { userId: 42, username: 'researcher' } }))
 const route = vi.hoisted(() => ({ query: {} }))
@@ -36,7 +36,7 @@ vi.mock('@/api/ai', () => ({
   updateResearchPreferences: api.updatePreferences,
 }))
 vi.mock('@/api/region', () => ({ getRegions: api.getRegions }))
-vi.mock('@/api/tag', () => ({ getIndustryTags: api.getIndustryTags }))
+vi.mock('@/api/tag', () => ({ getIndustryTags: api.getIndustryTags, getTags: api.getTags }))
 vi.mock('@/api/case', () => ({ getCases: api.getCases }))
 vi.mock('@/api/source', () => ({ getSources: api.getSources }))
 vi.mock('@/api/auth', () => ({ getUserProfile: () => auth.profile }))
@@ -71,6 +71,17 @@ const deferred = () => {
   return { promise, resolve, reject }
 }
 const latestEventValue = (wrapper, name) => wrapper.emitted(name)?.at(-1)?.[0]
+const openConditions = async (wrapper) => {
+  const existing = wrapper.find('.assistant-inspector')
+  if (!existing.exists()) {
+    const starterTrigger = wrapper.find('[data-testid="open-research-conditions"]')
+    const sessionTrigger = wrapper.find('[data-testid="session-open-research-conditions"]')
+    await (starterTrigger.exists() ? starterTrigger : sessionTrigger).trigger('click')
+    await nextTick()
+  }
+  return wrapper.get('.assistant-inspector')
+}
+const starterForm = (wrapper) => wrapper.get('.research-starter form')
 
 describe('AssistantView research workspace', () => {
   beforeEach(() => {
@@ -94,6 +105,7 @@ describe('AssistantView research workspace', () => {
       { id: 12, title: 'Verified case B', regionName: 'Region' },
     ])
     api.getSources.mockResolvedValue([{ id: 71, title: 'Verified source', publisher: 'Public publisher' }])
+    api.getTags.mockResolvedValue([{ id: 91, name: 'Verified technology tag', tagType: 'technology' }])
     api.getHistory.mockResolvedValue({ items: [session()], nextCursor: null, hasMore: false })
     api.getReports.mockResolvedValue([])
     api.getSession.mockResolvedValue(detail())
@@ -153,8 +165,10 @@ describe('AssistantView research workspace', () => {
     const wrapper = mount(AssistantView)
     await flushPromises()
 
-    expect(wrapper.get('details.profile-editor').attributes('open')).toBeUndefined()
+    expect(wrapper.find('.assistant-inspector').exists()).toBe(false)
     expect(wrapper.get('textarea[aria-label="研究问题"]').exists()).toBe(true)
+    const inspector = await openConditions(wrapper)
+    expect(inspector.get('details.profile-editor').attributes('open')).toBeUndefined()
     wrapper.unmount()
   })
 
@@ -183,16 +197,17 @@ describe('AssistantView research workspace', () => {
 
     const wrapper = mount(AssistantView)
     await flushPromises()
-    await wrapper.findAll('.profile-fields select')[1].setValue('42')
-    await wrapper.get('[role="combobox"]').setValue('AI')
+    const inspector = await openConditions(wrapper)
+    await inspector.findAll('.profile-fields select')[1].setValue('42')
+    await inspector.get('[role="combobox"]').setValue('AI')
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
 
     expect(api.start).not.toHaveBeenCalled()
-    await wrapper.get(`[data-testid="research-task-${taskType}"]`).trigger('click')
+    await inspector.get(`[data-testid="research-task-${taskType}"]`).trigger('click')
     await configure(wrapper)
     await wrapper.get('textarea[aria-label="研究问题"]').setValue(`verify ${taskType} controlled research task`)
-    await wrapper.get('form.composer').trigger('submit')
+    await starterForm(wrapper).trigger('submit')
     await flushPromises()
 
     expect(api.start).toHaveBeenCalledWith(expect.objectContaining({
@@ -205,6 +220,62 @@ describe('AssistantView research workspace', () => {
       }),
       idempotencyKey: expect.any(String),
     }))
+    wrapper.unmount()
+  })
+
+  it('submits and restores every technology assessment condition without creating a second run', async () => {
+    api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
+    api.getRegions.mockResolvedValue([{ id: 42, name: 'Region' }])
+    api.getIndustryTags.mockResolvedValue([{ tagId: 7, name: 'AI' }])
+    api.getTags.mockResolvedValue([{ id: 91, name: '检索增强生成', tagType: 'technology' }])
+    const createdSession = session({ sessionId: 212, taskContext: {
+      version: 'phase3-task-v1', taskType: 'technology_assessment', caseIds: [], comparisonDimensions: [],
+      technologyTagId: 91, technologyText: '私有知识库检索增强生成',
+      applicationScenario: '为客服提供可追溯回答', teamCapabilities: '两名全栈工程师',
+      timeline: '3_6_months', existingResources: '已有脱敏 FAQ', constraints: '数据不得离开私有网络',
+      outputDepth: 'deep',
+    } })
+    api.start.mockResolvedValue({ session: createdSession, messageId: 412, runId: 512, status: 'received' })
+    api.getSession.mockResolvedValue(detail({ session: createdSession }))
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    const inspector = await openConditions(wrapper)
+    await inspector.findAll('.profile-fields select')[1].setValue('42')
+    await inspector.get('[role="combobox"]').setValue('AI')
+    await vi.advanceTimersByTimeAsync(420)
+    await flushPromises()
+    await inspector.get('[data-testid="research-task-technology_assessment"]').trigger('click')
+    await inspector.get('[data-testid="task-technology-tag"]').setValue('91')
+    await inspector.get('[data-testid="task-technology-text"]').setValue('私有知识库检索增强生成')
+    await inspector.get('[data-testid="task-application-scenario"]').setValue('为客服提供可追溯回答')
+    await inspector.get('[data-testid="task-team-capabilities"]').setValue('两名全栈工程师')
+    await inspector.get('[data-testid="task-timeline"]').setValue('3_6_months')
+    await inspector.get('[data-testid="task-existing-resources"]').setValue('已有脱敏 FAQ')
+    await inspector.get('[data-testid="task-constraints"]').setValue('数据不得离开私有网络')
+    await inspector.get('[data-testid="task-output-depth"]').setValue('deep')
+    await wrapper.get('textarea[aria-label="研究问题"]').setValue('评估这条技术路线')
+    await starterForm(wrapper).trigger('submit')
+    await flushPromises()
+
+    expect(api.start).toHaveBeenCalledWith(expect.objectContaining({
+      requestedIntent: 'technology_assessment',
+      taskContext: expect.objectContaining({
+        technologyTagId: 91,
+        technologyText: '私有知识库检索增强生成',
+        applicationScenario: '为客服提供可追溯回答',
+        teamCapabilities: '两名全栈工程师',
+        timeline: '3_6_months',
+        existingResources: '已有脱敏 FAQ',
+        constraints: '数据不得离开私有网络',
+        outputDepth: 'deep',
+      }),
+    }))
+    expect(api.start).toHaveBeenCalledTimes(1)
+    await openConditions(wrapper)
+    expect(wrapper.text()).toContain('为客服提供可追溯回答')
+    expect(wrapper.text()).toContain('两名全栈工程师')
+    expect(wrapper.text()).toContain('3-6 个月')
     wrapper.unmount()
   })
 
@@ -234,13 +305,15 @@ describe('AssistantView research workspace', () => {
     const wrapper = mount(AssistantView)
     await flushPromises()
     await wrapper.get('textarea[aria-label="研究问题"]').setValue('源会话尚未发送的草稿')
-    await wrapper.get('button[aria-label="基于当前研究条件新建研究"]').trigger('click')
+    const inspector = await openConditions(wrapper)
+    await inspector.get('button[aria-label="基于当前研究条件新建研究"]').trigger('click')
     await flushPromises()
 
     expect(api.getBranch).toHaveBeenCalledWith(301)
     expect(api.start).not.toHaveBeenCalled()
     expect(api.create).not.toHaveBeenCalled()
     expect(latestEventValue(wrapper, 'workspace-title')).toBe('新研究')
+    await openConditions(wrapper)
     expect(wrapper.get('[data-testid="branch-research-context"]').text()).toContain('两个已核验案例采用不同的获客路径。')
     expect(wrapper.get('[data-testid="branch-research-context"]').text()).toContain('2 条引用')
     expect(wrapper.get('textarea[aria-label="研究问题"]').element.value).not.toContain('源会话尚未发送的草稿')
@@ -261,12 +334,13 @@ describe('AssistantView research workspace', () => {
 
     const wrapper = mount(AssistantView)
     await flushPromises()
-    await wrapper.get('button[aria-label="基于当前研究条件新建研究"]').trigger('click')
+    const inspector = await openConditions(wrapper)
+    await inspector.get('button[aria-label="基于当前研究条件新建研究"]').trigger('click')
     await flushPromises()
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
     await wrapper.get('textarea[aria-label="研究问题"]').setValue('把比较范围调整到首批付费客户验证')
-    await wrapper.get('form.composer').trigger('submit')
+    await starterForm(wrapper).trigger('submit')
     await flushPromises()
 
     expect(api.send).not.toHaveBeenCalled()
@@ -298,6 +372,7 @@ describe('AssistantView research workspace', () => {
     await flushPromises()
 
     expect(api.getPreferences).not.toHaveBeenCalled()
+    await openConditions(wrapper)
     await wrapper.get('[data-testid="open-research-preferences"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="apply-research-preferences"]').trigger('click')
@@ -317,7 +392,7 @@ describe('AssistantView research workspace', () => {
     await flushPromises()
 
     expect(api.getReports).not.toHaveBeenCalled()
-    await wrapper.get('[data-testid="open-research-reports"]').trigger('click')
+    await wrapper.get('[data-testid="session-open-research-reports"]').trigger('click')
     await flushPromises()
 
     expect(api.getReports).toHaveBeenCalledWith({ scope: 'active', q: '', limit: 30 })
@@ -354,18 +429,19 @@ describe('AssistantView research workspace', () => {
 
     const wrapper = mount(AssistantView)
     await flushPromises()
-    const selects = wrapper.findAll('.profile-fields select')
+    const inspector = await openConditions(wrapper)
+    const selects = inspector.findAll('.profile-fields select')
     await selects[1].setValue('42')
-    await wrapper.get('[role="combobox"]').setValue('人工智能应用行业')
+    await inspector.get('[role="combobox"]').setValue('人工智能应用行业')
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
 
     expect(api.resolveIndustry).toHaveBeenCalledWith('人工智能应用行业')
     expect(api.checkReadiness).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('建议匹配“人工智能应用”')
-    expect(wrapper.get('textarea[aria-label="研究问题"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('textarea[aria-label="研究问题"]').attributes('disabled')).toBeUndefined()
 
-    const accept = wrapper.findAll('.industry-resolution-actions button').find((button) => button.text().includes('采用'))
+    const accept = inspector.findAll('.industry-resolution-actions button').find((button) => button.text().includes('采用'))
     await accept.trigger('click')
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
@@ -387,8 +463,9 @@ describe('AssistantView research workspace', () => {
 
     const wrapper = mount(AssistantView)
     await flushPromises()
-    const region = wrapper.findAll('.profile-fields select')[1]
-    const industry = wrapper.get('[role="combobox"]')
+    const inspector = await openConditions(wrapper)
+    const region = inspector.findAll('.profile-fields select')[1]
+    const industry = inspector.get('[role="combobox"]')
 
     await region.setValue('42')
     await industry.setValue('人工智能应用')
@@ -428,16 +505,17 @@ describe('AssistantView research workspace', () => {
 
     const wrapper = mount(AssistantView)
     await flushPromises()
-    await wrapper.findAll('.profile-fields select')[1].setValue('42')
-    await wrapper.get('[role="combobox"]').setValue('AI 咨询服务')
+    const inspector = await openConditions(wrapper)
+    await inspector.findAll('.profile-fields select')[1].setValue('42')
+    await inspector.get('[role="combobox"]').setValue('AI 咨询服务')
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
-    const reject = wrapper.findAll('.industry-resolution-actions button').find((button) => button.text().includes('保留原始输入'))
+    const reject = inspector.findAll('.industry-resolution-actions button').find((button) => button.text().includes('保留原始输入'))
     await reject.trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).toContain('未采用建议匹配')
-    await wrapper.get('.profile-fields input[maxlength="200"]').setValue('验证首批客户')
+    await inspector.get('.profile-fields input[maxlength="200"]').setValue('验证首批客户')
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
 
@@ -454,8 +532,9 @@ describe('AssistantView research workspace', () => {
 
     const wrapper = mount(AssistantView)
     await flushPromises()
-    await wrapper.findAll('.profile-fields select')[1].setValue('42')
-    const combobox = wrapper.get('[role="combobox"]')
+    const inspector = await openConditions(wrapper)
+    await inspector.findAll('.profile-fields select')[1].setValue('42')
+    const combobox = inspector.get('[role="combobox"]')
     await combobox.setValue('旧行业')
     await vi.advanceTimersByTimeAsync(320)
     await combobox.setValue('新行业')
@@ -466,7 +545,7 @@ describe('AssistantView research workspace', () => {
     first.resolve({ tagId: 7, name: '人工智能应用', method: 'fuzzy', confidence: 0.8, requiresConfirmation: true })
     await flushPromises()
 
-    expect(wrapper.get('[role="combobox"]').element.value).toBe('智能制造')
+    expect(inspector.get('[role="combobox"]').element.value).toBe('智能制造')
     expect(wrapper.text()).not.toContain('是否采用“人工智能应用”')
     wrapper.unmount()
   })
@@ -480,9 +559,10 @@ describe('AssistantView research workspace', () => {
 
     const wrapper = mount(AssistantView)
     await flushPromises()
-    const region = wrapper.findAll('.profile-fields select')[1]
+    const inspector = await openConditions(wrapper)
+    const region = inspector.findAll('.profile-fields select')[1]
     await region.setValue('42')
-    await wrapper.get('[role="combobox"]').setValue('人工智能应用')
+    await inspector.get('[role="combobox"]').setValue('人工智能应用')
     await vi.advanceTimersByTimeAsync(420)
     await region.setValue('43')
     await vi.advanceTimersByTimeAsync(420)
@@ -502,9 +582,10 @@ describe('AssistantView research workspace', () => {
     const wrapper = mount(AssistantView)
     await flushPromises()
 
-    const selects = wrapper.findAll('.profile-fields select')
+    const inspector = await openConditions(wrapper)
+    const selects = inspector.findAll('.profile-fields select')
     await selects[1].setValue('42')
-    await wrapper.get('[role="combobox"]').setValue('人工智能应用')
+    await inspector.get('[role="combobox"]').setValue('人工智能应用')
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
 
@@ -515,8 +596,8 @@ describe('AssistantView research workspace', () => {
     await selects[0].setValue('small_team')
     await selects[2].setValue('growth')
     await selects[3].setValue('100k_500k')
-    await wrapper.get('.field-goal input').setValue('验证首批付费客户')
-    await wrapper.get('.field-resources textarea').setValue('已有产品原型')
+    await inspector.get('.field-goal input').setValue('验证首批付费客户')
+    await inspector.get('.field-resources textarea').setValue('已有产品原型')
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
 
@@ -594,16 +675,17 @@ describe('AssistantView research workspace', () => {
     const wrapper = mount(AssistantView)
     await flushPromises()
     expect(api.start).not.toHaveBeenCalled()
-    expect(wrapper.findAll('form.composer')).toHaveLength(1)
-    expect(wrapper.get('button.send-command').attributes('aria-label')).toBe('开始本次研究')
+    expect(wrapper.find('.research-starter form').exists()).toBe(true)
+    expect(wrapper.find('form.composer').exists()).toBe(false)
 
-    const selects = wrapper.findAll('.profile-fields select')
+    const inspector = await openConditions(wrapper)
+    const selects = inspector.findAll('.profile-fields select')
     await selects[1].setValue('42')
-    await wrapper.get('[role="combobox"]').setValue('人工智能应用')
+    await inspector.get('[role="combobox"]').setValue('人工智能应用')
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
     await wrapper.get('textarea[aria-label="研究问题"]').setValue('请研究湖北人工智能创业机会')
-    await wrapper.get('form.composer').trigger('submit')
+    await wrapper.get('.research-starter form').trigger('submit')
     await flushPromises()
 
     expect(api.start).toHaveBeenCalledWith(expect.objectContaining({
@@ -613,8 +695,8 @@ describe('AssistantView research workspace', () => {
     }))
     expect(api.create).not.toHaveBeenCalled()
     expect(api.send).not.toHaveBeenCalled()
-    expect(wrapper.findAll('form.composer')).toHaveLength(1)
-    expect(wrapper.get('button.send-command').attributes('aria-label')).toBe('发送研究问题')
+    expect(wrapper.find('form.composer').exists()).toBe(true)
+    expect(wrapper.get('form.composer textarea').element.value).toBe('')
     wrapper.unmount()
   })
 
@@ -629,22 +711,20 @@ describe('AssistantView research workspace', () => {
     api.getSession.mockResolvedValue(detail({ session: session({ sessionId: 106 }) }))
     const wrapper = mount(AssistantView)
     await flushPromises()
-    const selects = wrapper.findAll('.profile-fields select')
+    const inspector = await openConditions(wrapper)
+    const selects = inspector.findAll('.profile-fields select')
     await selects[1].setValue('42')
-    await wrapper.get('[role="combobox"]').setValue('浜哄伐鏅鸿兘搴旂敤')
+    await inspector.get('[role="combobox"]').setValue('人工智能应用')
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
 
-    await wrapper.findAll('.starter-grid button')[1].trigger('click')
-    expect(wrapper.findComponent({ name: 'AssistantConversation' }).emitted('prefill')).toBeTruthy()
-    expect(wrapper.get('form.composer textarea').element.value).toContain('比较')
-    expect(wrapper.get('button.send-command').attributes('disabled')).toBeDefined()
-    await wrapper.get('[data-testid="task-case-selector"]').setValue(['11', '12'])
-    await wrapper.get('input[value="businessModel"]').setValue(true)
-    expect(wrapper.get('button.send-command').attributes('disabled')).toBeUndefined()
-    await wrapper.get('form.composer').trigger('submit')
+    await inspector.get('[data-testid="research-task-case_comparison"]').trigger('click')
+    await inspector.get('[data-testid="task-case-selector"]').setValue(['11', '12'])
+    await inspector.get('input[value="businessModel"]').setValue(true)
+    await wrapper.get('.research-starter textarea').setValue('比较湖北人工智能案例')
+    await wrapper.get('.research-starter form').trigger('submit')
     await flushPromises()
     expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({
       requestedIntent: 'case_comparison',
@@ -657,18 +737,19 @@ describe('AssistantView research workspace', () => {
     api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
     const rewritten = mount(AssistantView)
     await flushPromises()
-    const rewrittenSelects = rewritten.findAll('.profile-fields select')
+    const rewrittenInspector = await openConditions(rewritten)
+    const rewrittenSelects = rewrittenInspector.findAll('.profile-fields select')
     await rewrittenSelects[1].setValue('42')
-    await rewritten.get('[role="combobox"]').setValue('浜哄伐鏅鸿兘搴旂敤')
+    await rewrittenInspector.get('[role="combobox"]').setValue('人工智能应用')
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
-    await rewritten.findAll('.starter-grid button')[1].trigger('click')
-    await rewritten.get('[data-testid="task-case-selector"]').setValue(['11', '12'])
-    await rewritten.get('input[value="businessModel"]').setValue(true)
-    await rewritten.get('form.composer textarea').setValue('帮我梳理下一步创业方向')
-    await rewritten.get('form.composer').trigger('submit')
+    await rewrittenInspector.get('[data-testid="research-task-case_comparison"]').trigger('click')
+    await rewrittenInspector.get('[data-testid="task-case-selector"]').setValue(['11', '12'])
+    await rewrittenInspector.get('input[value="businessModel"]').setValue(true)
+    await rewritten.get('.research-starter textarea').setValue('帮我梳理下一步创业方向')
+    await rewritten.get('.research-starter form').trigger('submit')
     await flushPromises()
 
     expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -692,12 +773,13 @@ describe('AssistantView research workspace', () => {
 
     const first = mount(AssistantView)
     await flushPromises()
-    await first.findAll('.profile-fields select')[1].setValue('42')
-    await first.get('[role="combobox"]').setValue('人工智能应用')
+    const firstInspector = await openConditions(first)
+    await firstInspector.findAll('.profile-fields select')[1].setValue('42')
+    await firstInspector.get('[role="combobox"]').setValue('人工智能应用')
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
     await first.get('textarea[aria-label="研究问题"]').setValue('请研究湖北人工智能创业机会')
-    await first.get('form.composer').trigger('submit')
+    await first.get('.research-starter form').trigger('submit')
     await flushPromises()
     const firstKey = api.start.mock.calls[0][0].idempotencyKey
     expect(first.get('[role="alert"]').text()).toContain('timeout')
@@ -708,7 +790,7 @@ describe('AssistantView research workspace', () => {
     await vi.advanceTimersByTimeAsync(420)
     await flushPromises()
     expect(second.get('textarea[aria-label="研究问题"]').element.value).toBe('请研究湖北人工智能创业机会')
-    await second.get('form.composer').trigger('submit')
+    await second.get('.research-starter form').trigger('submit')
     await flushPromises()
 
     expect(api.start.mock.calls[1][0].idempotencyKey).toBe(firstKey)
@@ -754,6 +836,73 @@ describe('AssistantView research workspace', () => {
 
     expect(api.getHistory).toHaveBeenCalledTimes(1)
     expect(api.getHistory).toHaveBeenCalledWith(expect.objectContaining({ q: '湖北' }))
+    wrapper.unmount()
+  })
+
+  it('updates the rail geometry immediately while the grid transition settles', async () => {
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    const workspace = wrapper.get('.assistant-workspace')
+    wrapper.get('.history-sidebar .sidebar-toggle').element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    await nextTick()
+
+    expect(workspace.classes()).toContain('history-motion-collapsing')
+    expect(workspace.classes()).toContain('history-collapsed')
+
+    await vi.advanceTimersByTimeAsync(500)
+    await nextTick()
+
+    expect(workspace.classes()).toContain('history-collapsed')
+    expect(workspace.classes()).toContain('history-motion-collapsing')
+
+    await vi.advanceTimersByTimeAsync(120)
+    await nextTick()
+    expect(workspace.classes()).not.toContain('history-motion-collapsing')
+
+    workspace.get('.history-sidebar .sidebar-toggle').element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    await nextTick()
+    expect(workspace.classes()).toContain('history-motion-expanding')
+    expect(workspace.classes()).not.toContain('history-collapsed')
+
+    await vi.advanceTimersByTimeAsync(500)
+    await nextTick()
+    expect(workspace.classes()).not.toContain('history-collapsed')
+    expect(workspace.classes()).not.toContain('history-motion-expanding')
+    wrapper.unmount()
+  })
+
+  it('sends an explicit false pinned value when cancelling a pinned session', async () => {
+    const pinnedSession = session({ pinned: true })
+    api.getHistory.mockResolvedValue({ items: [pinnedSession], nextCursor: null, hasMore: false })
+    api.update.mockResolvedValue({ ...pinnedSession, pinned: false })
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    await wrapper.get('.session-menu summary').trigger('click')
+    await wrapper.findAll('.session-menu-popover>button').find((button) => button.text().includes('取消置顶')).trigger('click')
+    await flushPromises()
+
+    expect(api.update).toHaveBeenCalledWith(101, { pinned: false })
+    wrapper.unmount()
+  })
+
+  it('updates the pinned group as soon as the unpin patch succeeds', async () => {
+    const pinnedSession = session({ pinned: true })
+    const refresh = deferred()
+    api.getHistory.mockResolvedValueOnce({ items: [pinnedSession], nextCursor: null, hasMore: false })
+    api.getHistory.mockReturnValueOnce(refresh.promise)
+    api.update.mockResolvedValue({ ...pinnedSession, pinned: false })
+
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+    await wrapper.get('.session-menu summary').trigger('click')
+    await wrapper.findAll('.session-menu-popover>button').find((button) => button.text().includes('取消置顶')).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.history-list h3').text()).not.toContain('置顶')
+    refresh.resolve({ items: [{ ...pinnedSession, pinned: false }], nextCursor: null, hasMore: false })
+    await flushPromises()
     wrapper.unmount()
   })
 
@@ -853,16 +1002,16 @@ describe('AssistantView research workspace', () => {
     await flushPromises()
     const processButton = wrapper.findAll('.message footer button').find((button) => button.text().includes('研究过程'))
     await processButton.trigger('click')
-    expect(document.querySelector('.citation-drawer')).not.toBeNull()
+    expect(document.querySelector('.assistant-inspector')).not.toBeNull()
 
     const sessionBRow = wrapper.findAll('.history-row-main').find((row) => row.text().includes('研究 B'))
     await sessionBRow.trigger('click')
     await flushPromises()
-    expect(document.querySelector('.citation-drawer')).toBeNull()
+    expect(document.querySelector('.assistant-inspector')).toBeNull()
 
     processA.resolve({ ...activeRun, visibleProgress: '会话 A 的研究过程' })
     await flushPromises()
-    expect(document.querySelector('.citation-drawer')).toBeNull()
+    expect(document.querySelector('.assistant-inspector')).toBeNull()
     expect(latestEventValue(wrapper, 'workspace-title')).toBe('研究 B')
     wrapper.unmount()
   })
@@ -1312,7 +1461,7 @@ describe('AssistantView research workspace', () => {
 
     await wrapper.get('.citation-trigger').trigger('click')
     await flushPromises()
-    const drawer = document.querySelector('.citation-drawer')
+    const drawer = wrapper.get('.assistant-inspector').element
     expect(drawer.textContent).toContain('湖北省政策原文')
     const link = drawer.querySelector('a')
     expect(link.getAttribute('target')).toBe('_blank')
@@ -1346,8 +1495,8 @@ describe('AssistantView research workspace', () => {
 
     expect(api.getEvidence).toHaveBeenCalledTimes(1)
     expect(api.getEvidence).toHaveBeenCalledWith(300)
-    expect(document.querySelector('.citation-drawer').textContent).toContain('历史政策证据')
-    expect(document.querySelector('.citation-drawer').textContent).not.toContain('最新运行证据')
+    expect(document.querySelector('.assistant-inspector').textContent).toContain('历史政策证据')
+    expect(document.querySelector('.assistant-inspector').textContent).not.toContain('最新运行证据')
     wrapper.unmount()
   })
 
@@ -1376,7 +1525,7 @@ describe('AssistantView research workspace', () => {
     expect(wrapper.find('.evidence-item').exists()).toBe(false)
     await wrapper.get('.evidence-summary-command').trigger('click')
     await nextTick()
-    const drawer = document.querySelector('.citation-drawer')
+    const drawer = wrapper.get('.assistant-inspector').element
     expect(drawer.textContent).toContain('研究资料')
     expect(drawer.textContent).toContain('武汉 AI 工作室')
     expect(drawer.querySelector('a[href="/cases/11"]')).not.toBeNull()
@@ -1423,10 +1572,10 @@ describe('AssistantView research workspace', () => {
     await nextTick()
 
     expect(wrapper.get('.history-sidebar').classes()).not.toContain('is-mobile-open')
-    expect(document.querySelector('.citation-drawer').textContent).toContain('研究资料')
-    document.querySelector('.citation-drawer').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(document.querySelector('.assistant-inspector').textContent).toContain('研究资料')
+    document.querySelector('.assistant-inspector').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await nextTick()
-    expect(document.querySelector('.citation-drawer')).toBeNull()
+    expect(document.querySelector('.assistant-inspector')).toBeNull()
     wrapper.unmount()
   })
 
@@ -1463,12 +1612,13 @@ describe('AssistantView research workspace', () => {
     expect(api.start).not.toHaveBeenCalled()
     expect(api.startAnalytics).not.toHaveBeenCalled()
     expect(wrapper.get('textarea[aria-label="研究问题"]').element.value).toContain('已核验案例')
+    await openConditions(wrapper)
     expect(wrapper.text()).toContain('数据看板条件')
     await vi.advanceTimersByTimeAsync(2201)
     await flushPromises()
     expect(wrapper.text()).toContain('analytics-v1:9d18c2')
 
-    await wrapper.get('form.composer').trigger('submit')
+    await starterForm(wrapper).trigger('submit')
     await flushPromises()
 
     expect(api.start).not.toHaveBeenCalled()
@@ -1504,7 +1654,7 @@ describe('AssistantView research workspace', () => {
 
     expect(api.startAnalytics).not.toHaveBeenCalled()
     expect(wrapper.get('textarea[aria-label="研究问题"]').element.value).toContain('人工智能服务')
-    await wrapper.get('form.composer').trigger('submit')
+    await starterForm(wrapper).trigger('submit')
     await flushPromises()
 
     expect(api.startAnalytics).toHaveBeenCalledWith(expect.objectContaining({
@@ -1536,12 +1686,40 @@ describe('AssistantView research workspace', () => {
 
     const wrapper = mount(AssistantView)
     await flushPromises()
-    await wrapper.get('form.composer').trigger('submit')
+    await starterForm(wrapper).trigger('submit')
     await flushPromises()
 
     expect(api.start).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('数据版本已更新，请返回数据看板刷新后重新带入研究。')
     expect(sessionStorage.getItem('opc_analytics_research_draft:user:42')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('keeps new research separate from the continuing composer and reveals conditions only on demand', async () => {
+    api.getHistory.mockResolvedValue({ items: [], nextCursor: null, hasMore: false })
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    expect(wrapper.find('.research-starter').exists()).toBe(true)
+    expect(wrapper.find('form.composer').exists()).toBe(false)
+    expect(wrapper.find('.assistant-inspector').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="open-research-conditions"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('.assistant-inspector').text()).toContain('确定本次研究边界')
+    expect(wrapper.get('.assistant-inspector').text()).toContain('研究任务')
+    wrapper.unmount()
+  })
+
+  it('uses the bottom composer only after a research session exists', async () => {
+    localStorage.setItem(SELECTED_SESSION_KEY, '101')
+    api.getSession.mockResolvedValue(detail({ session: session(), messages: [] }))
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    expect(wrapper.find('.research-starter').exists()).toBe(false)
+    expect(wrapper.get('form.composer').text()).toContain('继续研究')
     wrapper.unmount()
   })
 })

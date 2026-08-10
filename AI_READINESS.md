@@ -1,8 +1,48 @@
 # SoloFirm AI Readiness
 
+## MySQL 8.4 Testcontainers resource closure (2026-08-09)
+
+The Phase One integration fixture now has explicit test-run ownership. A validated UUID v4 from `opc.phase-one.mysql.run-id` is applied as `com.opc.phase-one.run-id`; the container is started early for Spring's dynamic JDBC properties and stopped idempotently in `@AfterAll`. The runner queries only that exact label and `mysql:8.4`, so preexisting Testcontainers sessions remain outside its cleanup scope.
+
+The reusable runner is `python scripts/run_phase_one_mysql_test.py`. It requires a fresh `80/80` Surefire report with zero failures/errors and zero containers for the current UUID before returning success. A real single test and the full `80/80` suite passed; full run `06b0c950-985b-4b53-85e4-61d2fa21b297` completed in `903.203s` (`885.353s` Surefire), with container readiness `36.812s`, Spring readiness `44.812s`, current-run count `0` and no change to the six preexisting container records. This is a local test-infrastructure correction and was not deployed.
+
+## Source-verification test-closure stability (2026-08-09)
+
+The server-owned insufficient path now has an orchestration-level regression in addition to assembler and UI coverage. A provider `final` result containing only unresolved verification claims cannot settle as `completed`: the final message, Markdown, structured result, citation list and history all use the assembled `evidence_insufficient` result. Legacy factual fields remain suppressed and publisher assessment remains unknown.
+
+The real MySQL 8.4 integration suite is intentionally DDL-heavy: 80 isolated test methods rebuild the base schema and rerun bounded idempotent migrations. Two cached-image runs passed `80/80` in `808.2s` and `766.953s`; container/Spring startup was under 37 seconds, while test execution consumed the remaining time. The former 120-second stop was an external command budget, not an Agent runtime or Docker startup failure. Run it with `python scripts/run_phase_one_mysql_test.py`; it uses a 1,200-second bound, fresh-report validation, redacted JVM diagnostics and exact-container failure cleanup.
+
+The runtime correction and test runner were released through the guarded production flow. Current release: `/opt/opc/releases/20260809-193452`; previous release: `/opt/opc/releases/20260809-150138`; backup: `/opt/opc/backups/20260809-193452`; rollback JAR: `/opt/opc-backend.rollback.20260809-193452`. This remains a Phase Three user-facing v1 / partial release; data-governance and manual browser acceptance boundaries are unchanged.
+
+## Source verification closure (2026-08-09)
+
+The source-verification result is now derived from the authorized evidence bundle rather than the model's verdict field. The server returns `insufficient` for no-claim or unresolved-only evidence, `supports` for supports-only evidence, `partially_supports` when support is mixed with unresolved claims, `does_not_support` only for authorized contradicts-only claims, and `conflicting` when supports and contradicts apply to the same claim. `evidenceCoverage.status`, `taskResult.evidenceStatus`, and `taskResult.verdict` use the same matrix.
+
+Publisher verification is also server-owned. `publisherAssessment` contains only stable fact items generated from publisher metadata already present on authorized evidence. Missing publisher metadata remains `unknown`; no inference is made from titles, URLs, user text, or model output. Existing citation allowlists, evidence revisions, availability and authorization checks remain unchanged.
+
+Closure evidence: four new boundary assertions were RED before implementation; GREEN assembler tests passed `21/21`, `AgentOrchestratorTest` `44/44`, focused Agent/assembler/report tests `80/80`, frontend Vitest `172/172`, all eight frontend contract scripts, Vite build, Spring `545` (0 failures/errors, 1 opt-in provider skip), independent MySQL 8.4 `80/80`, JAR packaging, Python migration `17/17`, deployment hardening `103/103`, syntax and repository gates all passed. Independent post-deploy preflight confirms release `/opt/opc/releases/20260809-133127`, previous release `/opt/opc/releases/20260809-024820`, backup `/opt/opc/backups/20260809-133127`, database dump `/opt/opc/backups/20260809-133127/opc_platform.sql.gz`, rollback `/opt/opc-backend.rollback.20260809-133127`, and eligible evidence counts of 121 verified sources, 51 policies and 105 cases.
+
+The guarded production probe exercised the source-verification workflow but did not independently synthesize all verdict branches or both publisher states. Those branches are covered by deterministic local tests. The release workflow rejected one transient Provider connection failure and one bounded case-comparison timeout before the final all-green switch; both failures kept production unchanged and cleaned every candidate resource. This is a Phase Three user-facing v1 / partial release; technology/revenue data-readiness and browser-based responsive/accessibility review remain explicit boundaries.
+
+## Final closure correction (2026-08-08 22:59 CST)
+
+The current worktree was validated and deployed through the guarded candidate workflow. Frontend Vitest passed `171/171` across 28 files, all eight repository frontend scripts passed, Vite transformed 1,822 modules, MySQL 8.4 Testcontainers passed `80/80`, the full Spring suite passed `532` tests with zero failures/errors and one explicit opt-in provider smoke skip, the executable JAR was packaged, migration checks passed `17/17`, deployment hardening passed `103/103`, Python syntax and repository gates passed.
+
+Production is now `/opt/opc/releases/20260808-225959`; the previous release is `/opt/opc/releases/20260808-162621`, the database backup is `/opt/opc/backups/20260808-225959/opc_platform.sql.gz`, and the backend rollback artifact is `/opt/opc-backend.rollback.20260808-225959`. Candidate policy, case-comparison and source-verification probes completed with authorized citations, bounded tool sequences, settled actual usage and no unknown citations. Post-switch report/export, owner isolation, preference consent/delete, feedback CAS, Analytics snapshot ownership, admin quality authorization and public/health/anonymous-auth probes passed.
+
+This is a **Phase Three user-facing v1 / partial release**. Technology and revenue remain honestly unavailable until verified, normalized data reaches the documented threshold. No new migration was added in this round; the existing additive Phase Three migrations were rechecked and applied by the guarded deployment. Browser responsive, keyboard and assistive-technology review remains manual acceptance work.
+
 ## Phase Three User-Facing v1 Release Evidence (2026-08-08)
 
 The release gate is now supported by current command evidence: frontend Vitest `157/157`, all eight repository frontend contract scripts, MySQL 8.4 Testcontainers `80/80`, Spring Boot `509` with `0` failures and `0` errors (`1` explicitly opt-in real-provider smoke skip), executable JAR packaging, migration Python tests `17/17`, deployment hardening `103/103`, Python syntax compilation, and `git diff --check`.
+
+## 2026-08-11 Release Gate Status
+
+The release gate is green after the Assistant workspace and unpin corrections. Current evidence is frontend Vitest `32` files / `210` tests, all eight frontend scripts, Vite `1836` modules, Spring `549` with `0` failures/errors and `1` opt-in skip, MySQL 8.4 Testcontainers `81/81` with no owned-container leak, executable JAR packaging, Python `133` with seven opt-in skips, migration checks `17/17`, deployment hardening `103/103`, syntax, diff, high-confidence credential, artifact and ignore checks.
+
+The production Agent terminal gate is intentionally narrow for this UI-focused delivery: it executes one real `source_verification` path and validates only current-Run source evidence. The three candidate scenarios still cover policy, case comparison and source verification. The successful production probe used three rounds, three tools, one source citation and `17,935` tokens, below the configured `28,000` ceiling.
+
+Release `/opt/opc/releases/20260811-003256` is live. Backup `/opt/opc/backups/20260811-003256`, database dump `/opt/opc/backups/20260811-003256/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260811-003256`, and previous `/opt/opc/releases/20260810-183007` are retained. Independent postflight confirmed public, Assistant, administrator, health and static Assistant asset HTTP 200 responses, active services and a loopback-only backend listener.
 
 The guarded deploy completed successfully. It ran isolated policy, case-comparison, and source-verification candidate probes before any production switch, then executed additive Phase Three migration precheck/migration/postcheck groups, created a timestamped backup, atomically switched production to `/opt/opc/releases/20260808-162621`, and retained the prior target `/opt/opc/releases/20260807-173031` plus `/opt/opc-backend.rollback.20260808-162621`. The database backup is `/opt/opc/backups/20260808-162621/opc_platform.sql.gz`.
 
@@ -252,3 +292,49 @@ The current readiness boundary is still narrower than “Phase Three product com
 Local verification is complete for the present worktree: Spring Boot `444` tests with `0` failures/`0` errors and `1` skipped opt-in real DeepSeek smoke, MySQL 8.4 `76/76`, frontend Vitest `119/119`, all existing frontend npm scripts, the Vite production build, and Spring Boot executable JAR packaging. This section does not claim Python deployment/migration verification, remote preflight, rollout, rollback, or production probes, because those command results were not captured in this round.
 
 Therefore the engineering readiness state is: local implementation ready for deployment preparation, but not yet production-ready by evidence standard. The last production baseline remains the deployed Phase Two runtime until a credentialed Phase Three deployment, migration, and postdeploy probe round is actually executed and recorded.
+
+## Source Verification Insufficient-State Closure (2026-08-09)
+
+The runtime now treats a server-derived `source_verification` verdict of `insufficient` as an authoritative content boundary, regardless of provider action. When verification claims are absent or unresolved-only, the persisted and rendered result contains no factual answer, key findings, recommendations, risks, assumptions, uncertainties, next questions or citations. Only source-free methodology invalidity reasons may explain unresolved claims. Evidence coverage is internally consistent (`insufficient`, zero fact counts, null ratio) and publisher assessment remains unknown.
+
+This is implemented without a schema or migration change. Focused and full local verification passed, including MySQL 8.4 Testcontainers `80/80`; production readiness still requires the guarded deployment and postflight evidence described by the deployment runbook.
+
+## Source Verification Production Release (2026-08-09)
+
+The guarded candidate and production probes passed after the insufficient-state closure. Release `/opt/opc/releases/20260809-150138` is current, with backup `/opt/opc/backups/20260809-150138`, database dump `/opt/opc/backups/20260809-150138/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260809-150138`, and previous release `/opt/opc/releases/20260809-133127`. No database migration was added in this round.
+
+Independent postflight confirmed public and admin routes, Assistant, health, anonymous `code=401` envelopes, local/deployed frontend hash parity, and zero candidate resources. The deployed source-verification probe completed with authorized evidence and zero unknown citations. Manual browser inspection remains user-owned; this round did not use Playwright.
+
+## Assistant Research Workspace Phase Four (2026-08-10)
+
+The Assistant user surface is now a research workbench rather than a persistent status dashboard. It preserves the existing runtime readiness boundary while moving low-frequency profile, citation, process, report, model, and Token detail behind one on-demand Inspector. History, draft isolation, first-send creation, current-Run authorization, controlled terminal states, and all API response shapes remain unchanged.
+
+The visual delivery passed Spring `547` (0 failures/errors, 1 opt-in skip), isolated MySQL 8.4 `80/80` with no owned-container leak, explicit migration tests `7/7`, Vitest `191/191`, eight frontend contracts, both production artifacts, Python `133/133` with seven opt-in skips, and repository gates. One formal deployment switched `/opt/opc/current` to `/opt/opc/releases/20260810-112153`; backup `/opt/opc/backups/20260810-112153`, rollback `/opt/opc-backend.rollback.20260810-112153`, previous `/opt/opc/releases/20260809-193452`. Public/admin/Assistant/health/static/auth postflight and candidate cleanup passed. This does not claim that manual visual acceptance was automated; Playwright remains intentionally unused.
+
+## Assistant Motion Refinement (2026-08-10, Local Only)
+
+The Assistant retains its deployed Phase Four runtime/data boundary while gaining a restrained motion pass across menus, off-canvas history/Inspector surfaces, sidebar folding, close actions, toasts, run-stage replacement, and existing buttons. The refinement is CSS/Vue interaction behavior only; it changes no provider, tool, API contract, research result, authorization, citation, report, draft, or quota behavior.
+
+The visual review corrected the sidebar fold's retained edge so the left 64px command rail stays visible all the way through the transition. The initial pointer refinement used existing 120-240ms tokens; the later desktop history/mobile drawer continuity transition uses the requested 500ms. Keyboard open/close behavior stays immediate; fine-pointer hover is gated; and reduced motion disables spatial transitions. Focus management and existing a11y semantics remain intact.
+
+Focused history/workspace Vitest passed `15/15`; the completed motion suite passed `109/109`, complete frontend Vitest passed `198/198`, all eight frontend scripts and Vite production build passed. No deployment was attempted for this local refinement: production continues to serve `/opt/opc/releases/20260810-112153` with its existing backup and rollback artifacts.
+
+## Assistant Motion Refinement Production Release (2026-08-10)
+
+After explicit authorization, one guarded deployment passed the isolated candidate/Agent gate, additive/resumable migration checks, timestamped backup, atomic current-link switch, and cleanup. Production now serves `/opt/opc/releases/20260810-130518`; backup `/opt/opc/backups/20260810-130518`, database dump `/opt/opc/backups/20260810-130518/opc_platform.sql.gz`, rollback `/opt/opc-backend.rollback.20260810-130518`, and previous `/opt/opc/releases/20260810-112153` are retained.
+
+Independent postflight confirmed HTTP 200 responses for the public, Assistant, admin, health, and deployed static asset endpoints. The remote current link, three active services, loopback-only 8082 listener, `opc` backend user, and zero candidate unit/environment/database residues were verified. Manual responsive visual acceptance remains the only user-owned acceptance activity; Playwright was not used.
+
+## Assistant 500ms Motion Continuity Release (2026-08-10)
+
+The workbench runtime/data boundary remains unchanged. The only additional frontend behavior is a staged 500ms pointer transition for the desktop history rail and mobile history drawer: the layout state switches once, then the cover and research desk coordinate with `transform` and `opacity`. This removes layout-thrashing from the reading column while retaining the established 64px collapsed command rail.
+
+The fold path marks extended history content `inert` and `aria-hidden` until it settles, and pointer selection of a mobile history item now follows the same exit transition as the drawer controls. Keyboard invocation remains immediate, reduced motion disables spatial movement, and no Provider/tool/API/research/citation/report/draft/quota contract changes exist.
+
+Targeted history/workspace Vitest passed `20/20`; full frontend Vitest passed `32/32` files and `203/203` tests; the eight package scripts, Vite (`1836` modules), Spring Boot `547` tests (`0` failures, `0` errors, `1` skip) and package, MySQL 8.4 Testcontainers, Python (`126` passed, `7` skipped), syntax, diff, credential, artifact, and ignore gates passed before the one guarded rollout. Production now serves `/opt/opc/releases/20260810-155624`; backup `/opt/opc/backups/20260810-155624`, database dump `/opt/opc/backups/20260810-155624/opc_platform.sql.gz`, rollback `/opt/opc-backend.rollback.20260810-155624`, and previous `/opt/opc/releases/20260810-130518` remain available. Postflight confirmed public/admin/Assistant/health/static HTTP 200, active services, loopback-only 8082, and zero candidate residues.
+
+## Assistant Inspector And Motion Finish (2026-08-10)
+
+The inline authorized-evidence source hash is now a controlled route into the current Run's real citation Inspector. It intercepts only evidence authorized for that Run; ordinary external links retain normal navigation. The report Inspector's top spacing matches the shared surface, and the desktop rail's 500ms transition uses only a pseudo-element boundary while its static border is transparent, preventing double-border tearing. The implementation was developed through public-behavior RED/GREEN coverage and does not alter Provider, tool, API, research, citation authorization, report data, draft, quota, SQL, or JAR behavior.
+
+Frontend Vitest passed `32` files / `206` tests, seven npm package scripts, and Vite (`1836` modules). Spring passed `547` tests with `0` failures/errors and `1` skipped, including MySQL 8.4 Testcontainers `80/80`; JAR packaging, Python `133` with `7` skips, explicit MySQL `7/7`, syntax, diff, secret, artifact, and `.codegraph/` checks passed. One frontend-only atomic release switched production to `/opt/opc/releases/20260810-183007` with frontend hash `4ba885...c54b`; `/opt/opc/releases/20260810-155624` remains the atomic rollback release. No migration or new database backup was required. Public, `/assistant`, administrator login/settings, `/api/health`, and new JavaScript/CSS assets returned HTTP 200; services are active, Nginx is valid, and 8082 remains loopback-only.

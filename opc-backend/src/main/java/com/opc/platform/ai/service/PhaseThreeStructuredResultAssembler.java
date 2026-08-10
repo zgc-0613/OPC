@@ -18,6 +18,9 @@ import java.util.Set;
 /** Converts the provider-compatible v2 synthesis payload into the frozen Phase Three v1 result. */
 final class PhaseThreeStructuredResultAssembler {
 
+    private static final String SOURCE_VERIFICATION_INSUFFICIENT_ANSWER =
+            "当前没有足够的授权证据完成来源核验结论。";
+
     private static final List<String> CASE_SECTIONS = List.of(
             "businessModel", "targetCustomers", "revenueModel", "costsAndResources",
             "technicalRoute", "successFactors", "replicableElements",
@@ -36,9 +39,11 @@ final class PhaseThreeStructuredResultAssembler {
     );
 
     private final ObjectMapper objectMapper;
+    private final SourceVerificationVerdictService sourceVerificationVerdictService;
 
     PhaseThreeStructuredResultAssembler(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+        this.sourceVerificationVerdictService = new SourceVerificationVerdictService();
     }
 
     JsonNode assemble(
@@ -51,19 +56,41 @@ final class PhaseThreeStructuredResultAssembler {
         String taskType = taskContext.path("taskType").asText("");
         if (!AgentResearchContract.REQUESTED_INTENTS.contains(taskType) || "auto".equals(taskType)) invalid();
         String confidence = confidence(legacy.path("confidence").asDouble());
+        SourceVerificationVerdictService.Decision sourceVerificationDecision =
+                "source_verification".equals(taskType)
+                        ? sourceVerificationVerdictService.decide(action, legacy, evidence)
+                        : null;
+        boolean sourceVerificationInsufficient = sourceVerificationDecision != null
+                && "insufficient".equals(sourceVerificationDecision.verdict());
         ObjectNode result = objectMapper.createObjectNode();
         result.put("schemaVersion", "phase3-structured-result-v1");
         result.put("taskType", taskType);
-        result.put("directAnswer", legacy.path("directAnswer").asText());
-        ArrayNode keyFindings = convertStatements(legacy.path("keyFindings"), "finding", confidence);
+        result.put("directAnswer", sourceVerificationInsufficient
+                ? SOURCE_VERIFICATION_INSUFFICIENT_ANSWER
+                : legacy.path("directAnswer").asText());
+        ArrayNode keyFindings = sourceVerificationInsufficient
+                ? objectMapper.createArrayNode()
+                : convertStatements(legacy.path("keyFindings"), "finding", confidence);
         result.set("keyFindings", keyFindings);
-        result.set("recommendations", convertRecommendations(legacy.path("recommendations"), confidence));
-        result.set("risks", convertTextClaims(legacy.path("risks"), "risk", "inference", confidence));
-        result.set("assumptions", convertTextClaims(legacy.path("assumptions"), "assumption", "methodology", confidence));
-        result.set("uncertainties", convertTextClaims(legacy.path("uncertainties"), "uncertainty", "methodology", confidence));
-        result.set("nextQuestions", legacy.path("nextQuestions").deepCopy());
+        result.set("recommendations", sourceVerificationInsufficient
+                ? objectMapper.createArrayNode()
+                : convertRecommendations(legacy.path("recommendations"), confidence));
+        result.set("risks", sourceVerificationInsufficient
+                ? objectMapper.createArrayNode()
+                : convertTextClaims(legacy.path("risks"), "risk", "inference", confidence));
+        result.set("assumptions", sourceVerificationInsufficient
+                ? objectMapper.createArrayNode()
+                : convertTextClaims(legacy.path("assumptions"), "assumption", "methodology", confidence));
+        result.set("uncertainties", sourceVerificationInsufficient
+                ? objectMapper.createArrayNode()
+                : convertTextClaims(legacy.path("uncertainties"), "uncertainty", "methodology", confidence));
+        result.set("nextQuestions", sourceVerificationInsufficient
+                ? objectMapper.createArrayNode()
+                : legacy.path("nextQuestions").deepCopy());
 
-        ArrayNode citations = citations(legacy.path("citations"), evidence);
+        ArrayNode citations = sourceVerificationInsufficient
+                ? objectMapper.createArrayNode()
+                : citations(legacy.path("citations"), evidence);
         result.set("citations", citations);
         result.set("taskSelectedEvidence", selectedEvidence(taskType, taskContext));
         result.set("authorizedEvidence", authorizedEvidence(evidence));
@@ -71,9 +98,13 @@ final class PhaseThreeStructuredResultAssembler {
         result.put("evidenceVersion", evidenceVersion);
         result.putNull("dataVersion");
         result.put("generatedAt", OffsetDateTime.now(ZoneOffset.UTC).toString());
-        result.set("taskResult", taskResult(taskType, action, taskContext, legacy, evidence, confidence));
+        result.set("taskResult", taskResult(
+                taskType, taskContext, legacy, evidence, confidence, sourceVerificationDecision));
 
-        ensureCitationUse(result, legacy.path("citations"), keyFindings, confidence);
+        ensurePublisherCitationCoverage(result, citations, evidence);
+        if (!sourceVerificationInsufficient) {
+            ensureCitationUse(result, legacy.path("citations"), keyFindings, confidence);
+        }
         validateSelectedEvidence(result);
         validateClaimsAndProvenance(result, evidence);
         result.set("evidenceCoverage", evidenceCoverage(result, citations));
@@ -82,11 +113,11 @@ final class PhaseThreeStructuredResultAssembler {
 
     private ObjectNode taskResult(
             String taskType,
-            String action,
             JsonNode taskContext,
             JsonNode legacy,
             PhaseThreeEvidenceBundle evidence,
-            String confidence
+            String confidence,
+            SourceVerificationVerdictService.Decision sourceVerificationDecision
     ) {
         return switch (taskType) {
             case "case_analysis" -> caseAnalysis(taskContext, legacy, evidence, confidence);
@@ -94,7 +125,7 @@ final class PhaseThreeStructuredResultAssembler {
             case "technology_assessment" -> technologyAssessment(taskContext, legacy, evidence, confidence);
             case "policy_lookup" -> policyLookup(legacy, evidence, confidence);
             case "source_verification" -> sourceVerification(
-                    action, taskContext, legacy, evidence, confidence);
+                    taskContext, sourceVerificationDecision, evidence, confidence);
             case "general_research" -> generalResearch(legacy, confidence);
             default -> throw invalidException();
         };
@@ -178,6 +209,16 @@ final class PhaseThreeStructuredResultAssembler {
         } else {
             technology.putNull("text");
         }
+        ObjectNode assessmentContext = result.putObject("assessmentContext");
+        copyOptionalText(taskContext, assessmentContext, "technologyText");
+        copyOptionalText(taskContext, assessmentContext, "applicationScenario");
+        copyOptionalText(taskContext, assessmentContext, "teamCapabilities");
+        copyOptionalText(taskContext, assessmentContext, "timeline");
+        copyOptionalText(taskContext, assessmentContext, "existingResources");
+        copyOptionalText(taskContext, assessmentContext, "constraints");
+        if (taskContext.path("technologyTagId").isIntegralNumber()) {
+            assessmentContext.put("technologyTagId", taskContext.path("technologyTagId").asLong());
+        }
         ArrayNode dimensions = result.putArray("dimensions");
         for (String dimension : List.of("maturity", "scenario_fit", "implementation_complexity")) {
             ObjectNode item = dimensions.addObject();
@@ -204,6 +245,12 @@ final class PhaseThreeStructuredResultAssembler {
         return result;
     }
 
+    private void copyOptionalText(JsonNode source, ObjectNode target, String field) {
+        if (source.path(field).isTextual() && !source.path(field).asText().isBlank()) {
+            target.put(field, source.path(field).asText());
+        }
+    }
+
     private ObjectNode policyLookup(JsonNode legacy, PhaseThreeEvidenceBundle evidence, String confidence) {
         ObjectNode result = objectMapper.createObjectNode();
         result.put("type", "policy_lookup");
@@ -218,23 +265,88 @@ final class PhaseThreeStructuredResultAssembler {
     }
 
     private ObjectNode sourceVerification(
-            String action,
             JsonNode taskContext,
-            JsonNode legacy,
+            SourceVerificationVerdictService.Decision decision,
             PhaseThreeEvidenceBundle evidence,
             String confidence
     ) {
+        if (decision == null) invalid();
         boolean selected = taskContext.path("sourceId").isIntegralNumber();
         ObjectNode result = objectMapper.createObjectNode();
         result.put("type", "source_verification");
         result.put("mode", selected ? "selected_source" : "claim_search");
         if (selected) result.put("sourceId", taskContext.path("sourceId").asLong());
         else result.putNull("sourceId");
-        result.put("verdict", "evidence_insufficient".equals(action) ? "insufficient" : "supports");
-        for (String field : SOURCE_SECTIONS) {
-            result.set(field, unknownSection("该核验维度没有额外的结构化证据。"));
+        result.put("verdict", decision.verdict());
+        result.put("verdictExplanation", decision.explanation());
+        result.put("evidenceStatus", decision.evidenceStatus());
+
+        ArrayNode supported = objectMapper.createArrayNode();
+        ArrayNode unsupported = objectMapper.createArrayNode();
+        ArrayNode invalidityReasons = objectMapper.createArrayNode();
+        int index = 0;
+        for (SourceVerificationVerdictService.Assessment assessment : decision.assessments()) {
+            ObjectNode claim = verificationClaim("verification_" + (++index), assessment);
+            if ("supports".equals(assessment.relation())) supported.add(claim);
+            else if ("contradicts".equals(assessment.relation())) unsupported.add(claim);
+            else invalidityReasons.add(claim.deepCopy());
         }
+        ArrayNode conflicts = objectMapper.createArrayNode();
+        for (SourceVerificationVerdictService.Conflict conflict : decision.conflicts()) {
+            ObjectNode claim = conflicts.addObject();
+            claim.put("id", "conflict_" + conflict.claimId());
+            claim.put("kind", "fact");
+            claim.put("text", conflict.text());
+            setIds(claim.putArray("sourceIds"), conflict.sourceIds());
+            claim.put("confidence", confidence);
+            claim.put("missingEvidence", false);
+        }
+        result.set("publisherAssessment", publisherAssessment(decision, evidence));
+        result.set("supportedClaims", evidenceSection(supported, "当前没有已支持的主张。"));
+        result.set("unsupportedClaims", evidenceSection(unsupported, "当前没有不支持或待确认的主张。"));
+        result.set("conflicts", evidenceSection(conflicts, "当前授权来源中未发现同一关键主张的冲突。"));
+        result.set("invalidityReasons", evidenceSection(invalidityReasons, "当前没有额外的来源失效说明。"));
         return result;
+    }
+
+    private ObjectNode publisherAssessment(
+            SourceVerificationVerdictService.Decision decision,
+            PhaseThreeEvidenceBundle evidence
+    ) {
+        if ("insufficient".equals(decision.evidenceStatus())) {
+            return unknownSection("当前证据不足，不能核验发布者信息。");
+        }
+        ArrayNode items = objectMapper.createArrayNode();
+        evidence.sources().stream()
+                .filter(source -> source.publisher() != null && !source.publisher().isBlank())
+                .sorted(java.util.Comparator.comparingLong(PhaseThreeEvidenceBundle.SourceEvidence::id))
+                .forEach(source -> {
+                    ObjectNode item = items.addObject();
+                    item.put("id", "publisher_" + source.id());
+                    item.put("kind", "fact");
+                    item.put("text", source.publisher());
+                    setIds(item.putArray("sourceIds"), List.of(source.id()));
+                    item.put("confidence", "high");
+                    item.put("missingEvidence", false);
+                });
+        if (items.isEmpty()) {
+            return unknownSection("来源记录未提供发布者信息，无法核验发布者。" );
+        }
+        return evidenceSection(items, "");
+    }
+
+    private ObjectNode verificationClaim(
+            String id,
+            SourceVerificationVerdictService.Assessment assessment
+    ) {
+        ObjectNode claim = objectMapper.createObjectNode();
+        claim.put("id", id);
+        claim.put("kind", "unresolved".equals(assessment.relation()) ? "methodology" : "fact");
+        claim.put("text", assessment.text());
+        setIds(claim.putArray("sourceIds"), assessment.sourceIds());
+        claim.put("confidence", "unresolved".equals(assessment.relation()) ? "low" : "high");
+        claim.put("missingEvidence", assessment.sourceIds().isEmpty());
+        return claim;
     }
 
     private ObjectNode generalResearch(JsonNode legacy, String confidence) {
@@ -351,16 +463,65 @@ final class PhaseThreeStructuredResultAssembler {
             if (!unique.add(sourceId)) invalid();
             PhaseThreeEvidenceBundle.SourceEvidence source = evidence.source(sourceId);
             if (source == null) invalid();
-            ObjectNode citation = result.addObject();
-            citation.put("sourceId", sourceId);
-            citation.put("title", source.title());
-            if (source.publisher() == null) citation.putNull("publisher");
-            else citation.put("publisher", source.publisher());
-            citation.put("url", source.url());
-            citation.put("evidenceRevision", source.evidenceRevision());
-            citation.put("availability", "current");
+            appendCitation(result, source);
         }
         return result;
+    }
+
+    private void ensurePublisherCitationCoverage(
+            ObjectNode result,
+            ArrayNode citations,
+            PhaseThreeEvidenceBundle evidence
+    ) {
+        if (!"source_verification".equals(result.path("taskType").asText())) return;
+        Set<Long> citationIds = new LinkedHashSet<>(ids(citations, "sourceId"));
+        Set<Long> nonPublisherClaimSources = nonPublisherClaimSources(result);
+        JsonNode items = result.path("taskResult").path("publisherAssessment").path("items");
+        for (JsonNode item : items) {
+            for (long sourceId : ids(item.path("sourceIds"))) {
+                if (nonPublisherClaimSources.contains(sourceId)) continue;
+                if (!citationIds.add(sourceId)) continue;
+                if (citations.size() >= AgentResearchContract.MAX_CITATIONS) invalid();
+                PhaseThreeEvidenceBundle.SourceEvidence source = evidence.source(sourceId);
+                if (source == null) invalid();
+                appendCitation(citations, source);
+            }
+        }
+    }
+
+    private Set<Long> nonPublisherClaimSources(JsonNode result) {
+        Set<Long> sourceIds = new LinkedHashSet<>();
+        collectNonPublisherClaimSources(result, sourceIds);
+        return sourceIds;
+    }
+
+    private void collectNonPublisherClaimSources(JsonNode value, Set<Long> target) {
+        if (value == null) return;
+        if (value.isObject() && value.path("id").isTextual() && value.path("kind").isTextual()
+                && value.path("sourceIds").isArray()) {
+            target.addAll(ids(value.path("sourceIds")));
+            return;
+        }
+        if (value.isObject()) {
+            value.fields().forEachRemaining(entry -> {
+                if (!"publisherAssessment".equals(entry.getKey())) {
+                    collectNonPublisherClaimSources(entry.getValue(), target);
+                }
+            });
+        } else {
+            value.elements().forEachRemaining(child -> collectNonPublisherClaimSources(child, target));
+        }
+    }
+
+    private void appendCitation(ArrayNode target, PhaseThreeEvidenceBundle.SourceEvidence source) {
+        ObjectNode citation = target.addObject();
+        citation.put("sourceId", source.id());
+        citation.put("title", source.title());
+        if (source.publisher() == null || source.publisher().isBlank()) citation.putNull("publisher");
+        else citation.put("publisher", source.publisher());
+        citation.put("url", source.url());
+        citation.put("evidenceRevision", source.evidenceRevision());
+        citation.put("availability", "current");
     }
 
     private ObjectNode selectedEvidence(String taskType, JsonNode taskContext) {
@@ -487,6 +648,8 @@ final class PhaseThreeStructuredResultAssembler {
         coverage.put("factClaimCount", factCount);
         coverage.put("citedFactClaimCount", citedFactCount);
         coverage.put("missingEvidenceFactCount", missing);
+        String status = result.path("taskResult").path("evidenceStatus").asText("");
+        if (!status.isBlank()) coverage.put("status", status);
         if (factCount == 0) coverage.putNull("ratio");
         else coverage.put("ratio", (double) citedFactCount / factCount);
         return coverage;
@@ -505,7 +668,13 @@ final class PhaseThreeStructuredResultAssembler {
             target.add(value);
             return;
         }
-        value.elements().forEachRemaining(child -> collectClaims(child, target));
+        if (value.isObject()) {
+            value.fields().forEachRemaining(entry -> {
+                collectClaims(entry.getValue(), target);
+            });
+        } else {
+            value.elements().forEachRemaining(child -> collectClaims(child, target));
+        }
     }
 
     private int evidenceSections(JsonNode root) {

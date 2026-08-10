@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 
 import AssistantConversation from '@/components/assistant/AssistantConversation.vue'
@@ -98,6 +98,44 @@ describe('AssistantConversation incoming scroll behavior', () => {
     expect(messages[1].html()).not.toContain('href="#evidence-301-2"')
   })
 
+  it('opens only an authorized inline evidence link through the citations event', async () => {
+    const message = {
+      messageId: 11,
+      role: 'assistant',
+      runId: 301,
+      content: '[授权来源](#evidence-301-2) [外部来源](https://example.com) [不可用来源](#evidence-301-3) [不可信来源](#evidence-999-2)',
+      citations: [{ sourceId: 2 }],
+    }
+    const wrapper = mount(AssistantConversation, {
+      props: {
+        evidenceRunId: 301,
+        evidenceItems: [
+          { itemType: 'source', itemId: 2, sourceId: 2, available: true, citationId: '301:2:1' },
+          { itemType: 'source', itemId: 3, sourceId: 3, available: false, citationId: '301:3:2' },
+        ],
+        messages: [message],
+      },
+    })
+
+    const links = wrapper.findAll('.assistant-markdown a')
+    const authorized = links.find((link) => link.attributes('href') === '#evidence-301-2')
+    const external = links.find((link) => link.attributes('href') === 'https://example.com')
+    const unavailable = links.find((link) => link.text() === '不可用来源')
+    const untrusted = links.find((link) => link.text() === '不可信来源')
+    expect(authorized).toBeTruthy()
+    expect(external).toBeTruthy()
+    expect(unavailable?.attributes('href')).toBeUndefined()
+    expect(untrusted?.attributes('href')).toBeUndefined()
+
+    await authorized.trigger('click')
+    expect(wrapper.emitted('citations')).toEqual([[message, 2]])
+
+    await external.trigger('click')
+    await unavailable.trigger('click')
+    await untrusted.trigger('click')
+    expect(wrapper.emitted('citations')).toHaveLength(1)
+  })
+
   it('follows incoming messages only when the reader was already near the bottom', async () => {
     const wrapper = mount(AssistantConversation, { props: { messages: [] } })
     const transcript = wrapper.get('.conversation').element
@@ -123,5 +161,23 @@ describe('AssistantConversation incoming scroll behavior', () => {
 
     expect(transcript.scrollTo).not.toHaveBeenCalled()
     expect(wrapper.get('.jump-bottom').text()).toContain('回到底部')
+  })
+
+  it('announces clipboard failures instead of claiming a successful copy', async () => {
+    const originalClipboard = navigator.clipboard
+    const writeText = vi.fn().mockRejectedValue(new Error('clipboard denied'))
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    try {
+      const wrapper = mount(AssistantConversation, {
+        props: { messages: [{ messageId: 7, role: 'assistant', content: '需要复制的回答' }] },
+      })
+      await wrapper.get('.message footer button').trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledWith('需要复制的回答')
+      expect(wrapper.get('[role="alert"]').text()).toContain('复制失败')
+      expect(wrapper.get('.message footer button').text()).toContain('复制回答')
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: originalClipboard })
+    }
   })
 })

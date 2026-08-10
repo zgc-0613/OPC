@@ -2712,8 +2712,8 @@ FROM platform_users WHERE username = '{ai_qa_peer_username}' LIMIT 1;
             ai_settings_data = enabled_agent_data
             agent_rollout_enabled_by_deploy = True
             agent_question = (
-                "请检索湖北省及武汉市已核验的人工智能创业案例和适用政策，"
-                "比较证据并给出结合10万元以内预算的优先行动建议。"
+                "仅完成一次来源核验：先检索湖北省及武汉市人工智能应用创业政策，"
+                "再从本次检索返回的来源中选择一个编号核验；只给出一条简短、带该来源引用的结论。"
             )
             agent_start_payload = {
                 "profile": {
@@ -2723,10 +2723,11 @@ FROM platform_users WHERE username = '{ai_qa_peer_username}' LIMIT 1;
                     "industry": "人工智能应用",
                     "stage": "validation",
                     "budgetRange": "under_100k",
-                    "goal": "结合本地案例、政策和预算形成优先行动建议",
+                    "goal": "核验一个本地创业政策来源",
                     "resources": "具备产品开发能力，尚无稳定渠道",
                 },
                 "content": agent_question,
+                "requestedIntent": "source_verification",
                 "idempotencyKey": f"deploy-agent-{stamp.replace('-', '')}",
             }
             _, agent_start_body = request_json(
@@ -2796,7 +2797,11 @@ FROM platform_users WHERE username = '{ai_qa_peer_username}' LIMIT 1;
             if agent_evidence_body.get("code") != 200:
                 raise RuntimeError("Production Agent evidence endpoint failed")
             agent_evidence_data = agent_evidence_body.get("data") or {}
-            validate_agent_evidence_probe(agent_evidence_data, expected_run_id=int(agent_run_id))
+            validate_agent_evidence_probe(
+                agent_evidence_data,
+                expected_run_id=int(agent_run_id),
+                required_types=("source",),
+            )
             agent_run_id_sql = int(agent_run_id)
             _, agent_audit_output, _ = database_command(
                 client,
@@ -2841,6 +2846,7 @@ FROM platform_users WHERE username = '{ai_qa_peer_username}' LIMIT 1;
                 raise RuntimeError("Production Agent database audit is incomplete")
             agent_probe = {
                 "question": agent_question,
+                "requested_intent": agent_start_payload["requestedIntent"],
                 "run_id": int(agent_run_id),
                 "session_id": int(agent_session_id),
                 "status": agent_audit[0],
@@ -2860,8 +2866,7 @@ FROM platform_users WHERE username = '{ai_qa_peer_username}' LIMIT 1;
                 "internal_request_id": agent_audit[13],
                 "provider_call_count": int(agent_audit[14]),
                 "unknown_citation_count": int(agent_audit[15]),
-                "case_evidence_count": int((agent_evidence_data.get("groups") or {}).get("case") or 0),
-                "policy_evidence_count": int((agent_evidence_data.get("groups") or {}).get("policy") or 0),
+                "source_evidence_count": int((agent_evidence_data.get("groups") or {}).get("source") or 0),
             }
             if agent_probe["citation_count"] != int(agent_audit[12]):
                 raise RuntimeError("Production Agent API and database citation counts differ")

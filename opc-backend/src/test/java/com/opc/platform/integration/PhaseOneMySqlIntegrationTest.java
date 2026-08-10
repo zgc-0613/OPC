@@ -67,6 +67,7 @@ import com.opc.platform.source.service.SourceService;
 import com.opc.platform.tag.service.IndustryTagService;
 import com.opc.platform.userauth.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -91,8 +92,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -119,16 +122,39 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PhaseOneMySqlIntegrationTest {
 
     private static final LocalDateTime SNAPSHOT_TIME = LocalDateTime.of(2026, 7, 25, 3, 0);
+    private static final String RUN_ID_PROPERTY = "opc.phase-one.mysql.run-id";
+    private static final String RUN_ID_LABEL = "com.opc.phase-one.run-id";
+    private static final String RUN_ID_PATTERN = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$";
+    private static final String RUN_ID = resolveRunId();
 
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
             .withDatabaseName("opc_phase_one_test")
             .withUsername("opc_test")
             .withPassword("opc_test")
-            .withCommand("--transaction-isolation=READ-COMMITTED", "--innodb-lock-wait-timeout=5");
+            .withCommand("--transaction-isolation=READ-COMMITTED", "--innodb-lock-wait-timeout=5")
+            .withLabel(RUN_ID_LABEL, RUN_ID);
 
     static {
         MYSQL.start();
+    }
+
+    @AfterAll
+    static void stopMysqlContainer() {
+        if (MYSQL.isRunning()) {
+            MYSQL.stop();
+        }
+    }
+
+    private static String resolveRunId() {
+        String configured = System.getProperty(RUN_ID_PROPERTY);
+        if (configured == null || configured.isBlank()) {
+            return UUID.randomUUID().toString();
+        }
+        if (!configured.matches(RUN_ID_PATTERN)) {
+            throw new IllegalArgumentException("opc.phase-one.mysql.run-id must be a UUID v4");
+        }
+        return configured.toLowerCase(Locale.ROOT);
     }
 
     @DynamicPropertySource
@@ -574,6 +600,34 @@ class PhaseOneMySqlIntegrationTest {
         assertEquals(List.of(31L), agentSessionHistoryService
                 .history(other, "active", "", otherCursor, 1).items().stream()
                 .map(item -> item.sessionId()).toList());
+    }
+
+    @Test
+    void unpinningASessionRemovesItFromThePinnedHistoryGroup() throws Exception {
+        createAgentUserTable();
+        runAgentRuntimeWorkspaceMigrations();
+        jdbc.update("INSERT INTO platform_users (id,username,email,status) VALUES (42,'owner','owner@example.com','active')");
+        jdbc.update("""
+                INSERT INTO ai_agent_sessions
+                    (id,user_id,title,title_mode,status,pinned_at,created_at)
+                VALUES (10,42,'Pin lifecycle','manual','active',NULL,'2026-07-25 12:00:00')
+                """);
+
+        AuthenticatedUser owner = new AuthenticatedUser(42L, "owner", "owner@example.com");
+        AgentSessionUpdateDTO pin = new AgentSessionUpdateDTO();
+        pin.setPinned(true);
+        agentSessionHistoryService.update(owner, 10L, pin);
+        assertTrue(agentSessionHistoryService.history(owner, "active", "", null, 10)
+                .items().get(0).pinned());
+
+        AgentSessionUpdateDTO unpin = new AgentSessionUpdateDTO();
+        unpin.setPinned(false);
+        agentSessionHistoryService.update(owner, 10L, unpin);
+
+        assertEquals(false, agentSessionHistoryService.history(owner, "active", "", null, 10)
+                .items().get(0).pinned());
+        assertEquals(null, jdbc.queryForObject(
+                "SELECT pinned_at FROM ai_agent_sessions WHERE id=10", LocalDateTime.class));
     }
 
     @Test

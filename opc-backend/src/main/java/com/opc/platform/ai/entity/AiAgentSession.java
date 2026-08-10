@@ -1,6 +1,7 @@
 package com.opc.platform.ai.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -23,6 +24,7 @@ public class AiAgentSession {
     private String taskContextVersion;
     private String taskContextJson;
     private String taskContextHash;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private LocalDateTime pinnedAt;
     private LocalDateTime archivedAt;
     private LocalDateTime deletedAt;

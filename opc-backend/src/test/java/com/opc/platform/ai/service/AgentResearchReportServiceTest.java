@@ -18,6 +18,9 @@ import com.opc.platform.source.entity.Source;
 import com.opc.platform.source.mapper.SourceMapper;
 import com.opc.platform.userauth.AuthenticatedUser;
 import org.junit.jupiter.api.Test;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -122,6 +125,10 @@ class AgentResearchReportServiceTest {
         assertEquals("active", result.status());
         assertEquals("evidence-v1", result.evidenceVersion());
         assertEquals(91L, result.runId());
+        assertEquals("deepseek", result.result().path("reportExportMetadata").path("provider").asText());
+        assertEquals("deepseek-chat", result.result().path("reportExportMetadata").path("modelId").asText());
+        assertEquals("phase3-v1", result.result().path("reportExportMetadata").path("promptVersion").asText());
+        assertEquals("2026-08-02T02:10", result.result().path("reportExportMetadata").path("runCompletedAt").asText());
         assertEquals("审核来源", result.citationManifest().get(0).path("title").asText());
         assertEquals("https://example.org/source", result.citationManifest().get(0).path("url").asText());
         verify(reports).insert(any(AgentResearchReport.class));
@@ -307,6 +314,120 @@ class AgentResearchReportServiceTest {
     }
 
     @Test
+    void markdownHtmlAndPdfExportsContainTheCompleteSavedStructuredResultSnapshot() throws Exception {
+        AiAnalysisRunMapper runs = mock(AiAnalysisRunMapper.class);
+        AiAgentMessageMapper messages = mock(AiAgentMessageMapper.class);
+        AgentResearchReportMapper reports = mock(AgentResearchReportMapper.class);
+        AgentResearchReport report = completeExportReport();
+        when(reports.selectOwned(7L, 42L)).thenReturn(report);
+        AgentResearchReportService service = new AgentResearchReportService(
+                runs, messages, reports, new ObjectMapper());
+
+        String markdown = service.exportMarkdown(user, 7L);
+        String html = service.exportHtml(user, 7L);
+        byte[] pdf = service.exportPdf(user, 7L);
+        String pdfText;
+        try (PDDocument document = Loader.loadPDF(pdf)) {
+            pdfText = new PDFTextStripper().getText(document);
+        }
+        for (String savedValue : List.of(
+                "完整的直接结论", "关键发现事实", "下一步建议", "主要风险", "关键假设",
+                "仍有不确定性", "后续研究问题", "任务分项结论", "证据覆盖限制",
+                "phase3-structured-result-v1", "general_research", "case_evidence",
+                "sha256:evidence-snapshot", "analytics-v1:snapshot", "2026-08-02T02:10:00Z",
+                "deepseek", "deepseek-chat", "phase3-v1",
+                "审核来源", "发布单位", "保存时主张", "verified", "current")) {
+            assertTrue(markdown.contains(savedValue), () -> "Markdown omitted: " + savedValue);
+            assertTrue(html.contains(savedValue), () -> "HTML omitted: " + savedValue);
+        }
+        assertTrue(markdown.contains("101"));
+        assertTrue(markdown.contains("201"));
+        assertTrue(markdown.contains("8"));
+        assertTrue(html.contains("101"));
+        assertTrue(html.contains("201"));
+        assertTrue(html.contains("8"));
+        assertFalse(markdown.contains("javascript:"));
+        assertFalse(html.contains("javascript:"));
+        assertFalse(html.contains("<script>"));
+        assertEquals("%PDF-", new String(pdf, 0, 5, java.nio.charset.StandardCharsets.US_ASCII));
+        for (String savedValue : List.of(
+                "完整的直接结论", "关键发现事实", "下一步建议", "主要风险", "关键假设",
+                "仍有不确定性", "后续研究问题", "任务分项结论", "证据覆盖限制",
+                "审核来源", "发布单位", "保存时主张", "verified", "current")) {
+            assertTrue(pdfText.contains(savedValue), () -> "PDF omitted: " + savedValue);
+        }
+        assertFalse(pdfText.contains("javascript:"));
+    }
+
+    @Test
+    void technologyAssessmentExportShowsTheSavedEvaluationContextAsReadableFields() {
+        AiAnalysisRunMapper runs = mock(AiAnalysisRunMapper.class);
+        AiAgentMessageMapper messages = mock(AiAgentMessageMapper.class);
+        AgentResearchReportMapper reports = mock(AgentResearchReportMapper.class);
+        AgentResearchReport report = completeExportReport();
+        report.setResultJson("""
+                {
+                  "reportExportMetadata":{"provider":"deepseek","modelId":"deepseek-chat","promptVersion":"phase3-v1"},
+                  "structuredResult":{
+                    "schemaVersion":"phase3-structured-result-v1","taskType":"technology_assessment",
+                    "directAnswer":"Use RAG","taskResult":{
+                      "type":"technology_assessment",
+                      "technology":{"tagId":91,"text":"RAG"},
+                      "assessmentContext":{
+                        "technologyTagId":91,"technologyText":"RAG",
+                        "applicationScenario":"Customer support",
+                        "teamCapabilities":"Two engineers",
+                        "timeline":"3_6_months",
+                        "existingResources":"FAQ corpus",
+                        "constraints":"Private network"
+                      },
+                      "dimensions":[{"dimension":"maturity","level":"unknown"}],
+                      "supportingCases":[101],"relatedPolicies":[201]
+                    },
+                    "evidenceCoverage":{"status":"partial"}
+                  }
+                }
+                """);
+        when(reports.selectOwned(7L, 42L)).thenReturn(report);
+        AgentResearchReportService service = new AgentResearchReportService(
+                runs, messages, reports, new ObjectMapper());
+
+        String markdown = service.exportMarkdown(user, 7L);
+        String html = service.exportHtml(user, 7L);
+
+        for (String value : List.of("technology_assessment", "Technology assessment", "applicationScenario",
+                "Customer support", "Two engineers", "3_6_months", "FAQ corpus", "Private network")) {
+            assertTrue(markdown.contains(value), () -> "Markdown omitted: " + value);
+            assertTrue(html.contains(value), () -> "HTML omitted: " + value);
+        }
+    }
+
+    @Test
+    void everyExportFormatEnforcesOwnerAndActiveReportState() {
+        AiAnalysisRunMapper runs = mock(AiAnalysisRunMapper.class);
+        AiAgentMessageMapper messages = mock(AiAgentMessageMapper.class);
+        AgentResearchReportMapper reports = mock(AgentResearchReportMapper.class);
+        AgentResearchReport trashed = completeExportReport();
+        trashed.setStatus("trash");
+        when(reports.selectOwned(7L, 42L)).thenReturn(trashed);
+        when(reports.selectOwned(8L, 42L)).thenReturn(null);
+        AgentResearchReportService service = new AgentResearchReportService(
+                runs, messages, reports, new ObjectMapper());
+
+        for (java.util.concurrent.Callable<?> export : List.<java.util.concurrent.Callable<?>>of(
+                () -> service.exportMarkdown(user, 7L),
+                () -> service.exportHtml(user, 7L),
+                () -> service.exportPdf(user, 7L))) {
+            BusinessException exception = assertThrows(BusinessException.class, export::call);
+            assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
+        }
+        BusinessException missing = assertThrows(BusinessException.class,
+                () -> service.exportMarkdown(user, 8L));
+        assertEquals(ErrorCode.NOT_FOUND, missing.getErrorCode());
+        verify(reports).selectOwned(8L, 42L);
+    }
+
+    @Test
     void scheduledPurgeOnlyErasesDueTrashedReportsWithTheirCurrentRevision() {
         AiAnalysisRunMapper runs = mock(AiAnalysisRunMapper.class);
         AiAgentMessageMapper messages = mock(AiAgentMessageMapper.class);
@@ -328,6 +449,9 @@ class AgentResearchReportServiceTest {
     private AiAnalysisRun completedRun() {
         AiAnalysisRun run = new AiAnalysisRun();
         run.setId(91L); run.setUserId(42L); run.setSessionId(10L); run.setStatus("completed");
+        run.setProvider("deepseek"); run.setModelId("deepseek-chat"); run.setPromptVersion("phase3-v1");
+        run.setCompletedAt(LocalDateTime.of(2026, 8, 2, 2, 10));
+        run.setRequestedIntent("general_research");
         run.setResultJson("{\"resultVersion\":\"agent-research-v2\",\"structuredResult\":{\"evidenceVersion\":\"evidence-v1\",\"dataVersion\":null,\"summary\":\"摘要\",\"citations\":[{\"sourceId\":8,\"claim\":\"事实\"}]}}");
         return run;
     }
@@ -338,6 +462,55 @@ class AgentResearchReportServiceTest {
         report.setFinalMessageId(501L); report.setTitle("Report " + id); report.setStatus("active");
         report.setRevision(1L); report.setResultJson("{}"); report.setCitationManifestJson("[]");
         report.setUpdatedAt(updatedAt); report.setCreatedAt(updatedAt);
+        return report;
+    }
+
+    private AgentResearchReport completeExportReport() {
+        AgentResearchReport report = new AgentResearchReport();
+        report.setId(7L);
+        report.setUserId(42L);
+        report.setStatus("active");
+        report.setTitle("完整报告 <script>alert(1)</script>");
+        report.setNotes("团队评审备注");
+        report.setEvidenceVersion("sha256:evidence-snapshot");
+        report.setDataVersion("analytics-v1:snapshot");
+        report.setCreatedAt(LocalDateTime.of(2026, 8, 2, 10, 15));
+        report.setResultJson("""
+                {
+                  "reportExportMetadata": {
+                    "provider": "deepseek", "modelId": "deepseek-chat", "promptVersion": "phase3-v1",
+                    "runCompletedAt": "2026-08-02T02:10:00", "requestedIntent": "general_research"
+                  },
+                  "structuredResult": {
+                    "schemaVersion": "phase3-structured-result-v1",
+                    "taskType": "general_research",
+                    "directAnswer": "完整的直接结论",
+                    "keyFindings": [{"id":"finding_1","kind":"fact","text":"关键发现事实","sourceIds":[8],"confidence":"high","missingEvidence":false}],
+                    "recommendations": [{"id":"recommendation_1","kind":"inference","text":"下一步建议","sourceIds":[8],"confidence":"medium","missingEvidence":false}],
+                    "risks": [{"id":"risk_1","kind":"inference","text":"主要风险","sourceIds":[],"confidence":"medium","missingEvidence":true}],
+                    "assumptions": [{"id":"assumption_1","kind":"methodology","text":"关键假设","sourceIds":[],"confidence":"low","missingEvidence":true}],
+                    "uncertainties": [{"id":"uncertainty_1","kind":"methodology","text":"仍有不确定性","sourceIds":[],"confidence":"low","missingEvidence":true}],
+                    "nextQuestions": ["后续研究问题"],
+                    "citations": [{"sourceId":8,"title":"审核来源","url":"javascript:alert(1)"}],
+                    "taskSelectedEvidence": {"caseIds":[101],"policyIds":[],"sourceIds":[]},
+                    "authorizedEvidence": {"caseIds":[101],"policyIds":[201],"sourceIds":[8]},
+                    "confidence": "high",
+                    "evidenceVersion": "sha256:evidence-snapshot",
+                    "dataVersion": "analytics-v1:snapshot",
+                    "generatedAt": "2026-08-02T02:10:00Z",
+                    "taskResult": {
+                      "type": "general_research",
+                      "sections": [{"id":"case_evidence","title":"案例证据","content":{"status":"known","items":[{"id":"task_1","kind":"fact","text":"任务分项结论","sourceIds":[8],"confidence":"high","missingEvidence":false}],"caveat":null}}]
+                    },
+                    "evidenceCoverage": {"status":"partial","factClaimCount":2,"citedFactClaimCount":2,"missingEvidenceFactCount":0,"ratio":1.0,"limitations":["证据覆盖限制"]}
+                  }
+                }
+                """);
+        report.setCitationManifestJson("""
+                [{"sourceId":8,"title":"审核来源","publisher":"发布单位","url":"https://example.org/source",
+                  "claim":"保存时主张","contentType":"official","verificationStatus":"verified",
+                  "evidenceRevision":3,"availability":"current"}]
+                """);
         return report;
     }
 

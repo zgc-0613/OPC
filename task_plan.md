@@ -4,14 +4,59 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 41 (Phase Three user-facing v1 production release)
+Phase 47 (Assistant research workspace visual reconstruction and production delivery)
+
+### Phase 47: Assistant Research Workspace Visual Reconstruction And Production Delivery
+- [x] Audit the real Assistant route, session history, profile, run progress, citation/report surfaces, drafts, mobile drawer behavior, tests, APIs, migrations, and deployment workflow.
+- [x] Reconstruct the user workspace around a 276px history rail, one 880px document column, on-demand Inspector, and a continuation-only Composer while preserving all existing session, evidence, report, quota, profile, and API semantics.
+- [x] Add red-green public behavior coverage for grouped/searchable history, no eager session creation, Composer continuation, cancellation, Inspector focus/Escape, current-Run materials/citations, drafts, lifecycle write restrictions, reduced motion, and overflow-safe content.
+- [x] Eliminate Assistant `100vh`, nested-scroll, fixed-overlay, infinite-animation, unguarded-hover, and long-content overflow risks through `100dvh`, grid/flex shrinking rules, safe-area padding, one scroll owner per surface, and responsive drawers.
+- [x] Pass full local acceptance: Spring `547` (0 failures/errors, 1 explicit skip), MySQL 8.4 `80/80` with zero owned containers, explicit migration `7/7`, Vitest `191/191`, Assistant subset `69/69`, eight frontend scripts, Vite/JAR builds, Python `133/133` with 7 opt-in skips, syntax, diff, secret, artifact, and ignore checks.
+- [x] Run one remote preflight and one guarded formal deployment; create backup/dump/rollback assets, apply additive migration checks, atomically switch release, and pass independent public/static/health/auth/service/cleanup postflight.
+- [x] Replace the desktop history rail's layout transition with a 500ms pointer-driven transform/opacity continuity transition, preserve immediate keyboard/reduced-motion behavior, and keep hidden folding controls outside the accessibility tree.
+- [x] Validate and formally release the 500ms motion continuity fix without creating another speculative candidate or changing any Assistant data/API behavior.
+- **Status:** complete. The initial Phase Four release was `/opt/opc/releases/20260810-112153`; the latest motion continuity release is `/opt/opc/releases/20260810-155624`, with backup `/opt/opc/backups/20260810-155624`, backend rollback `/opt/opc-backend.rollback.20260810-155624`, and previous release `/opt/opc/releases/20260810-130518`. Manual desktop/tablet/mobile review remains user-owned. See `docs/assistant-workspace-phase-four.md`.
+
+### Phase 46: MySQL Testcontainers Lifecycle And Resource Closure
+- [x] Snapshot the preexisting `mysql:8.4` Testcontainers without stopping or deleting them: five running containers (`fda6ee4e431b`, `ad5758e31385`, `836f8e0053f7`, `db5d1062be33`, `1df5189e9269`) and one exited container (`73fc0b1e1a6a`), all without the project run label.
+- [x] Add a validated UUID v4 run ID to `PhaseOneMySqlIntegrationTest`, apply `com.opc.phase-one.run-id`, and close the manually-started container in an idempotent `@AfterAll` hook.
+- [x] Add runner red-green coverage for run ID propagation, exact label ownership, zero-container success, leak failure, failure cleanup and historical-container isolation.
+- [x] Run a real labeled single test: `1/1`, current run container count `0`, preexisting container set unchanged.
+- [x] Run the complete labeled MySQL 8.4 suite: `80/80`, Surefire `885.353s`, total `903.203s`, current run container count `0`, `resource_leak_detected=false`, preexisting set unchanged.
+- [x] Re-run focused and non-MySQL Spring tests, Python discovery, JAR packaging and repository gates.
+- **Status:** complete. This is test infrastructure only; production was not deployed.
+
+### Phase 45: Source Verification And MySQL Test Closure
+- [x] Add a public `AgentOrchestrator.execute` regression for a `final` source-verification response whose non-empty `verificationClaims` are all `unresolved`, including poisoned legacy answer, Markdown and citation values.
+- [x] Correct the terminal Run status to follow the assembled server-owned insufficient decision rather than the provider's `final` action.
+- [x] Add a bounded, redacted MySQL 8.4 runner that timestamps Surefire evidence, captures JVM thread dumps during long runs and removes only its logged Testcontainers container on failure.
+- [x] Measure two cached-image MySQL 8.4 runs: `80/80` in `808.2s` total (`786.796s` Surefire) and `766.953s` total (`753.237s` Surefire), both without Java/Maven/Testcontainers residue.
+- [x] Re-run the affected backend/frontend suites, full non-MySQL Spring suite, all frontend contracts, builds, Python tests and repository gates.
+- [x] Run the guarded candidate and production release after the runtime status correction; release `/opt/opc/releases/20260809-193452` switched atomically.
+- **Status:** complete. The durable MySQL command is `python scripts/run_phase_one_mysql_test.py` with its bounded 1,200-second budget; the former 120-second wrapper is an external-budget error, not an application timeout threshold.
 
 ### Phase 41: Phase Three User-Facing v1 Production Release
 - [x] Re-run the complete local acceptance matrix: frontend Vitest `157/157`, eight frontend contract scripts, MySQL 8.4 Testcontainers `80/80`, Spring Boot `509` (`0` failures, `0` errors, `1` explicit opt-in provider smoke skip), JAR packaging, Python migration `17/17`, deployment hardening `103/103`, syntax and diff checks.
 - [x] Run the isolated candidate gate and its three controlled provider scenarios before production mutation. Policy, case-comparison, and source-verification scenarios completed with authorized citations and settled usage.
 - [x] Create a timestamped production backup, apply additive Phase Three migration precheck/migration/postcheck groups, atomically switch the release, retain a backend rollback artifact, and run the guarded production probes.
 - [x] Verify report export and ownership isolation, preference consent/delete, feedback CAS, Analytics snapshot ownership, and administrator quality authorization through temporary probe data that the deployment script cleans up.
-- **Status:** deployed as Phase Three user-facing v1 / partial release. Current production target: `/opt/opc/releases/20260808-162621`; previous release retained: `/opt/opc/releases/20260807-173031`. This is not a claim that the broader Phase Three product-complete bar, formal technology/revenue statistics, or browser human acceptance is complete.
+- **Status:** superseded by Phase 43. The release remains Phase Three user-facing v1 / partial release, not a claim that the broader Phase Three product-complete bar, formal technology/revenue statistics, or browser human acceptance is complete.
+
+### Phase 42: Phase Three Deep Closure And Final Controlled Release
+- [x] Implement and verify server-owned source-verification verdicts: `supports`, `partially_supports`, `does_not_support`, `conflicting`, and `insufficient`.
+- [x] Complete task-specific structured Markdown/HTML/PDF report snapshots with authorized citation manifests and sensitive-content exclusions.
+- [x] Add Analytics technologies/revenue/regions/trends/drilldown contracts with honest unavailable responses when verified data thresholds are not met.
+- [x] Complete technology-assessment task context persistence and restoration for all eight bounded fields while retaining legacy `technologyText` compatibility.
+- [x] Pass the final local gate: frontend `171/171`, eight frontend scripts, Vite build, MySQL 8.4 `80/80`, Spring `532` (0 failures/errors, 1 opt-in provider skip), JAR package, Python migration `17/17`, deployment hardening `103/103`, syntax, diff, secret, artifact and ignore checks.
+- [x] Run the guarded production candidate gate, additive migration precheck/migration/postcheck, timestamped backup, atomic release switch and independent public/health/anonymous-auth checks.
+- **Status:** superseded by Phase 43. The release remains Phase Three user-facing v1 / partial release; formal technology/revenue statistics and manual browser/accessibility acceptance remain open data-governance and human-validation boundaries.
+
+### Phase 43: Source Verification and Publisher Semantics Closure
+- [x] Make source-verification verdict and evidenceStatus server-owned and consistent for insufficient, supports, partial, contradicts-only, and conflicting evidence.
+- [x] Generate publisherAssessment only from authorized evidence metadata and preserve unknown publisher state without inference.
+- [x] Run focused semantic tests, full frontend/backend/MySQL gates, packaging, Python/repository checks and post-deploy preflight.
+- [x] Pass an isolated candidate gate, additive migration guards, timestamped backup, atomic production switch, post-switch probes and independent cleanup/postflight checks.
+- **Status:** complete and deployed as `/opt/opc/releases/20260809-133127`, with `/opt/opc/releases/20260809-024820` retained as the previous release. The guarded production source-verification workflow passed, while every synthetic verdict branch and publisher known/unknown branch remains evidenced by local deterministic tests rather than being claimed as independent live probes. This remains a Phase Three user-facing v1 / partial release.
 
 ### Phase 40: Assistant Terminal Synchronization Recovery And Local Acceptance Correction
 - [x] Keep the terminal server Run visible when the subsequent owned session-detail read fails.
@@ -561,3 +606,54 @@ Phase 41 (Phase Three user-facing v1 production release)
 - [x] Record Python deployment/migration verification after the command results were rerun and captured in Phase 41
 - [x] Execute the credential-gated deployment workflow and guarded production probes in Phase 41
 - **Status:** superseded by the Phase 41 production-release evidence. The Phase Three user-facing v1 partial release is deployed; the broader product-complete and manual browser-acceptance boundaries remain open.
+
+### Phase 42 (historical): Phase Three Deep Closure - Slice A
+- [x] Reproduce the binary source-verification verdict defect with public assembler and Vue behavior tests.
+- [x] Derive `supports`, `partially_supports`, `does_not_support`, `conflicting`, and `insufficient` on the server from bounded per-claim relationships and the current Run evidence allowlist.
+- [x] Keep the provider verdict untrusted, preserve citation/evidence-version validation, and expose readable verdict explanations and conflict source IDs.
+- [x] Complete full report Markdown/HTML/PDF export.
+- [x] Complete Analytics unified availability contracts and technical-assessment task context.
+- [x] Run the full local verification matrix and credential-gated deployment.
+- **Status:** superseded by the final Phase 42 closure record at the top of this file; all four slices and the controlled release are complete within the frozen v1 boundary.
+
+### Phase 43: Source Verification Insufficient-State Closure
+- [x] Add RED tests for final responses without verificationClaims, unresolved-only claims, and legacy factual payload retention.
+- [x] Sanitize server-derived insufficient results before citation normalization and Markdown rendering.
+- [x] Make AgentOrchestrator persist the sanitized structured result and empty citation list for insufficient source verification.
+- [x] Add frontend defense for malformed historical insufficient payloads.
+- [x] Pass focused, full non-MySQL, MySQL 8.4, frontend, build, migration and deployment-hardening gates.
+- [ ] Execute guarded production deployment and postflight in the next credentialed deployment window.
+- **Status:** local implementation and verification complete; production release is pending guarded deployment.
+
+### Phase 44: Source Verification Closure Production Release
+- [x] Run remote preflight with active services, valid Nginx, loopback-only backend and matching baseline evidence counts.
+- [x] Pass candidate-only guarded gate with isolated database, migrations, source-verification probe and cleanup.
+- [x] Atomically switch the production release after candidate and postflight gates passed.
+- [x] Verify public domains, Assistant, health, anonymous 401 envelopes, artifact hash parity and candidate-resource cleanup.
+- **Status:** complete. Release `/opt/opc/releases/20260809-150138` is live; backup, database dump and rollback JAR are retained. No further scope expansion is planned in this round.
+
+### Phase 45: Assistant Motion Refinement
+- [x] Audit Assistant menus, drawers, Inspector, close actions, sidebar collapse, state replacement, and button affordances against the established Prisma Light workbench language.
+- [x] Add restrained pointer-only transitions and button tactility while keeping keyboard actions immediate and honoring reduced motion.
+- [x] Correct the sidebar fold to retain the real left 64px command rail during the transition.
+- [x] Pass focused history/workspace Vitest `15/15`; retain completed motion/full frontend/build evidence (`109/109`, `198/198`, eight scripts, Vite build).
+- [x] Run one explicit guarded production release after authorization, including candidate validation, migration checks, backup, atomic switch, and postflight.
+- [x] Verify public, Assistant, admin, health, static asset, active services, loopback listener, service user, and zero candidate residues.
+- **Status:** historical motion release, superseded by Phase 47. The latest release is `/opt/opc/releases/20260810-155624`; backup `/opt/opc/backups/20260810-155624`, database dump `/opt/opc/backups/20260810-155624/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260810-155624`, previous `/opt/opc/releases/20260810-130518`.
+
+### Phase 47: Assistant Inspector And Motion Finish
+- [x] Make an inline authorized-evidence source hash open the current Run's real citation Inspector; leave ordinary external links outside that interception path.
+- [x] Correct the report Inspector's top spacing and keep its content aligned with the shared Inspector surface.
+- [x] Keep the desktop history rail's 500ms in-flight boundary on its pseudo-element only, with the static border transparent during motion.
+- [x] Add public-behavior RED/GREEN coverage for the authorized source-hash routing and preserve the existing citation authorization boundary.
+- [x] Pass frontend Vitest `32` files / `206` tests, seven package test scripts, Vite (`1836` modules), Spring `547` (`0` failures/errors, `1` skipped) including MySQL 8.4 `80/80`, JAR packaging, Python `133` with `7` skips, explicit MySQL `7/7`, syntax, diff, secret, artifact, and `.codegraph/` checks.
+- [x] Publish one frontend-only atomic release after the local gates and postflight passed.
+- **Status:** complete. Current frontend release `/opt/opc/releases/20260810-183007`; frontend hash `4ba885...c54b`; previous atomic rollback release `/opt/opc/releases/20260810-155624`. No SQL, JAR, API, migration, or new database backup was created. Public, `/assistant`, administrator login/settings, `/api/health`, and the new JavaScript/CSS assets returned HTTP 200; services are active, Nginx is valid, and 8082 remains loopback-only.
+
+### Phase 48: Assistant Workspace Release Gate Repair And Formal Deployment
+- [x] Preserve the authorized inline-evidence citation route and verify its public AssistantConversation behavior.
+- [x] Replace the production-only broad mixed-research Agent probe with a real, bounded `source_verification` probe while retaining all three candidate scenarios.
+- [x] Repair the MySQL runner's stale 80-test expectation after the unpin integration regression raised `PhaseOneMySqlIntegrationTest` to 81 methods; reproduce RED then pass the runner suite.
+- [x] Pass frontend Vitest `32/210`, all eight frontend package scripts, Vite (`1836` modules), Spring `549` (`0` failures/errors, `1` skip), MySQL 8.4 `81/81`, JAR packaging, Python `133` with `7` skips, migrations `17/17`, deployment hardening `103/103`, syntax, diff, credential, artifact and ignore gates.
+- [x] Execute one guarded production deployment, including candidate checks, backup, additive/resumable migration precheck/postcheck, atomic switch and postflight.
+- **Status:** complete. Current release `/opt/opc/releases/20260811-003256`; backup `/opt/opc/backups/20260811-003256`; database dump `/opt/opc/backups/20260811-003256/opc_platform.sql.gz`; backend rollback `/opt/opc-backend.rollback.20260811-003256`; previous release `/opt/opc/releases/20260810-183007`.

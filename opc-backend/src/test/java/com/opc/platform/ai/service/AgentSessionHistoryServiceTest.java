@@ -4,6 +4,8 @@ import com.opc.platform.ai.dto.AgentSessionUpdateDTO;
 import com.opc.platform.ai.entity.AiAgentMessage;
 import com.opc.platform.ai.entity.AiAgentSession;
 import com.opc.platform.ai.exception.AgentHistoryCursorStaleException;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.opc.platform.ai.mapper.AiAgentMessageMapper;
 import com.opc.platform.ai.mapper.AiAgentSessionMapper;
 import com.opc.platform.ai.mapper.AiAgentToolCallMapper;
@@ -105,6 +107,24 @@ class AgentSessionHistoryServiceTest {
 
         assertEquals("湖北人工智能创业机会", session.getTitle());
         assertEquals("manual", session.getTitleMode());
+        verify(sessions).updateById(session);
+    }
+
+    @Test
+    void unpinClearsPinnedAtAndUsesAnUpdateStrategyThatWritesNull() throws NoSuchFieldException {
+        AiAgentSession session = activeSession();
+        session.setPinnedAt(LocalDateTime.of(2026, 8, 10, 18, 0));
+        when(sessions.selectOwnedForUpdate(10L, 42L)).thenReturn(session);
+        when(sessions.updateById(any(AiAgentSession.class))).thenReturn(1);
+        AgentSessionUpdateDTO request = new AgentSessionUpdateDTO();
+        request.setPinned(false);
+
+        service.update(user, 10L, request);
+
+        assertNull(session.getPinnedAt());
+        TableField pinnedAt = AiAgentSession.class.getDeclaredField("pinnedAt").getAnnotation(TableField.class);
+        assertNotNull(pinnedAt);
+        assertEquals(FieldStrategy.ALWAYS, pinnedAt.updateStrategy());
         verify(sessions).updateById(session);
     }
 

@@ -700,17 +700,30 @@ class DeploymentHardeningTest(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "evidence probe"):
                 validate_agent_evidence_probe(invalid, expected_run_id=30)
 
-    def test_production_agent_probe_requests_mixed_research_and_reads_evidence_api(self):
+    def test_production_agent_probe_requests_bounded_source_verification_and_reads_evidence_api(self):
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         deploy = source[source.index("def deploy(client):"):source.index("def deploy_frontend(client):")]
         agent_start = deploy[deploy.index("agent_start_payload = {"):deploy.index("_, agent_start_body = request_json(")]
+        evidence_validation = deploy[
+            deploy.index("_, agent_evidence_body ="):
+            deploy.index("agent_run_id_sql =")
+        ]
+        candidate_scenarios = source[
+            source.index("def run_candidate_agent_v2_scenarios("):
+            source.index("def run_candidate_agent_v2_probe(")
+        ]
 
-        self.assertIn("湖北省及武汉市", deploy)
-        self.assertIn("人工智能创业案例和适用政策", deploy)
-        self.assertIn("优先行动建议", deploy)
+        self.assertIn("仅完成一次来源核验", deploy)
+        self.assertIn("本次检索返回的来源", deploy)
         self.assertIn('"industryTagId": resolved_industry_tag_id', agent_start)
+        self.assertIn('"requestedIntent": "source_verification"', agent_start)
         self.assertIn("/runs/{agent_run_id}/evidence", deploy)
-        self.assertIn("validate_agent_evidence_probe", deploy)
+        self.assertIn('required_types=("source",)', evidence_validation)
+        self.assertNotIn('required_types=("case", "policy")', evidence_validation)
+        self.assertIn(
+            'for scenario in ("policy", "case_comparison", "source_verification")',
+            candidate_scenarios,
+        )
 
     def test_agent_runtime_postcheck_reports_missing_and_unexpected_indexes(self):
         validate_agent_runtime_postcheck("4\t21\t10\t7\t8\t\t\t0")

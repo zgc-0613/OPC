@@ -8,7 +8,13 @@ const baseTask = {
   caseIds: [],
   comparisonDimensions: [],
   sourceId: '',
+  technologyTagId: '',
   technologyText: '',
+  applicationScenario: '',
+  teamCapabilities: '',
+  timeline: '',
+  existingResources: '',
+  constraints: '',
   outputDepth: 'standard',
 }
 
@@ -21,6 +27,11 @@ const sources = [
   { id: 71, title: '已核验来源', publisher: '公开发布机构', url: 'https://example.gov.cn/source' },
 ]
 
+const technologies = [
+  { id: 91, name: '检索增强生成' },
+  { id: 92, name: '工作流自动化' },
+]
+
 describe('AssistantResearchTask', () => {
   it('shows all six controlled research tasks without creating a run', () => {
     const wrapper = mount(AssistantResearchTask, {
@@ -28,6 +39,8 @@ describe('AssistantResearchTask', () => {
     })
 
     expect(wrapper.findAll('[data-testid^="research-task-"]')).toHaveLength(6)
+    expect(wrapper.get('.task-options').attributes('role')).toBe('group')
+    expect(wrapper.get('[data-testid="research-task-case_analysis"]').attributes('aria-pressed')).toBe('false')
     expect(wrapper.text()).toContain('单案例分析')
     expect(wrapper.text()).toContain('多案例比较')
     expect(wrapper.text()).toContain('技术路线评估')
@@ -43,6 +56,7 @@ describe('AssistantResearchTask', () => {
     })
 
     await wrapper.get('[data-testid="research-task-case_comparison"]').trigger('click')
+    expect(wrapper.get('[data-testid="research-task-case_comparison"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.emitted('update:modelValue').at(-1)[0]).toMatchObject({
       taskType: 'case_comparison',
       caseIds: [],
@@ -78,5 +92,48 @@ describe('AssistantResearchTask', () => {
     expect(wrapper.text()).toContain('多案例比较')
     expect(wrapper.text()).toContain('2 个比较对象')
     expect(wrapper.find('[data-testid="task-case-selector"]').exists()).toBe(false)
+  })
+
+  it('captures the complete technology assessment boundary and restores it read-only', async () => {
+    const wrapper = mount(AssistantResearchTask, {
+      props: {
+        modelValue: baseTask,
+        editable: true,
+        caseOptions: cases,
+        sourceOptions: sources,
+        technologyOptions: technologies,
+      },
+    })
+
+    await wrapper.get('[data-testid="research-task-technology_assessment"]').trigger('click')
+    await wrapper.get('[data-testid="task-technology-tag"]').setValue('91')
+    await wrapper.get('[data-testid="task-technology-text"]').setValue('面向私有知识库的补充说明')
+    await wrapper.get('[data-testid="task-application-scenario"]').setValue('为小微企业客服提供可追溯回答')
+    await wrapper.get('[data-testid="task-team-capabilities"]').setValue('两名全栈工程师，具备向量检索经验')
+    await wrapper.get('[data-testid="task-timeline"]').setValue('3_6_months')
+    await wrapper.get('[data-testid="task-existing-resources"]').setValue('已有脱敏 FAQ 与试点客户')
+    await wrapper.get('[data-testid="task-constraints"]').setValue('数据不得离开私有网络')
+    await wrapper.get('[data-testid="task-output-depth"]').setValue('deep')
+
+    const value = wrapper.emitted('update:modelValue').at(-1)[0]
+    expect(value).toMatchObject({
+      taskType: 'technology_assessment',
+      technologyTagId: 91,
+      technologyText: '面向私有知识库的补充说明',
+      applicationScenario: '为小微企业客服提供可追溯回答',
+      teamCapabilities: '两名全栈工程师，具备向量检索经验',
+      timeline: '3_6_months',
+      existingResources: '已有脱敏 FAQ 与试点客户',
+      constraints: '数据不得离开私有网络',
+      outputDepth: 'deep',
+    })
+
+    await wrapper.setProps({ editable: false, modelValue: value })
+    expect(wrapper.text()).toContain('检索增强生成')
+    expect(wrapper.text()).toContain('为小微企业客服提供可追溯回答')
+    expect(wrapper.text()).toContain('两名全栈工程师')
+    expect(wrapper.text()).toContain('3-6 个月')
+    expect(wrapper.text()).toContain('已有脱敏 FAQ')
+    expect(wrapper.text()).toContain('数据不得离开私有网络')
   })
 })

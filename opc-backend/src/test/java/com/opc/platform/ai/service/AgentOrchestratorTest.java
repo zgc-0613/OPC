@@ -1278,6 +1278,256 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    void sourceVerificationPublisherCitationsArePersistedInTheFinalOutcome() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> sources = new AgentTool<>() {
+            public String name() { return "search_cases"; }
+            public String description() { return "return authorized sources"; }
+            public Class<SearchCasesArguments> argumentType() { return SearchCasesArguments.class; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}";
+            }
+            public AgentToolResult execute(AgentToolContext context, SearchCasesArguments arguments) {
+                var output = objectMapper.createObjectNode();
+                var items = output.putArray("items");
+                items.addObject().put("sourceId", 101L).put("title", "source one");
+                items.addObject().put("sourceId", 102L).put("title", "source two");
+                return new AgentToolResult(output, 2, "a".repeat(64), Set.of(101L, 102L), Set.of());
+            }
+        };
+        AgentTool<GetSourceArguments> sourceDetails = fixtureTool(
+                "get_source", GetSourceArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"sourceId\"],"
+                        + "\"properties\":{\"sourceId\":{\"type\":\"integer\"}}}",
+                objectMapper, 101L, null
+        );
+        PhaseThreeEvidenceResolver evidenceResolver = mock(PhaseThreeEvidenceResolver.class);
+        when(evidenceResolver.resolve(any(), any(), any(), any())).thenReturn(new PhaseThreeEvidenceBundle(
+                List.of(), List.of(),
+                List.of(
+                        new PhaseThreeEvidenceBundle.SourceEvidence(
+                                101L, "source one", "publisher one", "https://example.invalid/source/101",
+                                1L, "sha256:" + "1".repeat(64), "published_verified"),
+                        new PhaseThreeEvidenceBundle.SourceEvidence(
+                                102L, "source two", "publisher two", "https://example.invalid/source/102",
+                                1L, "sha256:" + "2".repeat(64), "published_verified")
+                ),
+                List.of(), List.of()
+        ));
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper,
+                new AgentToolRegistry(List.of(sources, sourceDetails), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper()),
+                evidenceResolver
+        );
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"source_verification","researchQuestions":["verify"],
+                         "toolRequests":[{"requestId":"sources","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("""
+                        {"action":"final","intent":"source_verification","directAnswer":"Source one supports the claim.",
+                         "keyFindings":[],"caseInsights":[],"policyInsights":[],"comparison":[],"recommendations":[],
+                         "risks":[],"assumptions":[],"uncertainties":[],"nextQuestions":[],
+                         "citations":[{"sourceId":101,"claim":"Source one supports the claim."}],"confidence":0.8,
+                         "evidenceCoverage":{"status":"sufficient","caseCount":0,"policyCount":0,"sourceCount":2,"limitations":[]},
+                         "verificationClaims":[{"claimId":"core","text":"Claim","relation":"supports","sourceIds":[101]}]}
+                        """, 10, 5, 15, 10, "final", "stop")
+        ));
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        91L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}", "Verify a source",
+                        List.of(), null, config(), "source_verification",
+                        "{\"version\":\"phase3-task-v1\",\"taskType\":\"source_verification\",\"outputDepth\":\"standard\"}"
+                ),
+                request -> responses.removeFirst(),
+                progress -> { }
+        );
+
+        assertEquals(Set.of(101L, 102L), outcome.citations().stream()
+                .map(AgentCitation::sourceId).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(2, outcome.structuredResult().path("taskResult")
+                .path("publisherAssessment").path("items").size());
+    }
+
+    @Test
+    void sourceVerificationFinalWithoutClaimsDropsLegacyMarkdownAndCitations() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> sources = new AgentTool<>() {
+            public String name() { return "search_cases"; }
+            public String description() { return "return authorized source"; }
+            public Class<SearchCasesArguments> argumentType() { return SearchCasesArguments.class; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}";
+            }
+            public AgentToolResult execute(AgentToolContext context, SearchCasesArguments arguments) {
+                var output = objectMapper.createObjectNode();
+                output.putArray("items").addObject().put("sourceId", 101L).put("title", "source one");
+                return new AgentToolResult(output, 1, "a".repeat(64), Set.of(101L), Set.of());
+            }
+        };
+        AgentTool<GetSourceArguments> sourceDetails = fixtureTool(
+                "get_source", GetSourceArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"sourceId\"],"
+                        + "\"properties\":{\"sourceId\":{\"type\":\"integer\"}}}",
+                objectMapper, 101L, null
+        );
+        PhaseThreeEvidenceResolver evidenceResolver = mock(PhaseThreeEvidenceResolver.class);
+        when(evidenceResolver.resolve(any(), any(), any(), any())).thenReturn(new PhaseThreeEvidenceBundle(
+                List.of(), List.of(),
+                List.of(new PhaseThreeEvidenceBundle.SourceEvidence(
+                        101L, "source one", "publisher one", "https://example.invalid/source/101",
+                        1L, "sha256:" + "1".repeat(64), "published_verified")),
+                List.of(), List.of()
+        ));
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper,
+                new AgentToolRegistry(List.of(sources, sourceDetails), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper()),
+                evidenceResolver
+        );
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"source_verification","researchQuestions":["verify"],
+                         "toolRequests":[{"requestId":"sources","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("""
+                        {"action":"final","intent":"source_verification",
+                         "directAnswer":"LEGACY_UNVERIFIED_FACT must not be persisted.",
+                         "keyFindings":[{"text":"Legacy fact","evidenceType":"fact","sourceIds":[101]}],
+                         "caseInsights":[],"policyInsights":[],"comparison":[],
+                         "recommendations":[{"priority":"high","reason":"Legacy premise","nextAction":"Legacy action","sourceIds":[101]}],
+                         "risks":["Legacy risk"],"assumptions":["Legacy assumption"],
+                         "uncertainties":["Legacy uncertainty"],"nextQuestions":["Legacy question"],
+                         "citations":[{"sourceId":101,"claim":"Legacy citation"}],"confidence":0.8,
+                         "evidenceCoverage":{"status":"sufficient","caseCount":0,"policyCount":0,"sourceCount":1,"limitations":[]}}
+                        """, 10, 5, 15, 10, "final", "stop")
+        ));
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        92L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}", "Verify a source",
+                        List.of(), null, config(), "source_verification",
+                        "{\"version\":\"phase3-task-v1\",\"taskType\":\"source_verification\",\"outputDepth\":\"standard\"}"
+                ),
+                request -> responses.removeFirst(),
+                progress -> { }
+        );
+
+        assertEquals("insufficient", outcome.structuredResult().path("taskResult").path("verdict").asText());
+        assertEquals("当前没有足够的授权证据完成来源核验结论。",
+                outcome.structuredResult().path("directAnswer").asText());
+        assertTrue(outcome.structuredResult().path("keyFindings").isEmpty());
+        assertTrue(outcome.structuredResult().path("citations").isEmpty());
+        assertTrue(outcome.citations().isEmpty());
+        assertFalse(outcome.answer().contains("LEGACY_UNVERIFIED_FACT"));
+        assertFalse(outcome.answer().contains("Legacy citation"));
+        assertTrue(outcome.answer().contains("当前没有足够的授权证据完成来源核验结论"));
+    }
+
+    @Test
+    void sourceVerificationWithOnlyUnresolvedClaimsSuppressesLegacyAnswerMarkdownAndCitations() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AgentTool<SearchCasesArguments> sources = new AgentTool<>() {
+            public String name() { return "search_cases"; }
+            public String description() { return "return authorized source"; }
+            public Class<SearchCasesArguments> argumentType() { return SearchCasesArguments.class; }
+            public String argumentSchema() {
+                return "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}";
+            }
+            public AgentToolResult execute(AgentToolContext context, SearchCasesArguments arguments) {
+                var output = objectMapper.createObjectNode();
+                output.putArray("items").addObject().put("sourceId", 101L).put("title", "source one");
+                return new AgentToolResult(output, 1, "a".repeat(64), Set.of(101L), Set.of());
+            }
+        };
+        AgentTool<GetSourceArguments> sourceDetails = fixtureTool(
+                "get_source", GetSourceArguments.class,
+                "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"sourceId\"],"
+                        + "\"properties\":{\"sourceId\":{\"type\":\"integer\"}}}",
+                objectMapper, 101L, null
+        );
+        PhaseThreeEvidenceResolver evidenceResolver = mock(PhaseThreeEvidenceResolver.class);
+        when(evidenceResolver.resolve(any(), any(), any(), any())).thenReturn(new PhaseThreeEvidenceBundle(
+                List.of(), List.of(),
+                List.of(new PhaseThreeEvidenceBundle.SourceEvidence(
+                        101L, "source one", "publisher one", "https://example.invalid/source/101",
+                        1L, "sha256:" + "1".repeat(64), "published_verified")),
+                List.of(), List.of()
+        ));
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                objectMapper,
+                new AgentToolRegistry(List.of(sources, sourceDetails), objectMapper,
+                        Validation.buildDefaultValidatorFactory().getValidator(), guardedCallMapper()),
+                evidenceResolver
+        );
+        ArrayDeque<AiProviderResponse> responses = new ArrayDeque<>(List.of(
+                new AiProviderResponse("""
+                        {"action":"plan","intent":"source_verification","researchQuestions":["verify"],
+                         "toolRequests":[{"requestId":"sources","toolName":"search_cases","arguments":{},"dependsOn":[]}],
+                         "comparisonDimensions":[],"outputSections":["directAnswer","citations"]}
+                        """, 10, 5, 15, 10, "plan", "stop"),
+                new AiProviderResponse("""
+                        {"action":"final","intent":"source_verification",
+                         "directAnswer":"POISON_LEGACY_DIRECT_ANSWER",
+                         "keyFindings":[{"text":"POISON_LEGACY_FACT","evidenceType":"fact","sourceIds":[101]}],
+                         "caseInsights":[],"policyInsights":[],"comparison":[],
+                         "recommendations":[{"priority":"high","reason":"POISON_LEGACY_REASON",
+                           "nextAction":"POISON_LEGACY_ACTION","sourceIds":[101]}],
+                         "risks":["POISON_LEGACY_RISK"],"assumptions":["POISON_LEGACY_ASSUMPTION"],
+                         "uncertainties":["POISON_LEGACY_UNCERTAINTY"],"nextQuestions":["POISON_LEGACY_QUESTION"],
+                         "citations":[{"sourceId":101,"claim":"POISON_LEGACY_CITATION"}],"confidence":0.8,
+                         "evidenceCoverage":{"status":"sufficient","caseCount":0,"policyCount":0,"sourceCount":1,"limitations":[]},
+                         "verificationClaims":[{"claimId":"core","text":"POISON_UNRESOLVED_CLAIM",
+                           "relation":"unresolved","sourceIds":[]}]}
+                        """, 10, 5, 15, 10, "final", "stop")
+        ));
+
+        AgentOrchestratorOutcome outcome = orchestrator.execute(
+                new AgentOrchestratorInput(
+                        93L, 42L, "{\"regionId\":1,\"industry\":\"AI\"}", "Verify a source",
+                        List.of(), null, config(), "source_verification",
+                        "{\"version\":\"phase3-task-v1\",\"taskType\":\"source_verification\",\"outputDepth\":\"standard\"}"
+                ),
+                request -> responses.removeFirst(),
+                progress -> { }
+        );
+
+        JsonNode structured = outcome.structuredResult();
+        String serialized = structured.toString();
+        assertEquals("evidence_insufficient", outcome.status());
+        assertEquals("insufficient", structured.path("taskResult").path("verdict").asText());
+        assertEquals("insufficient", structured.path("taskResult").path("evidenceStatus").asText());
+        assertEquals("当前没有足够的授权证据完成来源核验结论。", structured.path("directAnswer").asText());
+        assertTrue(structured.path("keyFindings").isEmpty());
+        assertTrue(structured.path("recommendations").isEmpty());
+        assertTrue(structured.path("risks").isEmpty());
+        assertTrue(structured.path("assumptions").isEmpty());
+        assertTrue(structured.path("uncertainties").isEmpty());
+        assertTrue(structured.path("nextQuestions").isEmpty());
+        assertTrue(structured.path("citations").isEmpty());
+        assertTrue(outcome.citations().isEmpty());
+        assertEquals("unknown", structured.path("taskResult").path("publisherAssessment").path("status").asText());
+        assertTrue(structured.path("taskResult").path("invalidityReasons").path("items").toString()
+                .contains("POISON_UNRESOLVED_CLAIM"));
+        assertEquals(0, structured.path("evidenceCoverage").path("factClaimCount").asInt());
+        assertEquals(0, structured.path("evidenceCoverage").path("citedFactClaimCount").asInt());
+        assertEquals(0, structured.path("evidenceCoverage").path("missingEvidenceFactCount").asInt());
+        assertTrue(structured.path("evidenceCoverage").path("ratio").isNull());
+        for (String poison : List.of(
+                "POISON_LEGACY_DIRECT_ANSWER", "POISON_LEGACY_FACT", "POISON_LEGACY_REASON",
+                "POISON_LEGACY_ACTION", "POISON_LEGACY_RISK", "POISON_LEGACY_ASSUMPTION",
+                "POISON_LEGACY_UNCERTAINTY", "POISON_LEGACY_QUESTION", "POISON_LEGACY_CITATION")) {
+            assertFalse(outcome.answer().contains(poison));
+            assertFalse(serialized.contains(poison));
+        }
+        assertTrue(outcome.answer().contains("当前没有足够的授权证据完成来源核验结论"));
+    }
+
+    @Test
     void sourceContractConflictGetsOneBoundedSynthesisRecovery() {
         ObjectMapper objectMapper = new ObjectMapper();
         AiAgentToolCallMapper callMapper = mock(AiAgentToolCallMapper.class);

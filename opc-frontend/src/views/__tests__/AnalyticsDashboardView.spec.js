@@ -1,7 +1,16 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const api = vi.hoisted(() => ({ overview: vi.fn(), industries: vi.fn(), startAnalytics: vi.fn() }))
+const api = vi.hoisted(() => ({
+  overview: vi.fn(),
+  industries: vi.fn(),
+  technologies: vi.fn(),
+  revenue: vi.fn(),
+  regions: vi.fn(),
+  trends: vi.fn(),
+  drilldown: vi.fn(),
+  startAnalytics: vi.fn(),
+}))
 const router = vi.hoisted(() => ({ push: vi.fn() }))
 const route = vi.hoisted(() => ({ query: {} }))
 const auth = vi.hoisted(() => ({ profile: { userId: 42, username: 'researcher' } }))
@@ -9,6 +18,11 @@ const auth = vi.hoisted(() => ({ profile: { userId: 42, username: 'researcher' }
 vi.mock('@/api/analytics', () => ({
   getAnalyticsOverview: api.overview,
   getAnalyticsIndustries: api.industries,
+  getAnalyticsTechnologies: api.technologies,
+  getAnalyticsRevenue: api.revenue,
+  getAnalyticsRegions: api.regions,
+  getAnalyticsTrends: api.trends,
+  getAnalyticsDrilldown: api.drilldown,
 }))
 vi.mock('@/api/ai', () => ({ startResearchFromAnalytics: api.startAnalytics }))
 vi.mock('@/api/auth', () => ({ getUserProfile: () => auth.profile }))
@@ -24,27 +38,100 @@ describe('AnalyticsDashboardView', () => {
     api.overview.mockResolvedValue({
       dataVersion: 'analytics-v1:9d18c2',
       generatedAt: '2026-08-01T10:00:00',
-      status: 'complete',
+      status: 'partial',
       cards: [
-        { metricId: 'overview.verified_cases', label: '已核验案例', value: 18, unit: '条', readiness: 'green', caveat: null },
-        { metricId: 'technology.coverage', label: '技术 taxonomy', value: null, unit: '', readiness: 'red', caveat: '正式技术 taxonomy 尚未完成审核' },
+        { metricId: 'overview.verified_cases', label: '已核验案例', value: null, unit: '条', readiness: 'Red', caveat: '案例尚未具备独立 canonical_case_id，不能发布已核验案例总数。' },
+        { metricId: 'overview.verified_policies', label: '已核验政策', value: 18, unit: '条', readiness: 'Green', caveat: null },
+        { metricId: 'overview.covered_technologies', label: '覆盖技术数量', value: null, unit: '种', readiness: 'Red', caveat: '正式技术 taxonomy 尚未完成审核。' },
       ],
     })
     api.industries.mockResolvedValue({
       dataVersion: 'analytics-v1:9d18c2',
       generatedAt: '2026-08-01T10:00:00+08:00',
       status: 'partial',
-      metric: { metricId: 'industry.case_count', name: '行业案例数量', unit: '条', multiLabel: true, readiness: 'yellow' },
+      metric: { metricId: 'industry.case_count', name: '行业案例数量', unit: '条', multiLabel: true, readiness: 'Yellow' },
       filters: { industryTagIds: [] },
       sampleSize: 5,
       missingCount: 1,
       totalEligible: 6,
       caveats: [{ code: 'CANONICAL_CASE_DEDUPLICATION_NOT_READY', message: '当前按已核验案例 ID 去重。' }],
       buckets: [
-        { bucketId: 'industry:7', industryTagId: 7, label: '人工智能服务', value: 4, ratio: 0.666667, sampleSize: 4, readiness: 'yellow' },
-        { bucketId: 'industry:9', industryTagId: 9, label: '企业服务', value: 1, ratio: 0.166667, sampleSize: 1, readiness: 'red' },
+        { bucketId: 'industry:7', industryTagId: 7, label: '人工智能服务', value: 4, ratio: 0.666667, sampleSize: 4, readiness: 'Yellow' },
+        { bucketId: 'industry:9', industryTagId: 9, label: '企业服务', value: 1, ratio: 0.166667, sampleSize: 1, readiness: 'Red' },
       ],
     })
+    api.technologies.mockResolvedValue({
+      available: false,
+      unavailableReason: 'TECHNOLOGY_TAXONOMY_NOT_READY',
+      rows: [],
+      caveats: [{ code: 'TECHNOLOGY_TAXONOMY_NOT_READY', message: '正式技术 taxonomy 尚未完成审核。' }],
+    })
+    api.revenue.mockResolvedValue({
+      available: false,
+      unavailableReason: 'REVENUE_SCHEMA_NOT_READY',
+      rows: [],
+      caveats: [{ code: 'REVENUE_SCHEMA_NOT_READY', message: '收入字段尚未结构化。' }],
+    })
+    api.regions.mockResolvedValue({
+      available: true,
+      unavailableReason: null,
+      verifiedOnly: true,
+      dataVersion: 'analytics-v1:9d18c2',
+      coverage: { eligible: 3, covered: 3, missing: 0, ratio: 1 },
+      filters: { regionRole: 'policy_applicability' },
+      rows: [
+        { bucketId: 'region:7', regionId: 7, label: '浙江省', regionRole: 'policy_applicability', value: 2, readiness: 'Green' },
+        { bucketId: 'region:9', regionId: 9, label: '江苏省', regionRole: 'policy_applicability', value: 1, readiness: 'Green' },
+      ],
+    })
+    api.trends.mockResolvedValue({
+      available: true,
+      unavailableReason: null,
+      verifiedOnly: true,
+      dataVersion: 'analytics-v1:9d18c2',
+      coverage: { eligible: 3, covered: 2, missing: 1, ratio: 0.666667 },
+      filters: { granularity: 'month', regionRole: 'policy_applicability' },
+      series: [
+        { bucketId: '2026-01', value: 2, sampleSize: 2, syntheticEmptyBucket: false },
+        { bucketId: '2026-02', value: 0, sampleSize: 0, syntheticEmptyBucket: true },
+      ],
+    })
+    api.drilldown.mockResolvedValue({
+      available: true,
+      dataVersion: 'analytics-v1:9d18c2',
+      rows: [
+        { id: 11, title: '浙江省创业扶持政策', publishDate: '2026-01-05', regionName: '浙江省', evidenceStatus: 'verified', detailHref: '/policies/11' },
+      ],
+    })
+  })
+
+  it('renders verified policy analytics and requests exact region drilldown on demand', async () => {
+    const wrapper = mount(AnalyticsDashboardView)
+    await flushPromises()
+
+    expect(api.technologies).toHaveBeenCalledWith()
+    expect(api.revenue).toHaveBeenCalledWith({
+      currency: 'CNY', revenuePeriod: 'annual', revenueType: 'revenue',
+    })
+    expect(api.regions).toHaveBeenCalledWith({
+      metricId: 'region.policy_count', regionRole: 'policy_applicability',
+    })
+    expect(api.trends).toHaveBeenCalledWith({ metricId: 'trend.policy_publish_time' })
+    expect(wrapper.get('[data-testid="policy-trend"]').text()).toContain('2026-01')
+    expect(wrapper.get('[data-testid="policy-regions"]').text()).toContain('浙江省')
+    expect(wrapper.text()).toContain('正式技术 taxonomy 尚未完成审核')
+    expect(wrapper.text()).toContain('收入字段尚未结构化')
+
+    await wrapper.get('[data-testid="drilldown-region:7"]').trigger('click')
+    await flushPromises()
+
+    expect(api.drilldown).toHaveBeenCalledWith({
+      metricId: 'region.policy_count',
+      dataVersion: 'analytics-v1:9d18c2',
+      entityType: 'policy',
+      bucketId: 'region:7',
+    })
+    expect(wrapper.get('[data-testid="policy-drilldown"]').text()).toContain('浙江省创业扶持政策')
   })
 
   it('loads server-owned data-versioned metrics and hands off only an explicit research draft', async () => {
@@ -55,21 +142,22 @@ describe('AnalyticsDashboardView', () => {
     expect(api.industries).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('analytics-v1:9d18c2')
     expect(wrapper.text()).toContain('18')
+    expect(wrapper.text()).toContain('案例尚未具备独立 canonical_case_id')
     expect(wrapper.text()).toContain('正式技术 taxonomy 尚未完成审核')
-    expect(wrapper.get('[data-testid="research-from-overview.verified_cases"]').attributes('aria-label')).toBe('将已核验案例带入研究')
+    expect(wrapper.get('[data-testid="research-from-overview.verified_policies"]').attributes('aria-label')).toBe('将已核验政策带入研究')
 
-    await wrapper.get('[data-testid="research-from-overview.verified_cases"]').trigger('click')
+    await wrapper.get('[data-testid="research-from-overview.verified_policies"]').trigger('click')
 
     expect(api.startAnalytics).not.toHaveBeenCalled()
     expect(router.push).toHaveBeenCalledWith({ name: 'assistant', query: { handoff: 'analytics' } })
     expect(JSON.parse(sessionStorage.getItem('opc_analytics_research_draft:user:42'))).toEqual({
       version: 1,
-      metricId: 'overview.verified_cases',
-      metricLabel: '已核验案例',
+      metricId: 'overview.verified_policies',
+      metricLabel: '已核验政策',
       dataVersion: 'analytics-v1:9d18c2',
       filters: {},
       selectedBucketIds: [],
-      userQuestion: '请基于“已核验案例”这一已核验数据指标，说明它对当前创业研究范围意味着什么；区分可确认事实、推断、风险和下一步行动。',
+      userQuestion: '请基于“已核验政策”这一已核验数据指标，说明它对当前创业研究范围意味着什么；区分可确认事实、推断、风险和下一步行动。',
     })
   })
 
@@ -148,7 +236,7 @@ describe('AnalyticsDashboardView', () => {
     const wrapper = mount(AnalyticsDashboardView)
     await flushPromises()
 
-    await wrapper.get('[data-testid="research-from-overview.verified_cases"]').trigger('click')
+    await wrapper.get('[data-testid="research-from-overview.verified_policies"]').trigger('click')
     await flushPromises()
 
     expect(router.push).not.toHaveBeenCalled()

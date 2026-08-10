@@ -6,6 +6,8 @@ import com.opc.platform.caseitem.mapper.CaseItemMapper;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.source.entity.Source;
 import com.opc.platform.source.mapper.SourceMapper;
+import com.opc.platform.tag.entity.Tag;
+import com.opc.platform.tag.mapper.TagMapper;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -66,6 +68,28 @@ class PhaseThreeSelectedEvidenceValidatorTest {
                 () -> validator.validate(context("source_verification", "\"sourceId\":9004")));
 
         assertEquals("PHASE3_SOURCE_NOT_ELIGIBLE", exception.getMessage());
+    }
+
+    @Test
+    void validatesTechnologyTagAgainstThePublishedTechnologyTaxonomy() throws Exception {
+        CaseItemMapper cases = mock(CaseItemMapper.class);
+        SourceMapper sources = mock(SourceMapper.class);
+        TagMapper tags = mock(TagMapper.class);
+        Tag technology = new Tag();
+        technology.setId(91L);
+        technology.setTagType("technology");
+        technology.setName("检索增强生成");
+        when(tags.selectById(91L)).thenReturn(technology);
+
+        PhaseThreeSelectedEvidenceValidator validator =
+                new PhaseThreeSelectedEvidenceValidator(cases, sources, tags);
+        assertDoesNotThrow(() -> validator.validate(context(
+                "technology_assessment", "\"technologyTagId\":91")));
+
+        technology.setTagType("case");
+        BusinessException exception = assertThrows(BusinessException.class, () -> validator.validate(context(
+                "technology_assessment", "\"technologyTagId\":91")));
+        assertEquals("PHASE3_TECHNOLOGY_TAG_NOT_ELIGIBLE", exception.getMessage());
     }
 
     private PhaseThreeTaskContext context(String taskType, String selection) throws Exception {

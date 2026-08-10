@@ -72,6 +72,7 @@ htmlcov/
 # Browser and test artifacts
 playwright-report/
 test-results/
+opc-frontend/assistant-view-test-results.json
 blob-report/
 .playwright-cli/
 cypress/screenshots/

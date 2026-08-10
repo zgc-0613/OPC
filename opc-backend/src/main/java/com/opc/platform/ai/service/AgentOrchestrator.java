@@ -47,13 +47,16 @@ public class AgentOrchestrator {
     private static final Set<String> STRUCTURED_FINAL_FIELDS = Set.of(
             "action", "intent", "directAnswer", "keyFindings", "caseInsights", "policyInsights",
             "comparison", "recommendations", "risks", "assumptions", "uncertainties",
-            "nextQuestions", "citations", "confidence", "evidenceCoverage"
+            "nextQuestions", "citations", "confidence", "evidenceCoverage", "verificationClaims"
     );
     private static final Set<String> CITATION_FIELDS = Set.of("sourceId", "claim");
     private static final Set<String> STATEMENT_FIELDS = Set.of("text", "evidenceType", "sourceIds");
     private static final Set<String> RECOMMENDATION_FIELDS = Set.of("priority", "reason", "nextAction", "sourceIds");
     private static final Set<String> COVERAGE_FIELDS = Set.of(
             "status", "caseCount", "policyCount", "sourceCount", "limitations"
+    );
+    private static final Set<String> VERIFICATION_CLAIM_FIELDS = Set.of(
+            "claimId", "text", "relation", "sourceIds"
     );
     private static final Set<String> SEARCH_CASE_FIELDS = Set.of(
             "scope", "query", "category", "limit"
@@ -549,8 +552,16 @@ public class AgentOrchestrator {
                             ? validateStructuredFinal(plan, action, verificationContext, researchIntent,
                             phaseThreeTaskContext)
                             : validateFinal(plan, action, toolContext.allowedSourceIds());
+                    String terminalStatus = "final".equals(action) ? "completed" : "evidence_insufficient";
+                    JsonNode structuredResult = finalPayload.structuredResult();
+                    if (structuredResult != null
+                            && "source_verification".equals(structuredResult.path("taskType").asText())
+                            && ("insufficient".equals(structuredResult.path("taskResult").path("verdict").asText())
+                            || "insufficient".equals(structuredResult.path("taskResult").path("evidenceStatus").asText()))) {
+                        terminalStatus = "evidence_insufficient";
+                    }
                     return new AgentOrchestratorOutcome(
-                            "final".equals(action) ? "completed" : "evidence_insufficient",
+                            terminalStatus,
                             finalPayload.answer(), finalPayload.citations(), finalPayload.confidence(),
                             round, toolCalls, promptTokens, completionTokens, totalTokens, totalLatency,
                             requestId, finishReason, finalPayload.structuredResult(),
@@ -1320,6 +1331,9 @@ public class AgentOrchestrator {
         if (statementCount > AgentResearchContract.MAX_STATEMENTS) {
             throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_STRUCTURED_RESULT, "结构化研究条目过多");
         }
+        if (plan.has("verificationClaims")) {
+            validateVerificationClaims(plan.path("verificationClaims"), allowedSourceIds, action, resolvedIntent);
+        }
         validateRecommendations(plan.path("recommendations"), allowedSourceIds);
         int simpleItemCount = 0;
         for (String field : List.of("risks", "assumptions", "uncertainties", "nextQuestions")) {
@@ -1356,7 +1370,42 @@ public class AgentOrchestrator {
                 : phaseThreeResultAssembler.assemble(
                         plan, action, phaseThreeTaskContext,
                         toolContext.evidenceBundle(), toolContext.evidenceVersion());
-        return new FinalPayload(markdown, citations, confidence.asDouble(), structuredResult);
+        boolean sourceVerification = phaseThreeTaskContext != null
+                && "source_verification".equals(phaseThreeTaskContext.path("taskType").asText());
+        boolean sourceVerificationInsufficient = sourceVerification
+                && ("insufficient".equals(structuredResult.path("taskResult").path("verdict").asText())
+                || "insufficient".equals(structuredResult.path("taskResult").path("evidenceStatus").asText()));
+        if (sourceVerificationInsufficient) {
+            markdown = renderStructuredMarkdown(structuredResult,
+                    structuredResult.path("directAnswer").asText(directAnswer));
+        }
+        List<AgentCitation> finalCitations = sourceVerificationInsufficient
+                ? List.of()
+                : sourceVerification ? mergeStructuredCitations(citations, structuredResult) : citations;
+        return new FinalPayload(markdown, finalCitations, confidence.asDouble(), structuredResult);
+    }
+
+    private List<AgentCitation> mergeStructuredCitations(
+            List<AgentCitation> modelCitations,
+            JsonNode structuredResult
+    ) {
+        List<AgentCitation> merged = new ArrayList<>(modelCitations);
+        Set<Long> sourceIds = new LinkedHashSet<>();
+        modelCitations.forEach(citation -> sourceIds.add(citation.sourceId()));
+        for (JsonNode citation : structuredResult.path("citations")) {
+            if (!citation.path("sourceId").isIntegralNumber()) {
+                throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_SOURCE_ID,
+                        "服务端结构化引用格式无效");
+            }
+            long sourceId = citation.path("sourceId").asLong();
+            if (!sourceIds.add(sourceId)) continue;
+            if (merged.size() >= AgentResearchContract.MAX_CITATIONS) {
+                throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_SOURCE_ID,
+                        "服务端结构化引用数量超出限制");
+            }
+            merged.add(new AgentCitation(sourceId, "服务端来源元数据"));
+        }
+        return List.copyOf(merged);
     }
 
     private JsonNode compatibilityStructuredResult(JsonNode plan, AgentToolContext toolContext) {
@@ -1447,6 +1496,51 @@ public class AgentOrchestrator {
                     AgentResearchContract.MAX_SOURCE_IDS_PER_ITEM).isEmpty()) {
                 throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.UNCITED_RECOMMENDATION,
                         "研究建议缺少来源");
+            }
+        }
+    }
+
+    private void validateVerificationClaims(
+            JsonNode values,
+            Set<Long> allowedSourceIds,
+            String action,
+            String resolvedIntent
+    ) {
+        if (!values.isArray() || values.size() > AgentResearchContract.MAX_VERIFICATION_CLAIMS) {
+            throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_STRUCTURED_RESULT,
+                    "来源核验主张格式无效");
+        }
+        for (JsonNode value : values) {
+            if (!value.isObject() || hasUnknownFields(value, VERIFICATION_CLAIM_FIELDS)) {
+                throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_STRUCTURED_RESULT,
+                        "来源核验主张包含未知字段");
+            }
+            String claimId = requireText(value.path("claimId"), 64, "verificationClaims.claimId");
+            if (!claimId.matches("^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")) {
+                throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_STRUCTURED_RESULT,
+                        "来源核验主张编号无效");
+            }
+            requireText(value.path("text"), AgentResearchContract.MAX_STATEMENT_LENGTH,
+                    "verificationClaims.text");
+            String relation = value.path("relation").asText("");
+            if (!Set.of("supports", "contradicts", "unresolved").contains(relation)) {
+                throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_STRUCTURED_RESULT,
+                        "来源核验关系无效");
+            }
+            List<Long> sourceIds = validateSourceIds(value.path("sourceIds"), allowedSourceIds,
+                    AgentResearchContract.MAX_SOURCE_IDS_PER_ITEM);
+            if (!"unresolved".equals(relation) && sourceIds.isEmpty()) {
+                throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_SOURCE_ID,
+                        "支持或反对关系必须绑定授权来源");
+            }
+            if ("evidence_insufficient".equals(action)
+                    && (!"unresolved".equals(relation) || !sourceIds.isEmpty())) {
+                throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_STRUCTURED_RESULT,
+                        "证据不足结果不能提交支持或反对关系");
+            }
+            if (!"source_verification".equals(resolvedIntent)) {
+                throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_STRUCTURED_RESULT,
+                        "来源核验主张只能用于来源核验任务");
             }
         }
     }
@@ -1684,6 +1778,7 @@ public class AgentOrchestrator {
                 Mark statements as fact, inference, or methodology and tailor priorities to stage, budget, goal, and resources.
                 Keep the result compact: directAnswer within 300 Chinese characters, %s, and empty arrays for inapplicable sections.
                 Use evidenceCoverage=partial for bounded useful evidence; use evidence_insufficient only when core facts are unsupported.
+                For source_verification, optionally return verificationClaims with claimId, text, relation (supports, contradicts, or unresolved), and only authorized sourceIds. The server derives the final verdict and preserves conflicts.
                 """.formatted(AgentResearchContract.synthesisBoundaryPrompt());
     }
 

@@ -6,8 +6,11 @@ import com.opc.platform.common.enums.ErrorCode;
 import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.source.entity.Source;
 import com.opc.platform.source.mapper.SourceMapper;
+import com.opc.platform.tag.entity.Tag;
+import com.opc.platform.tag.mapper.TagMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.net.URI;
 import java.util.Set;
@@ -22,10 +25,18 @@ public class PhaseThreeSelectedEvidenceValidator {
 
     private final CaseItemMapper caseMapper;
     private final SourceMapper sourceMapper;
+    private final TagMapper tagMapper;
 
     public PhaseThreeSelectedEvidenceValidator(CaseItemMapper caseMapper, SourceMapper sourceMapper) {
+        this(caseMapper, sourceMapper, null);
+    }
+
+    @Autowired
+    public PhaseThreeSelectedEvidenceValidator(
+            CaseItemMapper caseMapper, SourceMapper sourceMapper, TagMapper tagMapper) {
         this.caseMapper = caseMapper;
         this.sourceMapper = sourceMapper;
+        this.tagMapper = tagMapper;
     }
 
     public void validate(PhaseThreeTaskContext taskContext) {
@@ -36,6 +47,9 @@ public class PhaseThreeSelectedEvidenceValidator {
         }
         if (taskContext.node().path("sourceId").isIntegralNumber()) {
             validateSelectedSource(taskContext.node().path("sourceId").asLong());
+        }
+        if (taskContext.node().path("technologyTagId").isIntegralNumber()) {
+            validateTechnologyTag(taskContext.node().path("technologyTagId").asLong());
         }
     }
 
@@ -53,6 +67,13 @@ public class PhaseThreeSelectedEvidenceValidator {
     private void validateSelectedSource(long sourceId) {
         if (!eligibleSource(sourceMapper.selectByIdForUpdate(sourceId))) {
             throw sourceIneligible();
+        }
+    }
+
+    private void validateTechnologyTag(long tagId) {
+        Tag tag = tagMapper == null ? null : tagMapper.selectById(tagId);
+        if (tag == null || !"technology".equals(tag.getTagType()) || !StringUtils.hasText(tag.getName())) {
+            throw technologyTagIneligible();
         }
     }
 
@@ -87,5 +108,9 @@ public class PhaseThreeSelectedEvidenceValidator {
 
     private BusinessException sourceIneligible() {
         return new BusinessException(ErrorCode.BAD_REQUEST, "PHASE3_SOURCE_NOT_ELIGIBLE");
+    }
+
+    private BusinessException technologyTagIneligible() {
+        return new BusinessException(ErrorCode.BAD_REQUEST, "PHASE3_TECHNOLOGY_TAG_NOT_ELIGIBLE");
     }
 }

@@ -519,12 +519,14 @@ unknown、缺失证据和不适用值统一用 `EvidenceSection.status=unknown|n
     },
     "sourceVerificationResult": {
       "type": "object", "additionalProperties": false,
-      "required": ["type", "mode", "sourceId", "verdict", "publisherAssessment", "supportedClaims", "unsupportedClaims", "conflicts", "invalidityReasons"],
+      "required": ["type", "mode", "sourceId", "verdict", "verdictExplanation", "evidenceStatus", "publisherAssessment", "supportedClaims", "unsupportedClaims", "conflicts", "invalidityReasons"],
       "properties": {
         "type": { "type": "string", "const": "source_verification", "maxLength": 19 },
         "mode": { "type": "string", "maxLength": 15, "enum": ["selected_source", "claim_search"] },
         "sourceId": { "type": ["integer", "null"], "minimum": 1 },
         "verdict": { "type": "string", "maxLength": 18, "enum": ["supports", "partially_supports", "does_not_support", "conflicting", "insufficient"] },
+        "verdictExplanation": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "evidenceStatus": { "type": "string", "enum": ["sufficient", "partial", "conflicting", "insufficient"] },
         "publisherAssessment": { "$ref": "#/$defs/evidenceSection" },
         "supportedClaims": { "$ref": "#/$defs/evidenceSection" },
         "unsupportedClaims": { "$ref": "#/$defs/evidenceSection" },
@@ -838,6 +840,7 @@ evidenceVersion 的唯一规范输入是按以下字段顺序构造的对象：`
     "generatedAt": "2030-01-01T00:00:00+08:00",
     "taskResult": {
       "type": "source_verification", "mode": "selected_source", "sourceId": 9005, "verdict": "supports",
+      "verdictExplanation": "当前关键主张均有本次运行的合法授权引用支持。", "evidenceStatus": "sufficient",
       "publisherAssessment": { "status": "known", "items": [{ "id": "publisher", "kind": "fact", "text": "契约占位：来源记录包含发布者。", "sourceIds": [9005], "confidence": "medium", "missingEvidence": false }], "caveat": null },
       "supportedClaims": { "status": "unknown", "items": [], "caveat": "契约占位：未提供其他待核验结论。" },
       "unsupportedClaims": { "status": "not_applicable", "items": [], "caveat": "契约占位：没有不支持结论。" },
@@ -1014,3 +1017,9 @@ CAS 幂等规则唯一如下：资源已经处于目标状态且请求携带**�
 - 查询必须有 EXPLAIN/索引证据；禁止为一个页面逐 bucket N+1 查询。
 
 后端实现与验收责任见 [phase-three-backend-handoff.md](phase-three-backend-handoff.md)，契约测试见 [phase-three-evaluation-plan.md](phase-three-evaluation-plan.md)。
+
+## Source verification content boundary (2026-08-09)
+
+For `taskResult.type=source_verification`, a server-derived `verdict=insufficient` is authoritative even when the provider action is `final`. The response must use the fixed insufficient-evidence answer, return empty factual collections and citations, set `evidenceCoverage.status=insufficient` with zero fact counts and a null ratio, and return `publisherAssessment.status=unknown`. Unresolved claims may be represented only as source-free methodology invalidity reasons. Legacy provider directAnswer, claims, citations, coverage and publisherAssessment are not trusted. The same sanitized shape is persisted and used for Markdown rendering.
+
+The contract was exercised in the guarded candidate and production source-verification probes after release `/opt/opc/releases/20260809-150138`; both used the current-run authorized evidence chain and reported zero unknown citations. No API shape or database migration was changed by this closure.

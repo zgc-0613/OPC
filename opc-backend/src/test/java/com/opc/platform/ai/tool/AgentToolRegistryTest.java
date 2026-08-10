@@ -362,7 +362,8 @@ class AgentToolRegistryTest {
         var recommendation = properties.path("recommendations").path("items").path("properties");
         var coverageLimitations = properties.path("evidenceCoverage").path("properties").path("limitations");
 
-        assertEquals(8, properties.size());
+        assertEquals(9, properties.size());
+        assertTrue(properties.has("verificationClaims"));
         assertEquals(300, properties.path("directAnswer").path("maxLength").asInt());
         assertEquals(1, properties.path("keyFindings").path("maxItems").asInt());
         statementBranches.forEach(branch -> {

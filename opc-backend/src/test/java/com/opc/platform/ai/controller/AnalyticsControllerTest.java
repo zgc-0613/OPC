@@ -74,10 +74,10 @@ class AnalyticsControllerTest {
         return new AnalyticsIndustriesVO(
                 List.of(new AnalyticsIndustriesVO.Bucket(
                         "industry:7", 7L, "人工智能服务", 4L, new BigDecimal("0.5"),
-                        4L, 0L, "yellow", new AnalyticsIndustriesVO.Drilldown(
-                        "/cases?industryTagId=7", List.of("case"), true))),
+                        4L, 0L, "Yellow", new AnalyticsIndustriesVO.Drilldown(
+                        "/api/analytics/drilldown", List.of("case"), false))),
                 new AnalyticsIndustriesVO.Metric(
-                        "industry.case_count", "行业案例数量", "industry-v1", "yellow",
+                        "industry.case_count", "行业案例数量", "industry-v1", "Yellow",
                         "已核验案例数量", "条", true),
                 new AnalyticsIndustriesVO.Filters(List.of(7L)),
                 4L, 0L, 8L, now, "analytics-v1:test",

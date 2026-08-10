@@ -36,6 +36,7 @@ public final class AgentResearchContract {
     public static final int MAX_CITATIONS = 6;
     public static final int MAX_CITATION_CLAIM_LENGTH = 200;
     public static final int MAX_SOURCE_IDS_PER_ITEM = 6;
+    public static final int MAX_VERIFICATION_CLAIMS = 6;
     public static final int MAX_COVERAGE_LIMITATIONS = 3;
     public static final int MAX_COVERAGE_LIMITATION_LENGTH = 200;
     public static final String INVALID_JSON = "INVALID_JSON";
@@ -68,6 +69,10 @@ public final class AgentResearchContract {
 
     public static final String REQUESTED_INTENT_PATTERN =
             "auto|policy_lookup|case_analysis|case_comparison|source_verification|technology_assessment|general_research";
+    public static final Set<String> PHASE_THREE_TASK_TYPES = Set.of(
+            "policy_lookup", "case_analysis", "case_comparison", "source_verification",
+            "technology_assessment", "general_research"
+    );
     public static final Set<String> REQUESTED_INTENTS = Set.of(
             "auto", "policy_lookup", "case_analysis", "case_comparison", "source_verification",
             "technology_assessment", "general_research"

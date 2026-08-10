@@ -5,9 +5,9 @@
       <strong>{{ taskTypeLabel(result.taskType) }}</strong>
     </header>
 
-    <section class="result-summary" aria-labelledby="result-summary-title">
-      <div class="result-summary-heading"><h3 id="result-summary-title">研究摘要</h3><span class="claim-kind" :class="`is-${result.summaryKind || 'inference'}`">{{ kindLabel(result.summaryKind || 'inference') }}</span></div>
-      <p>{{ result.directAnswer }}</p>
+    <section class="result-summary" :aria-labelledby="resultSummaryTitleId">
+      <div class="result-summary-heading"><h3 :id="resultSummaryTitleId">研究摘要</h3><span class="claim-kind" :class="`is-${displaySummaryKind}`">{{ kindLabel(displaySummaryKind) }}</span></div>
+      <p>{{ displayDirectAnswer }}</p>
     </section>
 
     <ResultClaimSection v-if="claims.keyFindings.length" title="关键发现" :items="claims.keyFindings" @citations="emitCitations" />
@@ -30,9 +30,9 @@
       <p>{{ coverage.detail }}</p>
     </section>
 
-    <section v-if="analyticsSnapshot" class="analytics-snapshot-provenance" data-testid="analytics-snapshot-provenance" aria-labelledby="analytics-snapshot-title">
+    <section v-if="analyticsSnapshot" class="analytics-snapshot-provenance" data-testid="analytics-snapshot-provenance" :aria-labelledby="analyticsSnapshotTitleId">
       <div>
-        <h3 id="analytics-snapshot-title">数据快照</h3>
+        <h3 :id="analyticsSnapshotTitleId">数据快照</h3>
         <small>指标 {{ analyticsSnapshot.metricId }} · 数据版本 {{ analyticsSnapshot.dataVersion }}</small>
       </div>
       <p>快照 #{{ analyticsSnapshot.id }}<template v-if="analyticsSnapshot.sampleSize !== null"> · 样本 {{ analyticsSnapshot.sampleSize }}</template><template v-if="analyticsSnapshot.missingCount !== null"> · 缺失 {{ analyticsSnapshot.missingCount }}</template></p>
@@ -40,9 +40,9 @@
       <a :href="analyticsSnapshot.href" data-testid="analytics-snapshot-backlink">查看对应指标</a>
     </section>
 
-    <section v-if="citationItems.length" class="result-citations" aria-labelledby="result-citations-title">
+    <section v-if="citationItems.length" class="result-citations" :aria-labelledby="resultCitationsTitleId">
       <div>
-        <h3 id="result-citations-title">引用与版本</h3>
+        <h3 :id="resultCitationsTitleId">引用与版本</h3>
         <small>{{ evidenceVersionLabel }}</small>
       </div>
       <ol>
@@ -56,29 +56,22 @@
       </button>
     </section>
 
-    <section v-if="nextQuestions.length" class="next-questions" aria-labelledby="next-questions-title">
-      <h3 id="next-questions-title">建议的后续问题</h3>
+    <section v-if="nextQuestions.length" class="next-questions" :aria-labelledby="nextQuestionsTitleId">
+      <h3 :id="nextQuestionsTitleId">建议的后续问题</h3>
       <ul><li v-for="question in nextQuestions" :key="question">{{ question }}</li></ul>
     </section>
   </article>
 </template>
 
 <script setup>
-import { computed, defineComponent, h } from 'vue'
+import { computed, defineComponent, h, useId } from 'vue'
+import { researchTaskLabel } from '@/constants/researchTasks'
 
 const kindLabels = {
   fact: '事实',
   inference: '推断',
   recommendation: '建议',
   methodology: '研究方法',
-}
-const taskTypeLabels = {
-  case_analysis: '案例分析',
-  case_comparison: '多案例比较',
-  technology_assessment: '技术路线评估',
-  policy_lookup: '政策研究',
-  source_verification: '来源核验',
-  general_research: '综合创业研究',
 }
 const sectionLabels = {
   businessModel: '商业模式', targetCustomers: '目标客户', revenueModel: '收入方式', costsAndResources: '成本与资源',
@@ -94,17 +87,40 @@ const sectionLabels = {
   regionalContext: '地区环境', evidenceStrength: '证据强度',
 }
 
-const props = defineProps({ result: { type: Object, default: null } })
+const props = defineProps({
+  result: { type: Object, default: null },
+  messageId: { type: [String, Number], default: null },
+})
 const emit = defineEmits(['citations'])
+const generatedId = useId()
+const resultIdPrefix = computed(() => `assistant-result-${toIdPart(props.messageId ?? generatedId)}`)
+const resultSummaryTitleId = computed(() => `${resultIdPrefix.value}-summary-title`)
+const analyticsSnapshotTitleId = computed(() => `${resultIdPrefix.value}-analytics-title`)
+const resultCitationsTitleId = computed(() => `${resultIdPrefix.value}-citations-title`)
+const nextQuestionsTitleId = computed(() => `${resultIdPrefix.value}-next-questions-title`)
+const sourceVerificationInsufficient = computed(() => props.result?.taskResult?.type === 'source_verification'
+  && props.result.taskResult.verdict === 'insufficient')
+const displayDirectAnswer = computed(() => sourceVerificationInsufficient.value
+  ? '当前没有足够的授权证据完成来源核验结论。'
+  : props.result?.directAnswer)
+const displaySummaryKind = computed(() => sourceVerificationInsufficient.value
+  ? 'methodology'
+  : props.result?.summaryKind || 'inference')
 const supported = computed(() => props.result?.schemaVersion === 'phase3-structured-result-v1' && typeof props.result?.directAnswer === 'string' && props.result.directAnswer.trim().length > 0)
-const citationItems = computed(() => Array.isArray(props.result?.citations) ? props.result.citations.filter((citation) => Number.isInteger(Number(citation?.sourceId)) && Number(citation.sourceId) > 0) : [])
+const citationItems = computed(() => sourceVerificationInsufficient.value
+  ? []
+  : Array.isArray(props.result?.citations) ? props.result.citations.filter((citation) => Number.isInteger(Number(citation?.sourceId)) && Number(citation.sourceId) > 0) : [])
 const citationSourceIds = computed(() => citationItems.value.map((citation) => Number(citation.sourceId)))
-const claims = computed(() => ({
+const claims = computed(() => sourceVerificationInsufficient.value ? emptyClaims() : ({
   keyFindings: claimList(props.result?.keyFindings, 'methodology'), recommendations: claimList(props.result?.recommendations, 'recommendation'),
   risks: claimList(props.result?.risks, 'inference'), assumptions: claimList(props.result?.assumptions, 'methodology'), uncertainties: claimList(props.result?.uncertainties, 'methodology'),
 }))
-const nextQuestions = computed(() => Array.isArray(props.result?.nextQuestions) ? props.result.nextQuestions.filter((value) => typeof value === 'string' && value.trim()) : [])
-const taskSections = computed(() => collectTaskSections(props.result?.taskResult))
+const nextQuestions = computed(() => sourceVerificationInsufficient.value
+  ? []
+  : Array.isArray(props.result?.nextQuestions) ? props.result.nextQuestions.filter((value) => typeof value === 'string' && value.trim()) : [])
+const taskSections = computed(() => sourceVerificationInsufficient.value
+  ? collectInsufficientSourceSections(props.result?.taskResult)
+  : collectTaskSections(props.result?.taskResult))
 const evidenceVersionLabel = computed(() => props.result?.evidenceVersion ? `证据版本 ${props.result.evidenceVersion}` : '未提供证据版本')
 const coverage = computed(() => coverageSummary(props.result, citationItems.value))
 const analyticsSnapshot = computed(() => analyticsSnapshotSummary(props.result?.analyticsSnapshot, props.result?.dataVersion))
@@ -149,11 +165,34 @@ function claimList(value, fallbackKind = 'methodology') {
 }
 function claimSourceIds(claim) { return Array.isArray(claim?.sourceIds) ? claim.sourceIds.filter((sourceId) => Number.isInteger(Number(sourceId)) && Number(sourceId) > 0).map(Number) : [] }
 function kindLabel(kind) { return kindLabels[kind] || kindLabels.methodology }
-function taskTypeLabel(type) { return taskTypeLabels[type] || '研究结果' }
+function taskTypeLabel(type) { return researchTaskLabel(type) }
 function evidenceSectionLabel(status) { return ({ known: '有可用证据', unknown: '证据未知', not_applicable: '不适用' }[status] || '待核验') }
 function citationAvailabilityLabel(status) { return ({ current: '已核验', stale: '可能已更新', unavailable: '当前不可用' }[status] || '待核验') }
 function citationReferenceLabel(sourceIds) { return `依据 [${sourceIds.join('、')}]` }
 function emitCitations(sourceIds) { emit('citations', Array.isArray(sourceIds) ? sourceIds : []) }
+function emptyClaims() { return { keyFindings: [], recommendations: [], risks: [], assumptions: [], uncertainties: [] } }
+
+function collectInsufficientSourceSections(taskResult) {
+  const sections = []
+  const publisher = taskResult?.publisherAssessment
+  if (isEvidenceSection(publisher) && publisher.status === 'unknown' && publisher.items.length === 0) {
+    sections.push({
+      key: 'publisherAssessment-0', title: sectionLabels.publisherAssessment,
+      status: publisher.status, items: [], caveat: typeof publisher.caveat === 'string' ? publisher.caveat : '',
+    })
+  }
+  const invalidity = taskResult?.invalidityReasons
+  if (isEvidenceSection(invalidity)) {
+    sections.push({
+      key: 'invalidityReasons-0',
+      title: sectionLabels.invalidityReasons,
+      status: invalidity.status,
+      items: claimList(invalidity.items).filter((item) => item.kind === 'methodology' && claimSourceIds(item).length === 0),
+      caveat: typeof invalidity.caveat === 'string' ? invalidity.caveat : '',
+    })
+  }
+  return sections
+}
 
 function collectTaskSections(taskResult) {
   if (!taskResult || typeof taskResult !== 'object') return []
@@ -173,6 +212,26 @@ function collectTaskSections(taskResult) {
 function isEvidenceSection(value) { return value && typeof value === 'object' && ['known', 'unknown', 'not_applicable'].includes(value.status) && Array.isArray(value.items) }
 function coverageSummary(result, citations) {
   const taskResult = result?.taskResult || {}
+  const sourceVerdictLabels = {
+    supports: '支持',
+    partially_supports: '部分支持',
+    does_not_support: '不支持',
+    conflicting: '存在冲突',
+    insufficient: '证据不足',
+  }
+  if (taskResult.type === 'source_verification' && sourceVerdictLabels[taskResult.verdict]) {
+    const verdict = taskResult.verdict
+    const state = verdict === 'conflicting' ? 'conflict'
+      : verdict === 'supports' ? 'sufficient'
+        : verdict === 'partially_supports' ? 'limited' : 'insufficient'
+    return {
+      state,
+      label: sourceVerdictLabels[verdict],
+      detail: typeof taskResult.verdictExplanation === 'string' && taskResult.verdictExplanation.trim()
+        ? taskResult.verdictExplanation.trim()
+        : '服务端尚未提供该核验状态的详细说明。',
+    }
+  }
   const sourceVerificationConflict = taskResult.type === 'source_verification' && taskResult.verdict === 'conflicting'
   const conflict = sourceVerificationConflict || (isEvidenceSection(taskResult.conflicts) && taskResult.conflicts.status === 'known')
   const unavailable = citations.some((citation) => ['stale', 'unavailable'].includes(citation.availability))
@@ -220,10 +279,14 @@ function analyticsSnapshotHref(metricId, filterEntries) {
   filterEntries.forEach(([key, value]) => params.set(key, value))
   return `/analytics?${params.toString()}`
 }
+function toIdPart(value) {
+  const normalized = String(value || '').trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
+  return normalized || 'instance'
+}
 </script>
 
 <style scoped>
 .result-summary-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.structured-result{display:grid;gap:18px;min-width:0;padding:2px 0 4px;color:#252a25;font-family:'Noto Serif SC',Songti SC,STSong,SimSun,serif}.result-header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid #ccd0ca}.result-header span{color:#707770;font-family:'Bookman Old Style',Georgia,serif;font-size:.64rem;font-weight:700}.result-header strong{font-size:.74rem;font-weight:700}.result-summary{padding:14px 16px;border:1px solid #ccd0ca;border-radius:6px;background:#f2f3ef}.structured-result h3,.structured-result h4{margin:0;color:#222722;font-family:'Noto Serif SC',Songti SC,STSong,SimSun,serif;font-size:.92rem;font-weight:600}.result-summary p{margin:9px 0 0;overflow-wrap:anywhere;line-height:1.78}.result-claim-section{padding-top:14px;border-top:1px solid #d7dad5}.claim-list{display:grid;gap:10px;margin:10px 0 0;padding:0;list-style:none}.claim-list li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:7px 9px;min-width:0}.claim-kind{display:inline-flex;align-items:center;min-height:22px;padding:0 6px;border:1px solid #bfc5bd;border-radius:999px;color:#485048;font-family:system-ui,sans-serif;font-size:.62rem;font-weight:700;white-space:nowrap}.claim-kind.is-fact{border-color:#719279;color:#315c42}.claim-kind.is-recommendation{border-color:#777d76;color:#313631}.claim-list p{margin:0;min-width:0;overflow-wrap:anywhere;line-height:1.68}.claim-citations,.result-citations button{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 9px;border:1px solid #bfc5bd;border-radius:3px;background:#fbfbf8;color:#333933;font-family:inherit;font-size:.68rem;font-weight:700;white-space:nowrap}.claim-citations:is(:hover,:focus-visible),.result-citations button:is(:hover,:focus-visible){border-color:#747b74;background:#eceee8}.claim-citations:focus-visible,.result-citations button:focus-visible,.task-result-details summary:focus-visible{outline:2px solid rgba(74,82,74,.34);outline-offset:2px}.task-result-details{padding-top:14px;border-top:1px solid #d7dad5}.task-result-details summary{min-height:36px;cursor:pointer;color:#303630;font-size:.78rem;font-weight:700}.task-evidence-section{padding:13px 0;border-top:1px solid #dde0da}.task-evidence-section:first-of-type{margin-top:8px}.task-evidence-section>header{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.task-evidence-section>header span{color:#687068;font-size:.66rem}.section-caveat{margin:8px 0 0;padding-left:10px;border-left:2px solid #aeb4ac;color:#596059;font-size:.76rem;line-height:1.62;overflow-wrap:anywhere}.evidence-coverage{display:grid;gap:5px;padding:13px 15px;border:1px solid #c7ccc5;border-left:3px solid #737a72;background:#f2f3ef}.evidence-coverage>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.evidence-coverage span{color:#687068;font-size:.67rem;font-weight:700}.evidence-coverage strong{font-size:.78rem}.evidence-coverage p{margin:0;color:#525a52;font-size:.74rem;line-height:1.6;overflow-wrap:anywhere}.evidence-coverage.is-sufficient{border-left-color:#4f6f58}.evidence-coverage.is-conflict,.evidence-coverage.is-insufficient,.evidence-coverage.is-stale{border-left-color:#8a5047}.result-citations{display:grid;gap:10px;padding-top:14px;border-top:1px solid #d7dad5}.result-citations>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.result-citations small{color:#737a72;font-family:'Bookman Old Style',Georgia,serif;font-size:.61rem;overflow-wrap:anywhere}.result-citations ol{display:grid;gap:7px;margin:0;padding:0;list-style:none}.result-citations li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:8px;min-width:0}.result-citations li>span{color:#707770;font-family:'Bookman Old Style',Georgia,serif;font-size:.72rem}.result-citations li div{display:grid;gap:3px;min-width:0}.result-citations li strong{overflow-wrap:anywhere;font-size:.77rem}.result-citations li small{font-family:inherit;font-size:.67rem}.result-citations button{justify-self:start}.next-questions{padding-top:14px;border-top:1px solid #d7dad5}.next-questions ul{display:grid;gap:5px;margin:9px 0 0;padding-left:19px}.next-questions li{overflow-wrap:anywhere;font-size:.78rem;line-height:1.62}@media(max-width:640px),(pointer:coarse){.claim-list li{grid-template-columns:auto minmax(0,1fr)}.claim-citations{grid-column:2;justify-self:start;min-height:44px}.result-citations button{min-height:44px}.result-header,.result-citations>div,.evidence-coverage>div{align-items:flex-start;flex-direction:column;gap:5px}.result-summary{padding:13px}.task-result-details summary{min-height:44px;padding-top:4px}.task-evidence-section>header{align-items:flex-start;flex-direction:column;gap:4px}}@media(prefers-reduced-motion:reduce){.claim-citations,.result-citations button{transition:none}}
-.evidence-coverage{border-left-width:1px}.section-caveat{border-left-width:1px}.analytics-snapshot-provenance{display:grid;gap:5px;padding:14px 15px;border:1px solid #c7ccc5;background:#f2f3ef}.analytics-snapshot-provenance>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.analytics-snapshot-provenance h3{font-size:.84rem}.analytics-snapshot-provenance small{color:#687068;font-family:'Bookman Old Style',Georgia,serif;font-size:.63rem;overflow-wrap:anywhere}.analytics-snapshot-provenance p{margin:0;color:#525a52;font-size:.74rem;line-height:1.6;overflow-wrap:anywhere}.analytics-snapshot-filters{color:#626a62}.analytics-snapshot-provenance a{justify-self:start;display:inline-flex;align-items:center;min-height:34px;padding:0 9px;border:1px solid #bfc5bd;border-radius:3px;background:#fbfbf8;color:#333933;font-size:.68rem;font-weight:700;text-decoration:none}.analytics-snapshot-provenance a:is(:hover,:focus-visible){border-color:#747b74;background:#eceee8}.analytics-snapshot-provenance a:focus-visible{outline:2px solid rgba(74,82,74,.34);outline-offset:2px}@media(max-width:640px),(pointer:coarse){.analytics-snapshot-provenance a{min-height:44px}.analytics-snapshot-provenance>div{align-items:flex-start;flex-direction:column;gap:5px}}@media(prefers-reduced-motion:reduce){.analytics-snapshot-provenance a{transition:none}}
-</style>
+.structured-result{display:grid;gap:18px;min-width:0;padding:2px 0 4px;color:#252a25;font-family:'Noto Serif SC',Songti SC,STSong,SimSun,serif}.result-header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid #ccd0ca}.result-header span{color:#5f665f;font-family:'Bookman Old Style',Georgia,serif;font-size:.64rem;font-weight:700}.result-header strong{font-size:.74rem;font-weight:700}.result-summary{padding:14px 16px;border:1px solid #ccd0ca;border-radius:6px;background:#f2f3ef}.structured-result h3,.structured-result h4{margin:0;color:#222722;font-family:'Noto Serif SC',Songti SC,STSong,SimSun,serif;font-size:.92rem;font-weight:600}.result-summary p{margin:9px 0 0;overflow-wrap:anywhere;line-height:1.78}.result-claim-section{padding-top:14px;border-top:1px solid #d7dad5}.claim-list{display:grid;gap:10px;margin:10px 0 0;padding:0;list-style:none}.claim-list li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:7px 9px;min-width:0}.claim-kind{display:inline-flex;align-items:center;min-height:22px;padding:0 6px;border:1px solid #bfc5bd;border-radius:999px;color:#485048;font-family:system-ui,sans-serif;font-size:.62rem;font-weight:700;white-space:nowrap}.claim-kind.is-fact{border-color:#719279;color:#315c42}.claim-kind.is-recommendation{border-color:#777d76;color:#313631}.claim-list p{margin:0;min-width:0;overflow-wrap:anywhere;line-height:1.68}.claim-citations,.result-citations button{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 9px;border:1px solid #bfc5bd;border-radius:3px;background:#fbfbf8;color:#333933;font-family:inherit;font-size:.68rem;font-weight:700;white-space:nowrap}.claim-citations:focus-visible,.result-citations button:focus-visible,.task-result-details summary:focus-visible{outline:2px solid #4f6f58;outline-offset:2px}.task-result-details{padding-top:14px;border-top:1px solid #d7dad5}.task-result-details summary{min-height:36px;cursor:pointer;color:#303630;font-size:.78rem;font-weight:700}.task-evidence-section{padding:13px 0;border-top:1px solid #dde0da}.task-evidence-section:first-of-type{margin-top:8px}.task-evidence-section>header{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.task-evidence-section>header span{color:#5c635c;font-size:.66rem}.section-caveat{margin:8px 0 0;padding-left:10px;border-left:2px solid #aeb4ac;color:#4f574f;font-size:.76rem;line-height:1.62;overflow-wrap:anywhere}.evidence-coverage{display:grid;gap:5px;padding:13px 15px;border:1px solid #c7ccc5;border-left:3px solid #737a72;background:#f2f3ef}.evidence-coverage>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.evidence-coverage span{color:#5c635c;font-size:.67rem;font-weight:700}.evidence-coverage strong{font-size:.78rem}.evidence-coverage p{margin:0;color:#4f574f;font-size:.74rem;line-height:1.6;overflow-wrap:anywhere}.evidence-coverage.is-sufficient{border-left-color:#4f6f58}.evidence-coverage.is-conflict,.evidence-coverage.is-insufficient,.evidence-coverage.is-stale{border-left-color:#8a5047}.result-citations{display:grid;gap:10px;padding-top:14px;border-top:1px solid #d7dad5}.result-citations>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.result-citations small{color:#5f665f;font-family:'Bookman Old Style',Georgia,serif;font-size:.61rem;overflow-wrap:anywhere}.result-citations ol{display:grid;gap:7px;margin:0;padding:0;list-style:none}.result-citations li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:8px;min-width:0}.result-citations li>span{color:#5f665f;font-family:'Bookman Old Style',Georgia,serif;font-size:.72rem}.result-citations li div{display:grid;gap:3px;min-width:0}.result-citations li strong{overflow-wrap:anywhere;font-size:.77rem}.result-citations li small{font-family:inherit;font-size:.67rem}.result-citations button{justify-self:start}.next-questions{padding-top:14px;border-top:1px solid #d7dad5}.next-questions ul{display:grid;gap:5px;margin:9px 0 0;padding-left:19px}.next-questions li{overflow-wrap:anywhere;font-size:.78rem;line-height:1.62}@media(max-width:640px),(pointer:coarse){.claim-list li{grid-template-columns:auto minmax(0,1fr)}.claim-citations{grid-column:2;justify-self:start;min-height:44px}.result-citations button{min-height:44px}.result-header,.result-citations>div,.evidence-coverage>div{align-items:flex-start;flex-direction:column;gap:5px}.result-summary{padding:13px}.task-result-details summary{min-height:44px;padding-top:4px}.task-evidence-section>header{align-items:flex-start;flex-direction:column;gap:4px}}@media(prefers-reduced-motion:reduce){.claim-citations,.result-citations button{transition:none}}
+.evidence-coverage{border-left-width:1px}.section-caveat{border-left-width:1px}.analytics-snapshot-provenance{display:grid;gap:5px;padding:14px 15px;border:1px solid #c7ccc5;background:#f2f3ef}.analytics-snapshot-provenance>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.analytics-snapshot-provenance h3{font-size:.84rem}.analytics-snapshot-provenance small{color:#5c635c;font-family:'Bookman Old Style',Georgia,serif;font-size:.63rem;overflow-wrap:anywhere}.analytics-snapshot-provenance p{margin:0;color:#4f574f;font-size:.74rem;line-height:1.6;overflow-wrap:anywhere}.analytics-snapshot-filters{color:#5c635c}.analytics-snapshot-provenance a{justify-self:start;display:inline-flex;align-items:center;min-height:34px;padding:0 9px;border:1px solid #bfc5bd;border-radius:3px;background:#fbfbf8;color:#333933;font-size:.68rem;font-weight:700;text-decoration:none}.analytics-snapshot-provenance a:focus-visible{outline:2px solid #4f6f58;outline-offset:2px}@media(max-width:640px),(pointer:coarse){.analytics-snapshot-provenance a{min-height:44px}.analytics-snapshot-provenance>div{align-items:flex-start;flex-direction:column;gap:5px}}@media(prefers-reduced-motion:reduce){.analytics-snapshot-provenance a{transition:none}}
+@media (hover: hover) and (pointer: fine){.claim-citations:hover,.result-citations button:hover,.analytics-snapshot-provenance a:hover{border-color:#747b74;background:#eceee8}}</style>

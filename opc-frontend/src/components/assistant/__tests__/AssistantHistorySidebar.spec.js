@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
 import AssistantHistorySidebar from '@/components/assistant/AssistantHistorySidebar.vue'
@@ -31,6 +31,18 @@ describe('AssistantHistorySidebar', () => {
     expect(wrapper.emitted('archive')[0][0]).toEqual(row)
   })
 
+  it('forwards the same pin action when a pinned session is being unpinned', async () => {
+    const pinned = { ...row, pinned: true }
+    const wrapper = mount(AssistantHistorySidebar, { props: { items: [pinned], scope: 'active' } })
+
+    await wrapper.get('.session-menu summary').trigger('click')
+    const unpin = wrapper.findAll('.session-menu-popover>button').find((button) => button.text().includes('取消置顶'))
+    expect(unpin).toBeTruthy()
+    await unpin.trigger('click')
+
+    expect(wrapper.emitted('pin')[0][0]).toEqual(pinned)
+  })
+
   it('requires an explicit second action before permanent deletion', async () => {
     const trashed = { ...row, deletedAt: '2026-07-25T11:00:00' }
     const wrapper = mount(AssistantHistorySidebar, { props: { items: [trashed], scope: 'trash' } })
@@ -50,6 +62,57 @@ describe('AssistantHistorySidebar', () => {
     expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('false')
   })
 
+  it('emits pointer toggles immediately so the workspace can coordinate rail geometry and content', async () => {
+    const wrapper = mount(AssistantHistorySidebar, { props: { items: [row], collapsed: false } })
+    const toggle = wrapper.get('.sidebar-toggle')
+
+    toggle.element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    await nextTick()
+
+    expect(wrapper.emitted('toggle')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('keeps extended history content mounted until an orchestrated collapse settles', async () => {
+    const wrapper = mount(AssistantHistorySidebar, {
+      props: { items: [row], collapsed: true, motionPhase: 'collapsing' },
+    })
+
+    expect(wrapper.find('.history-search').exists()).toBe(true)
+    await wrapper.setProps({ motionPhase: '' })
+    expect(wrapper.find('.history-search').exists()).toBe(false)
+  })
+
+  it('keeps collapsing history controls out of the accessibility tree until the rail settles', () => {
+    const wrapper = mount(AssistantHistorySidebar, {
+      props: { items: [row], collapsed: true, motionPhase: 'collapsing' },
+    })
+    const content = wrapper.get('.history-extended-content')
+
+    expect(content.element.hasAttribute('inert')).toBe(true)
+    expect(content.attributes('aria-hidden')).toBe('true')
+  })
+
+  it('forwards pointer selection context so a mobile drawer can close on its own transition path', async () => {
+    const wrapper = mount(AssistantHistorySidebar, { props: { items: [row] } })
+    await wrapper.get('.history-row-main').trigger('click')
+
+    expect(wrapper.emitted('select')[0][0]).toEqual(row)
+    expect(wrapper.emitted('select')[0][1]).toBeInstanceOf(MouseEvent)
+  })
+
+  it('keeps keyboard-style sidebar toggles immediate', async () => {
+    const wrapper = mount(AssistantHistorySidebar, { props: { items: [row], collapsed: false } })
+    const toggle = wrapper.get('.sidebar-toggle')
+
+    toggle.element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }))
+    await nextTick()
+
+    expect(wrapper.emitted('toggle')).toHaveLength(1)
+    expect(wrapper.get('.history-sidebar').classes()).not.toContain('is-motion-collapsing')
+    wrapper.unmount()
+  })
+
   it('renders the full drawer and marks the current session when mobile is open', () => {
     const wrapper = mount(AssistantHistorySidebar, {
       props: { items: [row], selectedId: row.sessionId, collapsed: true, mobileOpen: true },
@@ -60,6 +123,33 @@ describe('AssistantHistorySidebar', () => {
     expect(wrapper.find('.history-search').exists()).toBe(true)
     expect(wrapper.get('.history-row-main').attributes('aria-current')).toBe('page')
     expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.find('.history-scopes button').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('removes the closed mobile history drawer from the accessibility tree', async () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    }))
+    try {
+      const wrapper = mount(AssistantHistorySidebar, {
+        attachTo: document.body,
+        props: { items: [row], mobileOpen: false },
+      })
+      await nextTick()
+      expect(wrapper.get('.history-sidebar').element.hasAttribute('inert')).toBe(true)
+      expect(wrapper.get('.history-sidebar').attributes('aria-hidden')).toBe('true')
+      await wrapper.setProps({ mobileOpen: true })
+      expect(wrapper.get('.history-sidebar').attributes('inert')).toBeUndefined()
+      expect(wrapper.get('.history-sidebar').attributes('aria-hidden')).toBeUndefined()
+      wrapper.unmount()
+    } finally {
+      window.matchMedia = originalMatchMedia
+    }
   })
 
   it('traps focus inside the mobile history dialog', async () => {

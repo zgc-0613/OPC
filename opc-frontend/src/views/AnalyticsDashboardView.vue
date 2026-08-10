@@ -146,6 +146,125 @@
         </template>
       </section>
 
+      <section class="analytics-resource-grid" aria-label="Policy analytics">
+        <article class="analytics-resource analytics-resource--wide" data-testid="policy-trend">
+          <header class="analytics-section-heading">
+            <div>
+              <p class="analytics-eyebrow">Verified policy series</p>
+              <h3>Policy publish trend</h3>
+            </div>
+            <strong v-if="policyTrend.available" class="analytics-resource-total">
+              {{ formatValue(policyTrendTotal) }}
+            </strong>
+          </header>
+
+          <div v-if="policyTrend.available && policyTrendSeries.length" class="analytics-resource-series">
+            <div v-for="point in policyTrendSeries" :key="point.bucketId" class="analytics-series-row">
+              <span>{{ formatPolicyPeriod(point) }}</span>
+              <span class="analytics-series-track" aria-hidden="true">
+                <span
+                  class="analytics-series-fill"
+                  :style="{ width: `${Math.max(2, Math.round((Number(point.value || 0) / Math.max(1, ...policyTrendSeries.map((item) => Number(item.value || 0)))) * 100))}%` }"
+                />
+              </span>
+              <strong>{{ formatValue(point.value) }}</strong>
+            </div>
+          </div>
+          <p v-else class="analytics-resource-empty" role="status">
+            {{ resourceMessages(policyTrend)[0] }}
+          </p>
+        </article>
+
+        <article class="analytics-resource" data-testid="policy-regions">
+          <header class="analytics-section-heading">
+            <div>
+              <p class="analytics-eyebrow">Verified policy applicability</p>
+              <h3>Policy regions</h3>
+            </div>
+          </header>
+
+          <div v-if="policyRegions.available && policyRegionRows.length" class="analytics-resource-list">
+            <div v-for="region in policyRegionRows" :key="region.bucketId" class="analytics-region-row">
+              <div>
+                <strong>{{ region.label || region.bucketId }}</strong>
+                <span>{{ formatValue(region.value) }} policies</span>
+              </div>
+              <button
+                type="button"
+                class="analytics-icon-command"
+                :data-testid="`drilldown-${region.bucketId}`"
+                :aria-label="`Open policies for ${region.label || region.bucketId}`"
+                title="Open policy details"
+                @click="openPolicyRegion(region)"
+              >
+                <Search :size="17" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+          <p v-else class="analytics-resource-empty" role="status">
+            {{ resourceMessages(policyRegions)[0] }}
+          </p>
+        </article>
+
+        <article class="analytics-resource analytics-resource--limited" data-testid="technology-analytics">
+          <header class="analytics-section-heading">
+            <div>
+              <p class="analytics-eyebrow">Technology taxonomy</p>
+              <h3>Technology coverage</h3>
+            </div>
+          </header>
+          <ul v-if="technologies.available && technologyRows.length" class="analytics-resource-list analytics-resource-list--plain">
+            <li v-for="row in technologyRows" :key="row.bucketId || row.id || row.label">
+              <span>{{ row.label || row.bucketId }}</span><strong>{{ formatValue(row.value) }}</strong>
+            </li>
+          </ul>
+          <p v-else class="analytics-resource-empty" role="status">
+            {{ resourceMessages(technologies)[0] }}
+          </p>
+        </article>
+
+        <article class="analytics-resource analytics-resource--limited" data-testid="revenue-analytics">
+          <header class="analytics-section-heading">
+            <div>
+              <p class="analytics-eyebrow">Annual CNY revenue</p>
+              <h3>Revenue distribution</h3>
+            </div>
+          </header>
+          <ul v-if="revenue.available && revenueRows.length" class="analytics-resource-list analytics-resource-list--plain">
+            <li v-for="row in revenueRows" :key="row.bucketId || row.id || row.label">
+              <span>{{ row.label || row.bucketId }}</span><strong>{{ formatValue(row.value) }}</strong>
+            </li>
+          </ul>
+          <p v-else class="analytics-resource-empty" role="status">
+            {{ resourceMessages(revenue)[0] }}
+          </p>
+        </article>
+
+        <article v-if="policyDrilldown" class="analytics-resource analytics-resource--wide" data-testid="policy-drilldown">
+          <header class="analytics-section-heading">
+            <div>
+              <p class="analytics-eyebrow">Version-bound policy rows</p>
+              <h3>Policy details</h3>
+            </div>
+            <span v-if="drilldownLoading" class="analytics-status">Loading</span>
+          </header>
+          <p v-if="drilldownError" class="analytics-resource-empty analytics-resource-empty--error" role="alert">
+            {{ drilldownError }}
+          </p>
+          <p v-else-if="!policyDrilldownRows.length" class="analytics-resource-empty" role="status">
+            {{ resourceMessages(policyDrilldown)[0] }}
+          </p>
+          <ul v-else class="analytics-resource-list analytics-resource-list--plain">
+            <li v-for="row in policyDrilldownRows" :key="row.id">
+              <a v-if="row.detailHref" :href="row.detailHref">{{ row.title || row.id }}</a>
+              <span v-else>{{ row.title || row.id }}</span>
+              <small>{{ row.evidenceStatus || '-' }}</small>
+              <small>{{ row.publishDate || '-' }} · {{ row.regionName || '-' }}</small>
+            </li>
+          </ul>
+        </article>
+      </section>
+
       <section v-if="unavailableCards.length" class="analytics-limitations" aria-labelledby="analytics-limitations-title">
         <h3 id="analytics-limitations-title">暂不可用的统计维度</h3>
         <ul>
@@ -162,7 +281,15 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowUpRight, CheckCircle2, ListFilter, RefreshCw, Search } from 'lucide-vue-next'
-import { getAnalyticsIndustries, getAnalyticsOverview } from '@/api/analytics'
+import {
+  getAnalyticsDrilldown,
+  getAnalyticsIndustries,
+  getAnalyticsOverview,
+  getAnalyticsRegions,
+  getAnalyticsRevenue,
+  getAnalyticsTechnologies,
+  getAnalyticsTrends,
+} from '@/api/analytics'
 import { getUserProfile } from '@/api/auth'
 import { createAnalyticsResearchDraft, saveAnalyticsResearchDraft } from '@/composables/useAnalyticsResearchHandoff'
 
@@ -172,12 +299,19 @@ const loading = ref(true)
 const error = ref('')
 const overview = ref({ cards: [] })
 const industries = ref({ buckets: [], caveats: [] })
+const technologies = ref({ available: false, rows: [], series: [], caveats: [] })
+const revenue = ref({ available: false, rows: [], series: [], caveats: [] })
+const policyRegions = ref({ available: false, rows: [], caveats: [] })
+const policyTrend = ref({ available: false, rows: [], series: [], caveats: [] })
+const policyDrilldown = ref(null)
+const drilldownLoading = ref(false)
+const drilldownError = ref('')
 const industryFilter = ref('')
 const handoffMessage = ref('')
 const userId = getUserProfile()?.userId || 'anonymous'
 
 const availableCards = computed(() => (overview.value.cards || []).filter((card) => (
-  card?.readiness === 'green' && card.value !== null && card.value !== undefined && Number.isFinite(Number(card.value))
+  card?.readiness === 'Green' && card.value !== null && card.value !== undefined && Number.isFinite(Number(card.value))
 )))
 const unavailableCards = computed(() => (overview.value.cards || []).filter((card) => !availableCards.value.includes(card)))
 const industryMetric = computed(() => industries.value?.metric || null)
@@ -194,18 +328,84 @@ async function loadOverview() {
   error.value = ''
   try {
     const linkedIndustryTagId = industryTagIdFromRoute(route.query)
-    const [overviewResult, industryResult] = await Promise.all([
+    const [overviewResult, industryResult, technologyResult, revenueResult, regionResult, trendResult] = await Promise.all([
       getAnalyticsOverview(),
       getAnalyticsIndustries(linkedIndustryTagId ? [linkedIndustryTagId] : []),
+      getAnalyticsTechnologies(),
+      getAnalyticsRevenue({ currency: 'CNY', revenuePeriod: 'annual', revenueType: 'revenue' }),
+      getAnalyticsRegions({ metricId: 'region.policy_count', regionRole: 'policy_applicability' }),
+      getAnalyticsTrends({ metricId: 'trend.policy_publish_time' }),
     ])
     overview.value = overviewResult || { cards: [] }
     industries.value = industryResult || { buckets: [], caveats: [] }
+    technologies.value = technologyResult || { available: false, rows: [], series: [], caveats: [] }
+    revenue.value = revenueResult || { available: false, rows: [], series: [], caveats: [] }
+    policyRegions.value = regionResult || { available: false, rows: [], caveats: [] }
+    policyTrend.value = trendResult || { available: false, rows: [], series: [], caveats: [] }
+    policyDrilldown.value = null
+    drilldownError.value = ''
     industryFilter.value = linkedIndustryTagId ? `industry:${linkedIndustryTagId}` : ''
   } catch (requestError) {
     error.value = requestError.message || '请稍后重试。'
   } finally {
     loading.value = false
   }
+}
+
+const policyTrendSeries = computed(() => listResourceItems(policyTrend.value, 'series'))
+const policyRegionRows = computed(() => listResourceItems(policyRegions.value, 'rows'))
+const technologyRows = computed(() => listResourceItems(technologies.value, 'rows'))
+const revenueRows = computed(() => listResourceItems(revenue.value, 'rows'))
+const policyDrilldownRows = computed(() => listResourceItems(policyDrilldown.value, 'rows'))
+const policyTrendTotal = computed(() => policyTrendSeries.value.reduce((total, point) => total + Number(point?.value || 0), 0))
+
+function listResourceItems(resource, key) {
+  return Array.isArray(resource?.[key]) ? resource[key] : []
+}
+
+function resourceCaveats(resource) {
+  return Array.isArray(resource?.caveats) ? resource.caveats : []
+}
+
+function resourceCaveatMessages(resource) {
+  return resourceCaveats(resource)
+    .map((caveat) => caveat?.message)
+    .filter(Boolean)
+}
+
+function resourceUnavailableReason(resource) {
+  return resource?.unavailableReason || resourceCaveats(resource)[0]?.code || 'ANALYTICS_METRIC_NOT_READY'
+}
+
+function resourceMessages(resource) {
+  const messages = resourceCaveatMessages(resource)
+  return messages.length ? messages : [resourceUnavailableReason(resource)]
+}
+
+async function openPolicyRegion(region) {
+  if (!region?.bucketId || drilldownLoading.value) return
+  drilldownLoading.value = true
+  drilldownError.value = ''
+  policyDrilldown.value = null
+  try {
+    const dataVersion = policyRegions.value?.dataVersion || overview.value?.dataVersion
+    policyDrilldown.value = await getAnalyticsDrilldown({
+      metricId: 'region.policy_count',
+      dataVersion,
+      entityType: 'policy',
+      bucketId: region.bucketId,
+    })
+  } catch (requestError) {
+    drilldownError.value = requestError?.message || 'Unable to load policy details'
+  } finally {
+    drilldownLoading.value = false
+  }
+}
+
+function formatPolicyPeriod(value) {
+  if (!value) return '-'
+  if (typeof value === 'string') return value.slice(0, 10)
+  return value.periodStart || value.bucketId || '-'
 }
 
 function handoffToResearch(card) {
@@ -293,4 +493,5 @@ onMounted(loadOverview)
 <style scoped>
 .analytics-dashboard{min-width:0;max-width:1120px;margin:0 auto;padding:8px 0 40px;color:#20251f}.analytics-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:12px 0 22px;border-bottom:1px solid #cbd0c9}.analytics-eyebrow{margin:0 0 6px;color:#596159;font-size:.72rem;font-weight:700}.analytics-heading h2{margin:0;font-family:"ZCOOL XiaoWei",STKaiti,KaiTi,serif;font-size:1.75rem;line-height:1.1}.analytics-provenance{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px 18px;margin:0;color:#5d645d;font-size:.72rem}.analytics-provenance div{display:grid;gap:3px}.analytics-provenance dt{font-weight:700}.analytics-provenance dd{margin:0;overflow-wrap:anywhere;font-family:"Bookman Old Style","URW Bookman",Georgia,serif;color:#262b26}.analytics-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:20px}.analytics-metric{display:flex;flex-direction:column;justify-content:space-between;gap:20px;min-width:0;padding:20px;border:1px solid #cbd0c9;border-radius:8px;background:#eceeeb}.analytics-metric-copy p{margin:0;color:#434a43;font-size:.8rem;font-weight:700}.analytics-metric-copy strong{display:block;margin-top:12px;font-family:"Bookman Old Style","URW Bookman",Georgia,serif;font-size:2.1rem;line-height:1;color:#181a18}.analytics-metric-copy small{margin-left:4px;font-family:"Noto Serif SC","Songti SC",STSong,SimSun,serif;font-size:.82rem;font-weight:400}.analytics-metric-copy>span{display:block;margin-top:8px;color:#596159;font-size:.69rem}.analytics-metric-action{display:flex;align-items:center;justify-content:space-between;gap:10px}.analytics-status{display:inline-flex;align-items:center;gap:5px;color:#3f6149;font-size:.71rem;font-weight:700}.analytics-command{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 13px;border:1px solid #303630;border-radius:999px;background:#fbfbf8;color:#20251f;font:inherit;font-size:.74rem;font-weight:700;white-space:nowrap}.analytics-command:is(:hover,:focus-visible){background:#e2e5df}.analytics-command:active{background:#d7dad4}.analytics-command:focus-visible{outline:2px solid #4f6f58;outline-offset:2px}.analytics-state{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:170px;padding:24px;border:1px solid #cbd0c9;border-radius:8px;background:#eceeeb;color:#515752}.analytics-state--error{color:#743d37}.analytics-state p{margin:4px 0 0}.analytics-empty{margin:20px 0 0;padding:18px;border:1px dashed #bfc5bd;border-radius:6px;background:#fbfbf8;color:#596159;font-size:.82rem}.analytics-handoff-status{margin:16px 0 0;padding:10px 12px;border:1px solid #b7c2b9;border-radius:6px;background:#eff3ed;color:#36513d;font-size:.78rem}.analytics-limitations{margin-top:28px;padding-top:18px;border-top:1px solid #cbd0c9}.analytics-limitations h3{margin:0;color:#2d332d;font-size:1rem}.analytics-limitations ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0 0;padding:0;list-style:none}.analytics-limitations li{display:grid;gap:4px;min-width:0;padding:13px 14px;border:1px solid #d2d5cf;border-radius:6px;background:#fbfbf8;color:#5e655e;font-size:.76rem}.analytics-limitations strong{color:#2c322c}.analytics-limitations span{overflow-wrap:anywhere}@media(max-width:900px){.analytics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:640px){.analytics-dashboard{padding-bottom:28px}.analytics-heading{align-items:flex-start;flex-direction:column;gap:14px}.analytics-provenance{justify-content:flex-start}.analytics-grid,.analytics-limitations ul{grid-template-columns:1fr}.analytics-metric{padding:17px}.analytics-metric-copy strong{font-size:1.85rem}.analytics-state{align-items:flex-start;flex-direction:column;min-height:0}.analytics-command{min-height:44px}}@media(prefers-reduced-motion:reduce){.analytics-command{transition:none}}
 .analytics-industry{min-width:0;margin-top:34px;padding-top:24px;border-top:1px solid #cbd0c9}.analytics-section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.analytics-section-heading h3{margin:0;font-size:1.08rem}.analytics-section-heading>div>p:last-child{max-width:680px;margin:7px 0 0;color:#606760;font-size:.76rem;line-height:1.65}.analytics-sample{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px 18px;margin:0}.analytics-sample div{display:grid;gap:3px}.analytics-sample dt{color:#687068;font-size:.68rem;font-weight:700}.analytics-sample dd{margin:0;font-family:"Bookman Old Style","URW Bookman",Georgia,serif;font-size:.9rem}.analytics-filter{display:flex;align-items:center;gap:12px;width:fit-content;max-width:100%;margin-top:18px}.analytics-filter>span{display:inline-flex;align-items:center;gap:6px;color:#3f463f;font-size:.74rem;font-weight:700;white-space:nowrap}.analytics-filter select{min-width:220px;max-width:100%;min-height:44px;padding:0 36px 0 12px;border:1px solid #8e958d;border-radius:6px;background:#fbfbf8;color:#20251f;font:inherit;font-size:.78rem}.analytics-filter select:focus-visible{outline:2px solid #4f6f58;outline-offset:2px}.analytics-caveats{display:grid;gap:4px;margin:14px 0 0;padding:0;list-style:none;color:#665b39;font-size:.72rem}.analytics-caveats li{overflow-wrap:anywhere}.analytics-bars{display:grid;gap:10px;margin-top:20px;padding:18px 0;border-block:1px solid #d5d9d2}.analytics-bar-row{display:grid;grid-template-columns:minmax(120px,200px) minmax(120px,1fr) 72px;align-items:center;gap:12px;min-width:0}.analytics-bar-label{overflow-wrap:anywhere;font-size:.76rem;font-weight:700}.analytics-bar-track{height:14px;overflow:hidden;border:1px solid #bec4bc;border-radius:3px;background:#eceeea}.analytics-bar-fill{display:block;width:var(--bar-size);height:100%;background:#587060}.analytics-bar-row>strong{text-align:right;font-family:"Bookman Old Style","URW Bookman",Georgia,serif;font-size:.76rem}.analytics-table-wrap{max-width:100%;margin-top:16px;overflow-x:auto}.analytics-table-wrap table{width:100%;min-width:660px;border-collapse:collapse;font-size:.76rem}.analytics-table-wrap caption{padding:0 0 8px;text-align:left;color:#626962;font-size:.68rem}.analytics-table-wrap :is(th,td){padding:10px 9px;border-bottom:1px solid #d4d8d1;text-align:left;overflow-wrap:anywhere}.analytics-table-wrap thead th{color:#5d645d;font-size:.68rem}.analytics-table-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px}.analytics-icon-command{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:1px solid #303630;border-radius:50%;background:#fbfbf8;color:#20251f}.analytics-icon-command:is(:hover,:focus-visible){background:#e2e5df}.analytics-icon-command:focus-visible{outline:2px solid #4f6f58;outline-offset:2px}@media(max-width:640px){.analytics-section-heading{flex-direction:column;gap:14px}.analytics-sample{justify-content:flex-start}.analytics-filter{align-items:flex-start;flex-direction:column;width:100%;gap:7px}.analytics-filter select{width:100%}.analytics-bar-row{grid-template-columns:minmax(88px,1fr) minmax(80px,1.4fr) 62px;gap:8px}.analytics-table-wrap{padding-bottom:4px}}@media(prefers-reduced-motion:reduce){.analytics-icon-command{transition:none}}
+.analytics-resource-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:34px;padding-top:24px;border-top:1px solid #cbd0c9}.analytics-resource{display:grid;gap:16px;min-width:0;padding:18px;border:1px solid #cbd0c9;border-radius:8px;background:#fbfbf8}.analytics-resource--wide{grid-column:1 / -1}.analytics-resource--limited{align-content:start}.analytics-resource-total{font-family:"Bookman Old Style","URW Bookman",Georgia,serif;font-size:1.1rem}.analytics-resource-series{display:grid;gap:10px}.analytics-series-row{display:grid;grid-template-columns:92px minmax(80px,1fr) 54px;align-items:center;gap:10px;min-width:0;font-size:.74rem}.analytics-series-row>span:first-child{overflow-wrap:anywhere}.analytics-series-row>strong{text-align:right;font-family:"Bookman Old Style","URW Bookman",Georgia,serif;font-size:.76rem}.analytics-series-track{height:12px;overflow:hidden;border:1px solid #c2c9c0;border-radius:3px;background:#eceeea}.analytics-series-fill{display:block;width:var(--bar-size,2%);height:100%;background:#587060}.analytics-resource-list{display:grid;gap:9px;margin:0;padding:0;list-style:none}.analytics-region-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding-bottom:9px;border-bottom:1px solid #e0e3dd}.analytics-region-row:last-child{padding-bottom:0;border-bottom:0}.analytics-region-row>div{display:grid;gap:3px;min-width:0}.analytics-region-row strong,.analytics-region-row span{overflow-wrap:anywhere}.analytics-region-row strong{font-size:.78rem}.analytics-region-row span{color:#646b64;font-size:.7rem}.analytics-resource-list--plain li{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;min-width:0;padding-bottom:8px;border-bottom:1px solid #e0e3dd;font-size:.75rem}.analytics-resource-list--plain li:last-child{padding-bottom:0;border-bottom:0}.analytics-resource-list--plain li>span{overflow-wrap:anywhere}.analytics-resource-list--plain li>strong{font-family:"Bookman Old Style","URW Bookman",Georgia,serif}.analytics-resource-list--plain li>small{color:#646b64;text-align:right;white-space:nowrap}.analytics-resource-empty{margin:0;padding:12px;border:1px dashed #c6ccc4;border-radius:6px;color:#666e66;font-size:.74rem;overflow-wrap:anywhere}.analytics-resource-empty--error{border-color:#d9b7b2;color:#743d37}.analytics-resource .analytics-icon-command{flex:none}@media(max-width:640px){.analytics-resource-grid{grid-template-columns:1fr}.analytics-resource--wide{grid-column:auto}.analytics-series-row{grid-template-columns:78px minmax(70px,1fr) 48px}.analytics-resource{padding:16px}}
 </style>

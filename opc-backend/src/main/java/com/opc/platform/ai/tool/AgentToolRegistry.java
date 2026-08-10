@@ -468,6 +468,7 @@ public class AgentToolRegistry {
                 AgentResearchContract.MAX_SUPPLEMENTAL_ITEM_LENGTH);
         addStringArray(properties.putObject("nextQuestions"), 0, AgentResearchContract.MAX_NEXT_QUESTIONS,
                 AgentResearchContract.MAX_SUPPLEMENTAL_ITEM_LENGTH);
+        addVerificationClaims(properties.putObject("verificationClaims"), allowedSourceIds);
         var citations = properties.putObject("citations");
         boolean requiresCitations = "final".equals(action);
         citations.put("type", "array").put("minItems", requiresCitations ? 1 : 0)
@@ -568,6 +569,36 @@ public class AgentToolRegistry {
         addEvidenceStatementBranch(branches, "fact", 1, allowedSourceIds);
         addEvidenceStatementBranch(branches, "inference", 0, allowedSourceIds);
         addEvidenceStatementBranch(branches, "methodology", 0, allowedSourceIds);
+    }
+
+    private void addVerificationClaims(
+            com.fasterxml.jackson.databind.node.ObjectNode array,
+            Set<Long> allowedSourceIds
+    ) {
+        array.put("type", "array").put("maxItems", AgentResearchContract.MAX_VERIFICATION_CLAIMS);
+        var branches = array.putObject("items").putArray("oneOf");
+        addVerificationClaimBranch(branches, "supports", 1, allowedSourceIds);
+        addVerificationClaimBranch(branches, "contradicts", 1, allowedSourceIds);
+        addVerificationClaimBranch(branches, "unresolved", 0, allowedSourceIds);
+    }
+
+    private void addVerificationClaimBranch(
+            com.fasterxml.jackson.databind.node.ArrayNode branches,
+            String relation,
+            int minimumSourceIds,
+            Set<Long> allowedSourceIds
+    ) {
+        var item = branches.addObject();
+        item.put("type", "object").put("additionalProperties", false);
+        item.putArray("required").add("claimId").add("text").add("relation").add("sourceIds");
+        var properties = item.putObject("properties");
+        properties.putObject("claimId").put("type", "string")
+                .put("pattern", "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$");
+        properties.putObject("text").put("type", "string").put("minLength", 1)
+                .put("maxLength", AgentResearchContract.MAX_STATEMENT_LENGTH);
+        properties.putObject("relation").put("const", relation);
+        addIdArray(properties.putObject("sourceIds"), minimumSourceIds,
+                AgentResearchContract.MAX_SOURCE_IDS_PER_ITEM, allowedSourceIds);
     }
 
     private void addEvidenceStatementBranch(

@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 /**
  * Validates the user-selected research boundary before a session exists. The
@@ -29,11 +30,9 @@ public class PhaseThreeTaskContextValidator {
 
     public static final String VERSION = "phase3-task-v1";
     private static final int MAX_BYTES = 8_000;
-    private static final Set<String> TASK_TYPES = Set.of(
-            "case_analysis", "case_comparison", "technology_assessment",
-            "policy_lookup", "source_verification", "general_research"
-    );
+    private static final Set<String> TASK_TYPES = AgentResearchContract.PHASE_THREE_TASK_TYPES;
     private static final Set<String> OUTPUT_DEPTHS = Set.of("concise", "standard", "deep");
+    private static final Pattern SINGLE_LINE_TEXT = Pattern.compile(".*[\\r\\n].*", Pattern.DOTALL);
     private static final Set<String> FIELDS = Set.of(
             "version", "taskType", "caseIds", "comparisonDimensions", "outputDepth",
             "technologyTagId", "technologyText", "sourceId", "applicationScenario",
@@ -65,8 +64,14 @@ public class PhaseThreeTaskContextValidator {
         Long technologyTagId = optionalPositiveLong(raw, "technologyTagId");
         String technologyText = optionalText(raw, "technologyText", 120);
         Long sourceId = optionalPositiveLong(raw, "sourceId");
+        String applicationScenario = optionalText(raw, "applicationScenario", 500);
+        String teamCapabilities = optionalText(raw, "teamCapabilities", 500);
+        String timeline = optionalText(raw, "timeline", 120);
+        String existingResources = optionalText(raw, "existingResources", 500);
+        String constraints = optionalText(raw, "constraints", 800);
 
-        validateCrossFieldRules(taskType, caseIds, dimensions, technologyTagId, technologyText, sourceId);
+        validateCrossFieldRules(taskType, caseIds, dimensions, technologyTagId, technologyText, sourceId,
+                applicationScenario, teamCapabilities, timeline, existingResources, constraints);
 
         ObjectNode normalized = objectMapper.createObjectNode();
         normalized.put("version", VERSION);
@@ -79,11 +84,11 @@ public class PhaseThreeTaskContextValidator {
         putOptional(normalized, "technologyTagId", technologyTagId);
         putOptional(normalized, "technologyText", technologyText);
         putOptional(normalized, "sourceId", sourceId);
-        putOptional(normalized, "applicationScenario", optionalText(raw, "applicationScenario", 500));
-        putOptional(normalized, "teamCapabilities", optionalText(raw, "teamCapabilities", 500));
-        putOptional(normalized, "timeline", optionalText(raw, "timeline", 120));
-        putOptional(normalized, "existingResources", optionalText(raw, "existingResources", 500));
-        putOptional(normalized, "constraints", optionalText(raw, "constraints", 800));
+        putOptional(normalized, "applicationScenario", applicationScenario);
+        putOptional(normalized, "teamCapabilities", teamCapabilities);
+        putOptional(normalized, "timeline", timeline);
+        putOptional(normalized, "existingResources", existingResources);
+        putOptional(normalized, "constraints", constraints);
 
         String canonical = canonicalJson(normalized);
         if (canonical.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) {
@@ -111,7 +116,12 @@ public class PhaseThreeTaskContextValidator {
             List<String> dimensions,
             Long technologyTagId,
             String technologyText,
-            Long sourceId
+            Long sourceId,
+            String applicationScenario,
+            String teamCapabilities,
+            String timeline,
+            String existingResources,
+            String constraints
     ) {
         if ("case_analysis".equals(taskType)
                 && (caseIds.size() != 1 || !dimensions.isEmpty())) {
@@ -136,6 +146,13 @@ public class PhaseThreeTaskContextValidator {
             throw invalid("PHASE3_TASK_CONTEXT_INVALID");
         }
         if (!"source_verification".equals(taskType) && sourceId != null) {
+            throw invalid("PHASE3_TASK_CONTEXT_INVALID");
+        }
+        boolean hasTechnologyOnlyFields = StringUtils.hasText(applicationScenario)
+                || StringUtils.hasText(teamCapabilities)
+                || StringUtils.hasText(timeline)
+                || StringUtils.hasText(existingResources);
+        if (!"technology_assessment".equals(taskType) && hasTechnologyOnlyFields) {
             throw invalid("PHASE3_TASK_CONTEXT_INVALID");
         }
     }
@@ -182,6 +199,9 @@ public class PhaseThreeTaskContextValidator {
         if (!node.isTextual()) throw invalid("PHASE3_TASK_CONTEXT_INVALID");
         String value = node.asText().trim();
         if (value.codePointCount(0, value.length()) > max) throw invalid("PHASE3_TASK_CONTEXT_INVALID");
+        if ("timeline".equals(field) && SINGLE_LINE_TEXT.matcher(value).matches()) {
+            throw invalid("PHASE3_TASK_CONTEXT_INVALID");
+        }
         return value.isEmpty() ? null : value;
     }
 

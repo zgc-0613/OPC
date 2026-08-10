@@ -6,6 +6,8 @@ import com.opc.platform.ai.dto.AgentResearchReportUpdateDTO;
 import com.opc.platform.ai.service.AgentResearchReportService;
 import com.opc.platform.ai.vo.AgentResearchReportVO;
 import com.opc.platform.ai.vo.AgentResearchReportPageVO;
+import com.opc.platform.common.enums.ErrorCode;
+import com.opc.platform.common.exception.BusinessException;
 import com.opc.platform.common.result.Result;
 import com.opc.platform.userauth.AuthenticatedUser;
 import jakarta.validation.Valid;
@@ -13,6 +15,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+
+import java.util.Locale;
 
 import static com.opc.platform.userauth.UserAuthInterceptor.AUTHENTICATED_USER_ATTRIBUTE;
 
@@ -57,20 +61,34 @@ public class AgentResearchReportController {
         return Result.success(reports.page(user, scope, q, cursor, limit));
     }
 
-    @GetMapping(value = "/reports/{reportId}/export", params = "format=html", produces = MediaType.TEXT_HTML_VALUE)
-    public ResponseEntity<String> exportHtml(
+    @GetMapping("/reports/{reportId}/export")
+    public ResponseEntity<?> export(
             @PathVariable Long reportId,
+            @RequestParam(defaultValue = "markdown") String format,
             @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user
     ) {
-        return ResponseEntity.ok().contentType(MediaType.TEXT_HTML)
-                .header("Content-Disposition", "attachment; filename*=UTF-8''research-report.html")
-                .body(reports.exportHtml(user, reportId));
-    }
-
-    @GetMapping(value = "/reports/{reportId}/export", produces = MediaType.TEXT_MARKDOWN_VALUE)
-    public ResponseEntity<String> export(@PathVariable Long reportId, @RequestParam(defaultValue = "markdown") String format, @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user) {
-        if (!"markdown".equalsIgnoreCase(format)) throw new com.opc.platform.common.exception.BusinessException(com.opc.platform.common.enums.ErrorCode.BAD_REQUEST, "当前仅支持 Markdown 导出");
-        return ResponseEntity.ok().contentType(MediaType.TEXT_MARKDOWN).header("Content-Disposition", "attachment; filename*=UTF-8''research-report.md").body(reports.exportMarkdown(user, reportId));
+        String normalized = format == null ? "markdown" : format.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "markdown" -> ResponseEntity.ok()
+                    .contentType(MediaType.TEXT_MARKDOWN)
+                    .header("Content-Disposition", "attachment; filename*=UTF-8''research-report.md")
+                    .header("Cache-Control", "private, no-store")
+                    .header("X-Content-Type-Options", "nosniff")
+                    .body(reports.exportMarkdown(user, reportId));
+            case "html" -> ResponseEntity.ok()
+                    .contentType(MediaType.TEXT_HTML)
+                    .header("Content-Disposition", "attachment; filename*=UTF-8''research-report.html")
+                    .header("Cache-Control", "private, no-store")
+                    .header("X-Content-Type-Options", "nosniff")
+                    .body(reports.exportHtml(user, reportId));
+            case "pdf" -> ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_PDF)
+                    .header("Content-Disposition", "attachment; filename*=UTF-8''research-report.pdf")
+                    .header("Cache-Control", "private, no-store")
+                    .header("X-Content-Type-Options", "nosniff")
+                    .body(reports.exportPdf(user, reportId));
+            default -> throw new BusinessException(ErrorCode.BAD_REQUEST, "REPORT_EXPORT_FORMAT_INVALID");
+        };
     }
 
     @PostMapping("/reports/{reportId}/trash")
