@@ -207,3 +207,87 @@ The rail now commits the collapsed or expanded grid state at pointer activation.
 Public behavior coverage was changed RED then GREEN to require the workspace's target collapsed class in the same tick as the pointer action. Targeted history/workspace tests passed `94/94`; full frontend Vitest passed `32` files / `210` tests; all eight package scripts and Vite (`1836` modules) passed. `git diff --check`, artifact tracking, credential scan review, and `.codegraph/` ignore checks passed.
 
 One guarded release switched production to `/opt/opc/releases/20260811-012139`; backup `/opt/opc/backups/20260811-012139`, database dump `/opt/opc/backups/20260811-012139/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260811-012139`, and previous release `/opt/opc/releases/20260811-003256` are retained. The deployed frontend hash is `b75d2935613a168e77c506ff196f4bcc2d239f11f9b5424b4fcd7d8ad364743f`. Public, Assistant, admin, health, and deployed Assistant JS/CSS probes returned HTTP 200.
+
+## Ordered Control Fold And Responsive Follow-up (2026-08-11)
+
+The collapse now has a visible ordered sequence: the New Research control immediately becomes the centered 44px plus command and its label exits; after a 120ms preparation interval, the real history grid rail contracts for 500ms. The desktop rail, native 1px divider, and document column therefore remain in one coordinate system. Historical search and title content fade before the rail begins and then shrink invisibly with it; they no longer retain a 276px motion-time box that can be clipped or pop on the final frame.
+
+Responsive rules are explicit: `375px` phones and `768px` tablets use a full-width history drawer at `<=840px`, even when the desktop collapse preference is persisted; Inspector becomes a full overlay drawer at `<=1023px`; `1024px` and wider uses the desktop rail and optional Inspector column. Touch targets remain at least 44px, safe-area padding remains in place, keyboard actions are immediate, and reduced motion removes the spatial sequence.
+
+Two public layout contracts were added RED then GREEN for the ordered button phase and the mobile/tablet override. Targeted tests passed `96/96`; full frontend Vitest passed `32` files / `212` tests; all eight package scripts and Vite (`1836` modules) passed. No backend, API, migration, provider, evidence, report, draft, quota, or authentication behavior changed.
+
+One guarded release switched production to `/opt/opc/releases/20260811-014621`; backup `/opt/opc/backups/20260811-014621`, database dump `/opt/opc/backups/20260811-014621/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260811-014621`, and previous release `/opt/opc/releases/20260811-012139` are retained. The deployed frontend hash is `112672de103b092dad2c6282f28e02d6d3b223969944a9598735467e7ec1bbc6`. Public, Assistant, admin, health, and deployed Assistant JS/CSS probes returned HTTP 200.
+
+## Recorded Sidebar Stretch Remediation (2026-08-11)
+
+### Root Cause And New Timing
+
+The supplied 59fps recording showed that the user-visible defect was not only a rail divider issue. During collapse, a wide command with `width: calc(100% - 24px)` was still painted while the desktop rail itself was becoming narrower. The rail correctly changed geometry, but the wide child was clipped in successive frames and looked horizontally stretched before the compact UI appeared.
+
+The corrected choreography is pointer-only and explicitly staged:
+
+- Collapse: the compact 44px command becomes the active and focusable command immediately; the wide command and extended content exit over 120ms; only then does the native `276px` to `64px` rail transition run for 500ms.
+- Expand: the rail begins from its compact state, while the compact command stays visible. At 320ms, the wide command and extended history content become visible and leave `inert` together. Their 160ms `opacity`/`transform` transition completes near the rail's final width.
+- The former one-shot expansion keyframe was removed. This makes rapid pointer interactions retargetable and removes the mismatch where visible content had not yet rejoined the accessibility tree.
+
+The native divider still follows the real grid track. No pseudo divider, fixed 276px overlay, width animation of a visible command, backend/API change, migration, Provider call, or fabricated research data is involved.
+
+### Responsive And Accessibility Rules
+
+- `<=840px`: history is a focus-managed drawer and retains full-width commands; phone controls meet 44px target size.
+- `841px-1023px`: history is desktop-width where applicable; Inspector remains an overlay drawer.
+- `>=1024px`: history rail, reading column, and optional Inspector use the established desktop grid.
+- Keyboard toggles remain immediate. Hover feedback is fine-pointer-only, and reduced motion removes spatial movement. Inspector and mobile history preserve Escape and focus restoration.
+
+### Verification And Production Delivery
+
+| Gate | Result |
+| --- | --- |
+| Targeted Assistant motion/history/layout tests | `101/101` passed |
+| Full frontend Vitest | `32` files / `218` tests passed |
+| Existing frontend package tests | all eight passed |
+| Vite build | passed, `1836` modules transformed |
+| Full Spring Boot | `549` tests, `0` failures, `0` errors, `1` explicit skip |
+| MySQL 8.4 controlled runner | `81/81`, zero leak |
+| JAR and Python | executable JAR; Python `126` passed, `7` opt-in skips; explicit migration `7/7`; syntax passed |
+| Repository gates | diff, credential, artifact, motion, and `.codegraph/` checks passed |
+
+The one formal frontend-only atomic delivery switched `/opt/opc/current` to `/opt/opc/releases/20260811-032203`. Frontend hash: `cd42620b363ac4ec8e8e3d08e0be4522e6ac212caaecb11478a7670c9e1692a1`. The previous `/opt/opc/releases/20260811-014621` is retained for rollback. No database migration, backup, or AI probe was appropriate because no backend/data change shipped. Independent postflight returned HTTP 200 for the public site, `/assistant`, administration login/settings, `/api/health`, and `AssistantView-B9BcLALv.js`; preflight confirms Nginx and all three services are active, and backend `8082` remains loopback-only.
+
+## Final Desktop Rail Continuity Release (2026-08-11)
+
+### Problem Corrected
+
+The preceding release still described a two-control handoff. Frame review of the supplied recording showed why it felt wrong: the content/control swap occurred before the physical sidebar boundary contracted, so the user saw an empty rail continue moving. The apparent stretch was a wide fluid button being clipped by a shrinking parent rather than a continuous command surface.
+
+### Final Motion And Layout Contract
+
+- Desktop `>=1024px`: the real history grid track transitions directly between `276px` and `64px` for 500ms. The native divider, reading column, and one black New Research button share this geometry.
+- The black command is one DOM button at both sizes. Its boundary follows the rail; its icon recentres, and its one-line label is clipped/faded within the same surface. There is no duplicate button, delayed replacement, visible width animation, pseudo-divider, or final-frame swap.
+- The extended title/search/history content remains clipped during the move and fades only during the last 100ms. A pointer reversal preserves visible content and retargets the CSS transition instead of restarting an entry animation.
+- Tablet/phone `<=840px` remain full history drawers; Inspector remains an overlay through `1023px`. Escape, focus restoration, touch targets, safe areas, long-content behavior, keyboard immediacy, and reduced-motion behavior remain intact.
+
+No research workflow was moved or changed: the workbench information architecture, real evidence/citation restrictions, session actions, Composer/drafts, reports, profile, run states, authorization, API shapes, and backend remain as delivered in Phase Four.
+
+### Release Gates
+
+| Gate | Result |
+| --- | --- |
+| Focused Assistant behavior tests | `106/106` passed |
+| Complete frontend Vitest | `32` files / `223` tests passed |
+| Frontend package scripts and Vite production build | all eight scripts and build passed |
+| Spring Boot, MySQL 8.4, and JAR release gates | passed |
+| Python deployment/migration tests and syntax | `120` passed; syntax passed |
+| Repository gates | `git diff --check`, high-confidence credential scan, artifact tracking, and `.codegraph/` ignore passed |
+| Postflight | public, Assistant, admin, health, and deployed static asset HTTP 200 |
+
+Playwright was intentionally not used. Manual acceptance remains the visual check for the 1024px/1440px pointer fold and 375px/768px drawer behavior.
+
+### Formal Frontend Delivery
+
+- Production release: `/opt/opc/releases/20260811-035739`
+- Frontend SHA-256: `2fe7f6b790a2d42900496f7b86a1ce41a841ec7bf4880981ffea0d4d9467980b`
+- Atomic rollback release: `/opt/opc/releases/20260811-032203`
+- Migration/database backup: not applicable; this was a frontend-only visual release.
+
+The release used one atomic switch after the local gates and remote preflight. No repeat deployment, candidate creation, Provider research run, or database mutation was used.

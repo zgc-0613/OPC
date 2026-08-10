@@ -729,3 +729,27 @@
 - Completed RED/GREEN behavior coverage for inline authorized-evidence source hashes: the click opens the current Run's real citation Inspector; ordinary external links are not intercepted. Corrected report Inspector top spacing and made the 500ms desktop history rail show only its pseudo-element boundary while the static border is transparent in flight.
 - Verification passed: frontend Vitest `32` files / `206` tests; seven npm package scripts; Vite (`1836` modules); Spring `547` (`0` failures/errors, `1` skipped), including MySQL 8.4 `80/80`; JAR packaging; Python `133` with `7` skips; explicit MySQL `7/7`; syntax, diff, secret, artifact, and `.codegraph/` checks.
 - One frontend-only atomic release moved `/opt/opc/current` to `/opt/opc/releases/20260810-183007` (frontend hash `4ba885...c54b`); `/opt/opc/releases/20260810-155624` remains the rollback release. No SQL, JAR, API, migration, or new database backup was involved. Public, `/assistant`, administrator login/settings, `/api/health`, and new JavaScript/CSS returned HTTP 200; services are active, Nginx is valid, and 8082 is loopback-only.
+
+## 2026-08-11 Ordered Sidebar Control And Responsive Release
+
+- [x] Add a pointer-only 120ms New Research control preparation stage before the 500ms desktop grid-rail fold; the plus icon is settled before the rail moves.
+- [x] Remove fixed 276px motion content widths so title/search/history content cannot paint over or pop across the actual rail boundary.
+- [x] Add the high-specificity mobile/tablet drawer override so a persisted desktop collapse never reduces the 375px/768px history drawer's New Research command to a 44px icon.
+- [x] Preserve 1024px desktop Inspector behavior, focus/inert controls, 44px targets, safe areas, immediate keyboard operation, and reduced-motion behavior.
+- [x] Pass layout/history `96/96`, full frontend Vitest `32/212`, all eight package scripts, Vite (`1836` modules), diff/artifact/ignore gates; publish one guarded release at `/opt/opc/releases/20260811-014621` with backup `/opt/opc/backups/20260811-014621`, dump `/opt/opc/backups/20260811-014621/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260811-014621`, and previous release `/opt/opc/releases/20260811-012139`. Public, Assistant, admin, health, and new Assistant assets returned HTTP 200.
+
+## 2026-08-11 Sidebar Motion Handoff Closure
+
+- [x] Use the supplied recording to reproduce the desktop rail clipping sequence instead of inferring it from static screenshots.
+- [x] Write failing behavior tests for deferred collapse geometry and for releasing expanded history content from `inert` at its visible handoff; make both pass with a 120ms compact stage, 500ms rail move, and 320ms expansion handoff.
+- [x] Replace the expansion keyframe with interruptible transitions, keeping only fixed-width controls visible during rail interpolation.
+- [x] Verify targeted Assistant `101/101`, full Vitest `32/218`, eight frontend package tests, Vite, Spring `549` (`0/0/1`), MySQL runner `81/81` zero leak, JAR, Python `126` passed plus `7` skips and explicit migration `7/7`, syntax and repository gates.
+- [x] Pass remote preflight and perform exactly one frontend-only atomic deployment: `/opt/opc/releases/20260811-032203`, hash `cd42620b363ac4ec8e8e3d08e0be4522e6ac212caaecb11478a7670c9e1692a1`; rollback release `/opt/opc/releases/20260811-014621`. Public, `/assistant`, admin login/settings, health, and Assistant static JavaScript are HTTP 200.
+
+## 2026-08-11 Assistant Single-Control Rail Completion
+
+- [x] Replaced the delayed two-control sidebar choreography with a single New Research command whose border and width follow the real desktop history rail continuously for the requested 500ms.
+- [x] Kept the label single-line, clipped it within the same black command, delayed history-content fade to the final 100ms, and made collapse/expand reversal retain the currently visible material.
+- [x] Preserved mobile/tablet drawer behavior, Inspector breakpoints, keyboard/reduced-motion immediacy, focus access, 44px touch targets, and all Assistant runtime/API semantics.
+- [x] Passed focused Assistant `106/106`, complete Vitest `32/223`, all eight frontend package scripts, Vite build, Spring/MySQL/JAR gates, Python deployment and migration tests `120` passed, syntax, diff, credential, artifact, and `.codegraph/` ignore checks.
+- [x] Released once with an atomic frontend switch: `/opt/opc/releases/20260811-035739`, hash `2fe7f6b790a2d42900496f7b86a1ce41a841ec7bf4880981ffea0d4d9467980b`; rollback `/opt/opc/releases/20260811-032203`. There was no database migration, Provider task, or database backup because the release contained only frontend rendering changes.

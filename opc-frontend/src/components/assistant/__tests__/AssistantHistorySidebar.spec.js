@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next'
 
 import AssistantHistorySidebar from '@/components/assistant/AssistantHistorySidebar.vue'
 
@@ -58,13 +59,13 @@ describe('AssistantHistorySidebar', () => {
     const wrapper = mount(AssistantHistorySidebar, { props: { items: [row], collapsed: true } })
     expect(wrapper.find('.history-search').exists()).toBe(false)
     expect(wrapper.get('.new-research').attributes('type')).toBe('button')
-    expect(wrapper.get('.sidebar-toggle').attributes('aria-label')).toBe('展开历史栏')
-    expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('.history-sidebar-toggle').attributes('aria-label')).toBe('展开历史栏')
+    expect(wrapper.get('.history-sidebar-toggle').attributes('aria-expanded')).toBe('false')
   })
 
   it('emits pointer toggles immediately so the workspace can coordinate rail geometry and content', async () => {
     const wrapper = mount(AssistantHistorySidebar, { props: { items: [row], collapsed: false } })
-    const toggle = wrapper.get('.sidebar-toggle')
+    const toggle = wrapper.get('.history-sidebar-toggle')
 
     toggle.element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
     await nextTick()
@@ -93,6 +94,41 @@ describe('AssistantHistorySidebar', () => {
     expect(content.attributes('aria-hidden')).toBe('true')
   })
 
+  it('keeps one research command surface while the desktop rail contracts', () => {
+    const wrapper = mount(AssistantHistorySidebar, {
+      props: { items: [row], collapsed: true, motionPhase: 'collapsing' },
+    })
+
+    expect(wrapper.findAll('.new-research')).toHaveLength(1)
+    expect(wrapper.get('.new-research').attributes('aria-label')).toBe('新建研究')
+    expect(wrapper.find('.new-research-label').exists()).toBe(true)
+  })
+
+  it('keeps the rail-toggle icon visually continuous until the rail reaches its target', async () => {
+    const wrapper = mount(AssistantHistorySidebar, {
+      props: { items: [row], collapsed: true, motionPhase: 'collapsing' },
+    })
+
+    expect(wrapper.findComponent(PanelLeftClose).exists()).toBe(true)
+    await wrapper.setProps({ motionPhase: '' })
+    expect(wrapper.findComponent(PanelLeftOpen).exists()).toBe(true)
+  })
+
+  it('keeps expanding history content inert until its visual reveal begins', async () => {
+    const wrapper = mount(AssistantHistorySidebar, {
+      props: { items: [row], collapsed: false, motionPhase: 'expanding', motionContentVisible: false },
+    })
+    const content = wrapper.get('.history-extended-content')
+
+    expect(wrapper.findAll('.new-research')).toHaveLength(1)
+    expect(content.element.hasAttribute('inert')).toBe(true)
+
+    await wrapper.setProps({ motionContentVisible: true })
+
+    expect(content.element.hasAttribute('inert')).toBe(false)
+    expect(content.attributes('aria-hidden')).toBeUndefined()
+  })
+
   it('forwards pointer selection context so a mobile drawer can close on its own transition path', async () => {
     const wrapper = mount(AssistantHistorySidebar, { props: { items: [row] } })
     await wrapper.get('.history-row-main').trigger('click')
@@ -103,7 +139,7 @@ describe('AssistantHistorySidebar', () => {
 
   it('keeps keyboard-style sidebar toggles immediate', async () => {
     const wrapper = mount(AssistantHistorySidebar, { props: { items: [row], collapsed: false } })
-    const toggle = wrapper.get('.sidebar-toggle')
+    const toggle = wrapper.get('.history-sidebar-toggle')
 
     toggle.element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }))
     await nextTick()
@@ -122,7 +158,8 @@ describe('AssistantHistorySidebar', () => {
     expect(wrapper.get('.new-research span').text()).toBe('新建研究')
     expect(wrapper.find('.history-search').exists()).toBe(true)
     expect(wrapper.get('.history-row-main').attributes('aria-current')).toBe('page')
-    expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('.history-sidebar-toggle').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('.new-research')).toHaveLength(1)
     expect(wrapper.find('.history-scopes button').attributes('aria-pressed')).toBe('true')
   })
 
@@ -163,7 +200,7 @@ describe('AssistantHistorySidebar', () => {
     await nextTick()
 
     const drawer = wrapper.get('.history-sidebar')
-    const first = drawer.get('.sidebar-toggle').element
+    const first = drawer.get('.history-sidebar-toggle').element
     const focusable = drawer.element.querySelectorAll('button, input, summary')
     const last = focusable[focusable.length - 1]
     expect(drawer.attributes('role')).toBe('dialog')

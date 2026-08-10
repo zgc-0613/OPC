@@ -2,7 +2,7 @@
   <aside
     ref="drawer"
     class="history-sidebar"
-    :class="{ 'is-collapsed': collapsed, 'is-mobile-open': mobileOpen, 'is-mobile-motion': mobileMotion, 'is-motion-collapsing': motionPhase === 'collapsing', 'is-motion-expanding': motionPhase === 'expanding' }"
+    :class="{ 'is-collapsed': collapsed, 'is-mobile-open': mobileOpen, 'is-mobile-motion': mobileMotion, 'is-motion-collapsing': motionPhase === 'collapsing', 'is-motion-expanding': motionPhase === 'expanding', 'is-content-visible': motionContentVisible }"
     :aria-label="mobileOpen ? '研究历史抽屉' : '研究历史'"
     :role="mobileOpen ? 'dialog' : undefined"
     :aria-modal="mobileOpen ? 'true' : undefined"
@@ -11,16 +11,25 @@
     @keydown="handleDrawerKeydown"
   >
     <header class="history-sidebar-head">
-      <button class="sidebar-toggle" type="button" :aria-label="collapsed && !mobileOpen ? '展开历史栏' : '收起历史栏'" :aria-expanded="!collapsed || mobileOpen" @click="toggleHistory">
-        <PanelLeftOpen v-if="collapsed" :size="19" /><PanelLeftClose v-else :size="19" />
+      <button class="history-sidebar-toggle" type="button" :aria-label="collapsed && !mobileOpen ? '展开历史栏' : '收起历史栏'" :aria-expanded="!collapsed || mobileOpen" @click="toggleHistory">
+        <PanelLeftOpen v-if="visualCollapsed" :size="19" /><PanelLeftClose v-else :size="19" />
       </button>
       <strong v-if="contentVisible">研究历史</strong>
       <button v-if="mobileOpen" ref="mobileClose" class="sidebar-close" type="button" aria-label="关闭历史抽屉" @click="emit('close-mobile', $event)"><X :size="20" /></button>
     </header>
 
-    <button class="new-research" type="button" @click="emit('new')"><Plus class="new-research-icon" :size="18" /><span v-if="contentVisible">新建研究</span></button>
+    <div class="new-research-slot">
+      <button
+        class="new-research"
+        type="button"
+        aria-label="新建研究"
+        title="新建研究"
+        @click="emit('new')"
+      ><span class="new-research-content"><Plus class="new-research-icon" :size="18" /><span class="new-research-label">新建研究</span></span></button>
+    </div>
 
     <div v-if="contentVisible" class="history-extended-content" :aria-hidden="motionContentHidden ? 'true' : undefined" :inert="motionContentHidden ? '' : undefined">
+      <div class="history-extended-content-inner">
       <label class="history-search">
         <Search :size="16" aria-hidden="true" />
         <span class="sr-only">搜索历史</span>
@@ -77,6 +86,7 @@
         </div>
         <button v-if="hasMore" class="load-more" type="button" :disabled="loading" @click="emit('load-more')">{{ loading ? '正在读取' : '加载更多' }}</button>
       </div>
+      </div>
     </div>
   </aside>
   <Transition :name="mobileMotion ? 'history-backdrop' : ''">
@@ -96,6 +106,7 @@ const props = defineProps({
   searchQuery: { type: String, default: '' }, selectedId: { type: [String, Number], default: '' },
   loading: Boolean, searching: Boolean, hasMore: Boolean, collapsed: Boolean, mobileOpen: Boolean, mobileMotion: Boolean,
   motionPhase: { type: String, default: '' },
+  motionContentVisible: { type: Boolean, default: true },
   error: { type: String, default: '' },
 })
 const emit = defineEmits(['toggle', 'close-mobile', 'new', 'search', 'scope', 'select', 'load-more', 'rename', 'pin', 'archive', 'unarchive', 'trash', 'restore', 'purge'])
@@ -106,7 +117,14 @@ const renameInputs = ref([])
 const renamingId = ref(null)
 const renameTitle = ref('')
 const contentVisible = computed(() => !props.collapsed || props.mobileOpen || Boolean(props.motionPhase))
-const motionContentHidden = computed(() => Boolean(props.motionPhase) && !props.mobileOpen)
+const visualCollapsed = computed(() => {
+  if (props.motionPhase === 'collapsing') return false
+  if (props.motionPhase === 'expanding') return true
+  return props.collapsed
+})
+const motionContentHidden = computed(() => !props.mobileOpen && (
+  props.motionPhase === 'collapsing' || (props.motionPhase === 'expanding' && !props.motionContentVisible)
+))
 const mediaQuery = ref(null)
 const mobileViewport = ref(detectMobileViewport())
 const mobileHidden = computed(() => mobileViewport.value && !props.mobileOpen)
@@ -197,23 +215,31 @@ function detectMobileViewport() {
   border-right: 1px solid #c9cdc7;
   background: #f2f1eb;
   color: #252a25;
+  align-items: stretch;
   contain: layout paint;
 }
-.history-sidebar.is-collapsed:not(.is-motion-collapsing):not(.is-motion-expanding) { align-items: center; }
 .history-sidebar-head {
   display: flex;
+  flex: 0 0 64px;
   align-items: center;
   gap: 10px;
+  width: 100%;
   min-height: 64px;
   padding: 10px 12px;
+  box-sizing: border-box;
+  overflow: hidden;
   border-bottom: 1px solid #d2d5cf;
 }
 .history-sidebar-head strong {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
   font-family: 'Noto Serif SC', STSong, SimSun, serif;
   font-weight: 500;
+  text-overflow: clip;
+  white-space: nowrap;
 }
-.sidebar-toggle,
+.history-sidebar-toggle,
 .sidebar-close {
   display: grid;
   flex: 0 0 44px;
@@ -226,33 +252,72 @@ function detectMobileViewport() {
   color: #303630;
 }
 .sidebar-close { margin-left: auto; }
-.sidebar-toggle,
+.history-sidebar-toggle,
 .sidebar-close,
 .new-research-icon { position: relative; z-index: 2; }
+.new-research-slot {
+  position: relative;
+  flex: 0 0 68px;
+  width: 100%;
+  min-width: 0;
+  height: 68px;
+  padding: 12px 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
 .new-research {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 44px;
   min-height: 44px;
-  margin: 12px;
+  padding: 0;
+  overflow: hidden;
+  box-sizing: border-box;
   border: 1px solid #252a25;
   border-radius: 3px;
   background: #252a25;
   color: #fff;
 }
-.is-collapsed:not(.is-motion-collapsing):not(.is-motion-expanding) .new-research { width: 44px; margin: 12px 0; padding: 0; }
-.history-extended-content { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
-.history-sidebar-head strong,
-.new-research span,
-.history-extended-content { transition: opacity var(--assistant-drawer-duration, 500ms) var(--ease-out), transform var(--assistant-drawer-duration, 500ms) var(--ease-out); }
-.history-sidebar.is-motion-collapsing :is(.history-sidebar-head strong, .new-research span, .history-extended-content) { opacity: 0; pointer-events: none; transform: translateX(-8px); transition-duration: 120ms; }
-.history-sidebar.is-motion-collapsing .new-research span { display: none; }
-.history-sidebar.is-motion-collapsing > .new-research { width: 44px; min-width: 44px; margin: 12px 0 12px 10px; padding: 0; }
-.history-sidebar.is-motion-expanding :is(.history-sidebar-head strong, .new-research span, .history-extended-content),
-.history-sidebar.is-motion-expanding > .new-research { opacity: 0; pointer-events: none; transform: translateX(-8px); animation: history-content-reveal 220ms var(--ease-out) 140ms both; }
-.history-sidebar.is-motion-expanding > .new-research { width: 252px; min-width: 0; }
-@keyframes history-content-reveal { to { opacity: 1; transform: none; } }
+.new-research-content {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: max-content;
+  height: 100%;
+  transform: translateX(-50%);
+  transition: transform var(--assistant-rail-duration, 500ms) var(--assistant-rail-ease, cubic-bezier(0.32, 0.72, 0, 1));
+  will-change: transform;
+}
+.new-research-label {
+  white-space: nowrap;
+  transition: opacity 180ms var(--ease-out);
+}
+.history-sidebar.is-collapsed:not(.is-mobile-open) .new-research-content { transform: translateX(calc(-50% + 35px)); }
+.history-sidebar.is-collapsed:not(.is-mobile-open) .new-research-label { opacity: 0; transition-delay: 260ms; }
+.history-sidebar.is-motion-expanding .new-research-label { opacity: 0; transition-delay: 0ms; }
+.history-sidebar.is-motion-expanding.is-content-visible .new-research-label { opacity: 1; transition-delay: 60ms; }
+.history-extended-content { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }
+.history-extended-content-inner {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 276px;
+  min-width: 276px;
+  min-height: 0;
+  transition: opacity 180ms var(--ease-out), transform 260ms var(--assistant-rail-ease, cubic-bezier(0.32, 0.72, 0, 1));
+  will-change: transform, opacity;
+}
+.history-sidebar-head strong { transition: opacity 180ms var(--ease-out), transform 260ms var(--assistant-rail-ease, cubic-bezier(0.32, 0.72, 0, 1)); }
+.history-sidebar.is-motion-collapsing .history-sidebar-head strong,
+.history-sidebar.is-motion-collapsing .history-extended-content-inner { opacity: 0; transform: none; transition: opacity 100ms var(--ease-out) 390ms; }
+.history-sidebar.is-motion-expanding:not(.is-content-visible) .history-sidebar-head strong,
+.history-sidebar.is-motion-expanding:not(.is-content-visible) .history-extended-content-inner { opacity: 0; transform: translateX(-12px); transition-duration: 0ms; }
+.history-sidebar.is-motion-expanding.is-content-visible .history-sidebar-head strong,
+.history-sidebar.is-motion-expanding.is-content-visible .history-extended-content-inner { opacity: 1; transform: none; transition-delay: 0ms; }
 .history-search { position: relative; display: flex; align-items: center; margin: 0 12px; }
 .history-search > svg:first-child { position: absolute; left: 11px; color: #596159; }
 .history-search input {
@@ -357,7 +422,7 @@ function detectMobileViewport() {
   white-space: nowrap;
   border: 0;
 }
-.sidebar-toggle:focus-visible,
+.history-sidebar-toggle:focus-visible,
 .sidebar-close:focus-visible,
 .new-research:focus-visible,
 .history-search input:focus-visible,
@@ -369,7 +434,7 @@ function detectMobileViewport() {
   outline-offset: 2px;
 }
 @media (hover: hover) and (pointer: fine) {
-  .sidebar-toggle:hover,
+  .history-sidebar-toggle:hover,
   .sidebar-close:hover,
   .history-scopes button:hover,
   .history-row:hover,
@@ -390,7 +455,8 @@ function detectMobileViewport() {
     padding-bottom: env(safe-area-inset-bottom);
     transform: translateX(-104%);
   }
-  .history-sidebar.is-collapsed { width: min(310px, 88vw); align-items: stretch; }
+  .history-sidebar.is-collapsed,
+  .history-sidebar.is-collapsed:not(.is-motion-collapsing):not(.is-motion-expanding) { width: min(310px, 88vw); align-items: stretch; }
   .history-sidebar.is-mobile-open { transform: translateX(0); }
   .history-sidebar.is-mobile-motion { transition: transform var(--assistant-drawer-duration, 500ms) var(--ease-out); }
   .history-backdrop {
@@ -401,13 +467,17 @@ function detectMobileViewport() {
     border: 0;
     background: rgba(24, 27, 24, .35);
   }
-  .history-sidebar.is-collapsed:not(.is-motion-collapsing):not(.is-motion-expanding) .new-research { width: calc(100% - 24px); margin: 12px; padding: 0 12px; }
-  .history-sidebar.is-collapsed:not(.is-motion-collapsing):not(.is-motion-expanding) .new-research span { display: inline; }
   .history-row { grid-template-columns: minmax(0, 1fr) 44px; }
 }
 .history-backdrop-enter-active { transition: opacity var(--duration-fast) var(--ease-out); }
 .history-backdrop-leave-active { transition: opacity 100ms var(--ease-out); }
 .history-backdrop-enter-from,.history-backdrop-leave-to { opacity: 0; }
+@media (max-width: 640px) {
+  .history-search input,
+  .history-scopes button,
+  .history-rename,
+  .load-more { min-height: 44px; }
+}
 @media (min-width: 641px) and (max-width: 1023px) and (pointer: coarse) {
   .history-search input,
   .history-scopes button,
@@ -417,6 +487,6 @@ function detectMobileViewport() {
 }
 @media (prefers-reduced-motion: reduce) {
   .history-sidebar,.history-sidebar.is-motion-collapsing,.history-sidebar.is-motion-expanding,.history-sidebar.is-mobile-motion,.history-backdrop-enter-active,.history-backdrop-leave-active { transition: none; will-change: auto; }
-  .history-sidebar-head strong,.new-research span,.history-extended-content,.history-sidebar.is-motion-expanding > .new-research { transition: none; animation: none; will-change: auto; }
+  .new-research-content,.new-research-label,.history-sidebar-head strong,.history-extended-content-inner { transition: none; will-change: auto; }
 }
 </style>

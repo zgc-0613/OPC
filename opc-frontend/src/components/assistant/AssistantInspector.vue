@@ -45,46 +45,60 @@ const isMobile = ref(false)
 let mediaQuery = null
 let previousFocus = null
 let previousBodyOverflow = ''
+let mobileModalActive = false
 let releaseIsolation = () => {}
 
-function syncViewport() {
-  isMobile.value = Boolean(mediaQuery?.matches)
+function syncViewport(event) {
+  isMobile.value = typeof event?.matches === 'boolean'
+    ? event.matches
+    : Boolean(mediaQuery?.matches)
 }
 
 onMounted(() => {
   mediaQuery = window.matchMedia?.('(max-width: 1023px)') || null
-  syncViewport()
+  syncViewport(mediaQuery)
   mediaQuery?.addEventListener?.('change', syncViewport)
-  if (props.open) openMobileInspector()
+  mediaQuery?.addListener?.(syncViewport)
+  if (props.open) void activateMobileModal()
 })
 
 watch(() => props.open, async (open) => {
-  if (!open) {
-    restoreModalState()
-    return
-  }
-  await openMobileInspector()
+  if (open) await activateMobileModal()
+  else deactivateMobileModal(true)
 })
 
-async function openMobileInspector() {
+watch(isMobile, async (mobile) => {
+  if (!props.open) return
+  if (mobile) await activateMobileModal()
+  else deactivateMobileModal(false)
+})
+
+async function activateMobileModal() {
   await nextTick()
-  if (!isMobile.value) return
-  if (previousFocus) return
-  previousFocus = document.activeElement
+  if (!props.open || !isMobile.value || mobileModalActive) return
+  if (!previousFocus) previousFocus = document.activeElement
   previousBodyOverflow = document.body.style.overflow
   document.body.style.overflow = 'hidden'
   releaseIsolation()
   releaseIsolation = isolateDialogBranch(layer.value)
+  mobileModalActive = true
   closeButton.value?.focus()
 }
 
-function restoreModalState() {
+function deactivateMobileModal(restoreFocus) {
   releaseIsolation()
   releaseIsolation = () => {}
-  if (!isMobile.value) return
-  document.body.style.overflow = previousBodyOverflow
-  if (props.restoreFocus) previousFocus?.focus?.()
+  if (mobileModalActive) {
+    document.body.style.overflow = previousBodyOverflow
+    mobileModalActive = false
+  }
+  if (restoreFocus) restoreFocusTarget()
+}
+
+function restoreFocusTarget() {
+  const target = previousFocus
   previousFocus = null
+  if (props.restoreFocus && target?.isConnected) target.focus?.()
 }
 
 function handleKeydown(event) {
@@ -97,13 +111,13 @@ function handleKeydown(event) {
 
 onBeforeUnmount(() => {
   mediaQuery?.removeEventListener?.('change', syncViewport)
-  releaseIsolation()
-  document.body.style.overflow = previousBodyOverflow
+  mediaQuery?.removeListener?.(syncViewport)
+  deactivateMobileModal(false)
 })
 </script>
 <style scoped>
 .caption { color: #5f665f !important; }
-.assistant-inspector-layer{min-width:0;min-height:0}.assistant-inspector{display:grid;grid-template-rows:auto minmax(0,1fr);width:100%;height:100%;min-width:0;min-height:0;border-left:1px solid #c9cdc7;background:#f6f6f1;color:#282d28}.assistant-inspector>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 16px;border-bottom:1px solid #d0d4ce;background:#fbfbf7}.caption{display:block;color:#727972;font-family:'Bookman Old Style',Georgia,serif;font-size:.63rem;font-weight:700}.assistant-inspector h2{margin:6px 0 0;font-family:'Noto Serif SC',STSong,SimSun,serif;font-size:1.05rem;font-weight:600}.assistant-inspector-close{display:grid;place-items:center;width:44px;height:44px;flex:0 0 44px;border:1px solid transparent;border-radius:3px;background:transparent;color:#303630}.assistant-inspector-close:focus-visible{outline:2px solid rgba(74,82,74,.38);outline-offset:2px}.assistant-inspector-close:active{transform:translateY(1px)}.assistant-inspector-body{min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.assistant-inspector-body :deep(.research-profile),.assistant-inspector-body :deep(.research-task),.assistant-inspector-body :deep(.research-preferences),.assistant-inspector-body :deep(.research-reports){max-height:none;border-bottom:1px solid #d0d4ce}.assistant-inspector-body :deep(.research-profile),.assistant-inspector-body :deep(.research-task){padding-left:16px;padding-right:16px}.assistant-inspector-body :deep(.reports-trigger),.assistant-inspector-body :deep(.preferences-trigger){padding-left:16px;padding-right:16px}.assistant-inspector-body :deep(.reports-panel),.assistant-inspector-body :deep(.preferences-panel){max-height:none;padding-left:16px;padding-right:16px}@media (hover: hover) and (pointer: fine){.assistant-inspector-close:hover{border-color:#bfc5bd;background:#eef0eb}}@media(max-width:1023px){.assistant-inspector-layer{position:fixed;z-index:90;inset:0}.assistant-inspector-backdrop{position:absolute;inset:0;width:100%;border:0;background:rgba(25,28,25,.28)}.assistant-inspector{position:absolute;top:0;right:0;bottom:0;width:min(430px,100%);border-left:1px solid #adb3ac}.assistant-inspector>header{padding-top:max(18px,env(safe-area-inset-top))}.assistant-inspector-body{padding-bottom:env(safe-area-inset-bottom)}}@media(max-width:640px){.assistant-inspector{width:min(100%,430px)}.assistant-inspector>header{padding-left:14px;padding-right:14px}.assistant-inspector-body :deep(.research-profile),.assistant-inspector-body :deep(.research-task){padding-left:14px;padding-right:14px}.assistant-inspector-body :deep(.reports-trigger),.assistant-inspector-body :deep(.preferences-trigger){padding-left:14px;padding-right:14px}.assistant-inspector-body :deep(.reports-panel),.assistant-inspector-body :deep(.preferences-panel){padding-left:14px;padding-right:14px}}@media(prefers-reduced-motion:reduce){.assistant-inspector *{scroll-behavior:auto}}
+.assistant-inspector-layer{min-width:0;min-height:0}.assistant-inspector{display:grid;grid-template-rows:auto minmax(0,1fr);width:100%;height:100%;min-width:0;min-height:0;border-left:1px solid #c9cdc7;background:#f6f6f1;color:#282d28}.assistant-inspector>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 16px;border-bottom:1px solid #d0d4ce;background:#fbfbf7}.caption{display:block;color:#727972;font-family:'Bookman Old Style',Georgia,serif;font-size:.63rem;font-weight:700}.assistant-inspector h2{margin:6px 0 0;font-family:'Noto Serif SC',STSong,SimSun,serif;font-size:1.05rem;font-weight:600}.assistant-inspector-close{display:grid;place-items:center;width:44px;height:44px;flex:0 0 44px;border:1px solid transparent;border-radius:3px;background:transparent;color:#303630}.assistant-inspector-close:focus-visible{outline:2px solid rgba(74,82,74,.38);outline-offset:2px}.assistant-inspector-close:active{transform:translateY(1px)}.assistant-inspector-body{min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;container-type:inline-size;container-name:assistant-inspector}.assistant-inspector-body :deep(.research-profile),.assistant-inspector-body :deep(.research-task),.assistant-inspector-body :deep(.research-preferences),.assistant-inspector-body :deep(.research-reports){max-height:none;border-bottom:1px solid #d0d4ce}.assistant-inspector-body :deep(.research-profile),.assistant-inspector-body :deep(.research-task){padding-left:16px;padding-right:16px}.assistant-inspector-body :deep(.reports-trigger),.assistant-inspector-body :deep(.preferences-trigger){padding-left:16px;padding-right:16px}.assistant-inspector-body :deep(.reports-panel),.assistant-inspector-body :deep(.preferences-panel){max-height:none;padding-left:16px;padding-right:16px}@media (hover: hover) and (pointer: fine){.assistant-inspector-close:hover{border-color:#bfc5bd;background:#eef0eb}}@media(max-width:1023px){.assistant-inspector-layer{position:fixed;z-index:90;inset:0}.assistant-inspector-backdrop{position:absolute;inset:0;width:100%;border:0;background:rgba(25,28,25,.28)}.assistant-inspector{position:absolute;top:0;right:0;bottom:0;width:min(430px,100%);border-left:1px solid #adb3ac}.assistant-inspector>header{padding-top:max(18px,env(safe-area-inset-top))}.assistant-inspector-body{padding-bottom:env(safe-area-inset-bottom)}}@media(max-width:640px){.assistant-inspector{width:min(100%,430px)}.assistant-inspector>header{padding-left:14px;padding-right:14px}.assistant-inspector-body :deep(.research-profile),.assistant-inspector-body :deep(.research-task){padding-left:14px;padding-right:14px}.assistant-inspector-body :deep(.reports-trigger),.assistant-inspector-body :deep(.preferences-trigger){padding-left:14px;padding-right:14px}.assistant-inspector-body :deep(.reports-panel),.assistant-inspector-body :deep(.preferences-panel){padding-left:14px;padding-right:14px}}@media(prefers-reduced-motion:reduce){.assistant-inspector *{scroll-behavior:auto}}
 .assistant-inspector-body :deep(.research-profile),.assistant-inspector-body :deep(.research-task),.assistant-inspector-body :deep(.research-preferences),.assistant-inspector-body :deep(.research-reports){max-height:none;overflow:visible}
 .assistant-inspector-body :deep(.reports-panel),.assistant-inspector-body :deep(.preferences-panel){max-height:none;overflow:visible}
 </style>

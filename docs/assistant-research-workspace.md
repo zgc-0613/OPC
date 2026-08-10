@@ -190,3 +190,42 @@ Public behavior tests were written RED then made GREEN for the authorized source
 The next guarded release carries the persisted unpin fix and the deployment-probe correction, not a new Assistant API. A citation hash still opens only the current Run's authorized Inspector data. The production terminal probe now uses `source_verification` explicitly, verifies one source returned by its own policy search, and requires source evidence from that same Run. Broader policy and case-comparison coverage remains in the isolated candidate stage.
 
 The real MySQL runner was updated when the unpin regression raised its integration test count to 81. It now uses one shared expected-count constant so the progress marker and final verdict cannot drift. The final controlled MySQL run passed `81/81` with zero owned-container leak. The current release is `/opt/opc/releases/20260811-003256`, with backup `/opt/opc/backups/20260811-003256`, dump `/opt/opc/backups/20260811-003256/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260811-003256`, and prior release `/opt/opc/releases/20260810-183007`.
+
+## Ordered History Control And Responsive Delivery (2026-08-11)
+
+Desktop collapse now changes the New Research command into its 44px plus-only control before the history rail moves: a 120ms preparation stage hides the label and settles the icon, then the real `276px` to `64px` grid track runs for 500ms. The rail's native divider moves with that track; no pseudo boundary or fixed-width sidebar overlay remains.
+
+At `<=840px`, history is always a full drawer (including when a desktop collapse preference was saved), which covers 375px phones and 768px tablets. At `<=1023px`, Inspector is an overlay drawer; the persistent desktop rail and Inspector arrangement begins at 1024px. This retains 44px targets, focus-managed drawers, safe-area padding, immediate keyboard behavior, and reduced-motion behavior.
+
+The frontend-only delivery passed targeted layout/history tests `96/96`, full Vitest `32/212`, all eight package scripts, and Vite (`1836` modules). Production is `/opt/opc/releases/20260811-014621`, with backup `/opt/opc/backups/20260811-014621`, dump `/opt/opc/backups/20260811-014621/opc_platform.sql.gz`, backend rollback `/opt/opc-backend.rollback.20260811-014621`, and prior release `/opt/opc/releases/20260811-012139`. Public, Assistant, admin, health, and new Assistant assets returned HTTP 200.
+
+## Recorded Sidebar Motion Closure (2026-08-11)
+
+The desktop history rail has one pointer-only sequence designed to preserve spatial continuity without exposing a fluid-width control inside a narrowing rail:
+
+| Moment | Collapse | Expand |
+| --- | --- | --- |
+| Initial interaction | The wide New Research command fades out and the fixed 44px plus command takes semantic ownership. | The fixed 44px plus command remains active while the rail opens. |
+| 120ms | The actual `276px` to `64px` grid rail transition begins; title, search, and list have already left the visible/accessibility surface. | No separate geometry delay is applied. |
+| 320ms | The compact command remains the only visible command. | Wide command, title, search, and history list regain visual and semantic access together. |
+| Final state | The compact rail is the only history surface. | The wide history workspace is fully available. |
+
+This is intentionally a narrow rendering fix. Session grouping/search, pin/archive/trash actions, drafts, citations, reports, run states, Inspector behavior, and all API shapes remain unchanged. On phones and tablets (`<=840px`), history remains an independent full drawer even with a persisted desktop collapse preference. Inspector is an overlay through `1023px`; desktop begins at `1024px`. Focus, Escape, 44px targets, safe areas, long-content overflow, keyboard immediacy, fine-pointer hover gating, and reduced-motion rules remain intact.
+
+Verification completed without Playwright: targeted Assistant tests `101/101`, full Vitest `32/218`, all eight frontend package tests, Vite build (`1836` modules), full Spring `549` (`0` failures/errors, `1` skip), controlled MySQL 8.4 `81/81` with no owned container leak, JAR package, Python `126` passed plus `7` skips and explicit migration `7/7`, Python syntax, diff, high-confidence credential, artifact, motion, and `.codegraph/` checks. One frontend-only atomic deployment switched `/opt/opc/current` to `/opt/opc/releases/20260811-032203`; the retained rollback release is `/opt/opc/releases/20260811-014621`. No database mutation or backup was necessary. HTTP 200 was independently verified for the public site, `/assistant`, administrator login/settings, `/api/health`, and the current Assistant JavaScript asset.
+
+## Continuous History Rail Refinement (2026-08-11)
+
+The original Phase Four information architecture remains unchanged: desktop has one history rail, one research-document reading column, and an Inspector only when requested; `<=840px` history and `<=1023px` Inspector remain independent focus-managed drawers. The refinement corrects only the desktop fold, after a frame-by-frame recording review showed that the earlier compact-control handoff made content disappear before the rail moved.
+
+### Rendering Rule
+
+The history rail and its black New Research command are now one visual geometry. The actual grid track interpolates from `276px` to `64px` over 500ms, and the button remains the same DOM control with `overflow: hidden`: its single-line label is clipped/faded inside the button while the icon recentres. The title, search, and grouped history rows remain rendered behind the contracting track and fade only in the final 100ms. Expansion reverses from the current transition state without blanking visible content first.
+
+This retains the existing components and contracts: `AssistantHistorySidebar`, `AssistantView`, history search/grouping/menu actions, drafts, citations, reports, run progress, Inspector focus handling, and every current API shape. Keyboard invocation and `prefers-reduced-motion` remain immediate; fine-pointer hover remains gated, and phone/tablet commands retain 44px targets. No external content, evidence, user history, or model state is fabricated.
+
+### Verification And Delivery
+
+Focused Assistant behavior tests passed `106/106`; complete frontend Vitest passed `32` files / `223` tests; all eight frontend package scripts and the Vite production build passed. Existing Spring Boot, MySQL 8.4, JAR, Python deployment/migration (`120` passed), syntax, diff, high-confidence credential, artifact, and `.codegraph/` ignore gates passed. Playwright was not used.
+
+One formal frontend-only atomic release switched production to `/opt/opc/releases/20260811-035739`, frontend hash `2fe7f6b790a2d42900496f7b86a1ce41a841ec7bf4880981ffea0d4d9467980b`. The atomic rollback release is `/opt/opc/releases/20260811-032203`; no database migration or backup was created because no server or data change shipped. Postflight returned HTTP 200 for the public site, `/assistant`, administration, `/api/health`, and the deployed Assistant asset. Human review remains appropriate for the desktop 1024px/1440px fold and the 375px/768px drawer paths.

@@ -4,7 +4,25 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 47 (Assistant research workspace visual reconstruction and production delivery)
+Phase 49 (Assistant single-control continuous rail closure)
+
+### Phase 49: Assistant Single-Control Continuous Rail Closure
+- [x] Review the supplied 59fps recording and confirm that the remaining discontinuity came from the prior dual-control/120ms handoff: content changed before the physical rail had contracted.
+- [x] Replace the desktop New Research handoff with one black button whose boundary follows the real `276px`-to-`64px` grid rail for the full 500ms pointer transition; clip its single-line label inside that surface and fade it only in the tail of the move.
+- [x] Keep history title/search/rows rendered and clipped until the final 100ms rather than blanking the rail at the start; preserve them across an interrupted collapse-to-expand reversal.
+- [x] Retain immediate keyboard and reduced-motion paths, the `<=840px` focus-managed history drawer, Inspector behavior, 44px touch targets, and existing API/data semantics.
+- [x] Pass focused Assistant `106/106`, full frontend Vitest `32/223`, eight frontend package scripts, Vite production build, Spring Boot and MySQL 8.4 release gates, JAR packaging, Python deployment/migration tests `120` passed, syntax, diff, credential, artifact, and `.codegraph/` ignore checks.
+- [x] Perform one frontend-only atomic production release after the local gates; no migration, Provider request, or additional candidate deployment was needed.
+- **Status:** complete. Current release `/opt/opc/releases/20260811-035739`; frontend hash `2fe7f6b790a2d42900496f7b86a1ce41a841ec7bf4880981ffea0d4d9467980b`; retained atomic rollback release `/opt/opc/releases/20260811-032203`.
+
+### Phase 48: Assistant Sidebar Motion Handoff And Responsive Closure
+- [x] Review the user-provided 59fps recording and isolate the visible stretch to a wide New Research control being clipped by a shrinking desktop grid rail.
+- [x] Add RED/GREEN public behavior coverage for a 120ms compact-control handoff before collapse, the 320ms expanding-control handoff, and accessibility-tree release at the same expanding handoff.
+- [x] Keep the real 276px-to-64px rail and native divider in one coordinate system, but hide every fluid-width control before the rail tween begins; restore wide content only near its final width.
+- [x] Retain phone/tablet drawer behavior, 44px touch targets, Inspector container-width layouts, focus isolation, immediate keyboard changes, and reduced-motion behavior.
+- [x] Pass the complete local gate: targeted Assistant `101/101`, Vitest `32/218`, eight package tests, Vite, Spring `549` with `0` failures/errors and `1` skip, MySQL `81/81` with zero owned-container leak, JAR, Python `126` passed plus `7` opt-in skips and explicit migration `7/7`, syntax, diff, credential, artifact, motion, and ignore checks.
+- [x] Run one frontend-only atomic production release after remote preflight. No SQL, backend, Provider, candidate, or migration change was required for this visual-only release.
+- **Status:** complete. Production is `/opt/opc/releases/20260811-032203`; `/opt/opc/releases/20260811-014621` is the retained atomic rollback release. See `docs/assistant-workspace-phase-four.md`.
 
 ### Phase 47: Assistant Research Workspace Visual Reconstruction And Production Delivery
 - [x] Audit the real Assistant route, session history, profile, run progress, citation/report surfaces, drafts, mobile drawer behavior, tests, APIs, migrations, and deployment workflow.

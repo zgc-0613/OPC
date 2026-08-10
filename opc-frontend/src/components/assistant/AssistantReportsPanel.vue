@@ -345,4 +345,25 @@ function shouldRerun(report) {
 .save-current-report:active { transform: scale(.975); }
 @media (max-width: 520px) { .report-commands { grid-template-columns: 1fr; } .save-current-report { justify-self: stretch; } }
 @media (prefers-reduced-motion: reduce) { .report-scope button,.save-current-report { transition: none; transform: none; } }
+@container assistant-inspector (max-width: 540px) {
+  .reports-trigger { padding: 10px 16px; }
+  .reports-panel { max-height: none; padding: 14px 16px; }
+  .reports-trigger-note { display: none; }
+  .report-commands { grid-template-columns: 1fr; }
+  .report-scope { flex-wrap: wrap; }
+  .report-scope button,
+  .save-current-report,
+  .report-actions button,
+  .report-export-format,
+  .report-create-form footer button,
+  .report-edit-form footer button,
+  .purge-confirmation button,
+  .load-more-reports { min-height: 44px; }
+  .save-current-report { justify-self: stretch; }
+  .report-actions button { width: 44px; }
+  .report-list > li { grid-template-columns: 1fr; }
+  .report-actions { order: 2; }
+  .report-create-form,
+  .report-edit-form { padding: 10px; }
+}
 </style>

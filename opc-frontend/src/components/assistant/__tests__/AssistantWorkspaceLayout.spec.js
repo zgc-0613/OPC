@@ -10,6 +10,9 @@ import evidencePanelSource from '@/components/assistant/AssistantEvidencePanel.v
 import historySidebarSource from '@/components/assistant/AssistantHistorySidebar.vue?raw'
 import sessionMenuSource from '@/components/assistant/AssistantSessionMenu.vue?raw'
 import profileSource from '@/components/assistant/AssistantResearchProfile.vue?raw'
+import taskSource from '@/components/assistant/AssistantResearchTask.vue?raw'
+import preferencesSource from '@/components/assistant/AssistantResearchPreferences.vue?raw'
+import reportsSource from '@/components/assistant/AssistantReportsPanel.vue?raw'
 
 describe('Assistant workspace layout contract', () => {
   it('allocates a bounded desktop inspector column only when the inspector is open', () => {
@@ -81,16 +84,47 @@ describe('Assistant workspace layout contract', () => {
     expect(historySidebarSource).not.toMatch(/\.history-sidebar\.is-motion-collapsing\s*>\s*\.history-extended-content\s*\{[^}]*width:\s*276px/)
   })
 
-  it('settles the new-research icon before the collapsing rail begins', () => {
-    expect(workspaceSource).toMatch(/\.assistant-workspace\.history-motion-collapsing\s*\{[^}]*transition:\s*grid-template-columns[^;]*120ms/)
-    expect(historySidebarSource).toMatch(/\.history-sidebar\.is-motion-collapsing\s*>\s*\.new-research\s*\{[^}]*width:\s*44px[^}]*margin:\s*12px 0 12px 10px/)
-    expect(historySidebarSource).toMatch(/\.history-sidebar\.is-motion-collapsing\s+\.new-research span\s*\{[^}]*display:\s*none/)
+  it('starts the native rail and one clipped new-research command together', () => {
+    expect(workspaceSource).toMatch(/historyCollapsed\.value\s*=\s*targetCollapsed/)
+    expect(workspaceSource).not.toMatch(/HISTORY_BUTTON_STAGE_MS/)
+    expect(historySidebarSource).toMatch(/class="new-research-slot"/)
+    expect(historySidebarSource).toMatch(/class="new-research-label"/)
+    expect(historySidebarSource).not.toMatch(/new-research-(?:wide|compact)/)
+    expect(historySidebarSource).toMatch(/\.new-research\s*\{[^}]*width:\s*100%[^}]*overflow:\s*hidden/)
+    expect(historySidebarSource).not.toMatch(/\.history-sidebar\.is-motion-(?:collapsing|expanding)[^{]*\{[^}]*width:\s*44px/)
   })
 
-  it('restores a full-width new-research command inside mobile and tablet history drawers', () => {
+  it('holds extended history content in the shrinking rail until the transition tail', () => {
+    expect(historySidebarSource).toMatch(/\.history-sidebar\.is-motion-collapsing \.history-extended-content-inner\s*\{[^}]*transition:\s*opacity 100ms var\(--ease-out\) 390ms/)
+    expect(historySidebarSource).not.toMatch(/\.history-sidebar\.is-motion-collapsing \.history-extended-content-inner\s*\{[^}]*210ms/)
+  })
+
+  it('uses the wide new-research command inside mobile and tablet history drawers', () => {
     expect(workspaceSource).toMatch(/@media\(max-width:840px\)\{\.assistant-workspace,\.assistant-workspace\.history-collapsed\{grid-template-columns:1fr/)
-    expect(historySidebarSource).toMatch(/@media \(max-width: 840px\)[\s\S]*?\.history-sidebar\.is-collapsed:not\(\.is-motion-collapsing\):not\(\.is-motion-expanding\) \.new-research\s*\{[^}]*width:\s*calc\(100% - 24px\)/)
+    expect(historySidebarSource).toMatch(/\.new-research-slot\s*\{[^}]*padding:\s*12px 10px/)
+    expect(historySidebarSource).toMatch(/\.new-research\s*\{[^}]*width:\s*100%/)
+    expect(historySidebarSource).toMatch(/@media \(max-width: 840px\)[\s\S]*?\.history-sidebar\.is-collapsed:not\(\.is-motion-collapsing\):not\(\.is-motion-expanding\)\s*\{[^}]*align-items:\s*stretch/)
     expect(inspectorSource).toMatch(/@media\(max-width:1023px\)\{\.assistant-inspector-layer\{position:fixed/)
+  })
+
+  it('keeps the collapsed command as a 44px target without swapping button surfaces', () => {
+    expect(historySidebarSource).toMatch(/class="history-sidebar-toggle"/)
+    expect(historySidebarSource).not.toMatch(/class="sidebar-toggle"/)
+    expect(historySidebarSource).toMatch(/\.history-sidebar-head\s*\{[^}]*flex:\s*0 0 64px[^}]*box-sizing:\s*border-box/)
+    expect(historySidebarSource).toMatch(/\.new-research-slot\s*\{[^}]*flex:\s*0 0 68px[^}]*height:\s*68px/)
+    expect(historySidebarSource).toMatch(/\.new-research\s*\{[^}]*height:\s*44px/)
+    expect(historySidebarSource).toMatch(/\.new-research-content\s*\{[^}]*transition:\s*transform/)
+  })
+
+  it('uses inspector-width rules instead of only viewport rules for compact inspector content', () => {
+    expect(inspectorSource).toMatch(/\.assistant-inspector-body\s*\{[^}]*container-type:\s*inline-size[^}]*container-name:\s*assistant-inspector/)
+    expect(taskSource).toMatch(/@container assistant-inspector \(max-width:\s*540px\)/)
+    expect(preferencesSource).toMatch(/@container assistant-inspector \(max-width:\s*540px\)/)
+    expect(reportsSource).toMatch(/@container assistant-inspector \(max-width:\s*540px\)/)
+  })
+
+  it('keeps phone history controls at touch target size without relying on a tablet-only query', () => {
+    expect(historySidebarSource).toMatch(/@media \(max-width: 640px\)[\s\S]*?\.history-search input,[\s\S]*?\.history-scopes button,[\s\S]*?\.history-rename,[\s\S]*?\.load-more\s*\{[^}]*min-height:\s*44px/)
   })
 
   it('keeps the research-conditions fork command on one intentional line at compact inspector widths', () => {

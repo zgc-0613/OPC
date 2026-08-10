@@ -839,37 +839,118 @@ describe('AssistantView research workspace', () => {
     wrapper.unmount()
   })
 
-  it('updates the rail geometry immediately while the grid transition settles', async () => {
+  it('contracts the desktop rail and its one research command as one pointer-owned transition', async () => {
     const wrapper = mount(AssistantView)
     await flushPromises()
 
     const workspace = wrapper.get('.assistant-workspace')
-    wrapper.get('.history-sidebar .sidebar-toggle').element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    wrapper.get('.history-sidebar .history-sidebar-toggle').element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
     await nextTick()
 
     expect(workspace.classes()).toContain('history-motion-collapsing')
     expect(workspace.classes()).toContain('history-collapsed')
+    expect(workspace.findAll('.new-research')).toHaveLength(1)
+    expect(workspace.find('.new-research-label').exists()).toBe(true)
+    expect(workspace.get('.history-extended-content').attributes('aria-hidden')).toBe('true')
 
-    await vi.advanceTimersByTimeAsync(500)
+    await vi.advanceTimersByTimeAsync(499)
     await nextTick()
 
-    expect(workspace.classes()).toContain('history-collapsed')
     expect(workspace.classes()).toContain('history-motion-collapsing')
 
-    await vi.advanceTimersByTimeAsync(120)
+    await vi.advanceTimersByTimeAsync(1)
     await nextTick()
     expect(workspace.classes()).not.toContain('history-motion-collapsing')
+    expect(workspace.find('.history-extended-content').exists()).toBe(false)
 
-    workspace.get('.history-sidebar .sidebar-toggle').element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    workspace.get('.history-sidebar .history-sidebar-toggle').element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
     await nextTick()
     expect(workspace.classes()).toContain('history-motion-expanding')
     expect(workspace.classes()).not.toContain('history-collapsed')
+    expect(workspace.findAll('.new-research')).toHaveLength(1)
+    expect(workspace.get('.history-extended-content').attributes('aria-hidden')).toBe('true')
 
-    await vi.advanceTimersByTimeAsync(500)
+    await vi.advanceTimersByTimeAsync(179)
+    await nextTick()
+    expect(workspace.get('.history-extended-content').attributes('aria-hidden')).toBe('true')
+
+    await vi.advanceTimersByTimeAsync(1)
+    await nextTick()
+    expect(workspace.get('.history-extended-content').attributes('aria-hidden')).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(320)
     await nextTick()
     expect(workspace.classes()).not.toContain('history-collapsed')
     expect(workspace.classes()).not.toContain('history-motion-expanding')
     wrapper.unmount()
+  })
+
+  it('reverses an in-flight pointer rail transition without swapping the research command', async () => {
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    const workspace = wrapper.get('.assistant-workspace')
+    const toggle = workspace.get('.history-sidebar .history-sidebar-toggle')
+    toggle.element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    await nextTick()
+    expect(workspace.classes()).toContain('history-motion-collapsing')
+
+    toggle.element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    await nextTick()
+
+    expect(workspace.classes()).toContain('history-motion-expanding')
+    expect(workspace.classes()).not.toContain('history-collapsed')
+    expect(workspace.findAll('.new-research')).toHaveLength(1)
+    expect(workspace.get('.history-extended-content').attributes('aria-hidden')).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(180)
+    await nextTick()
+    expect(workspace.get('.history-extended-content').attributes('aria-hidden')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('keeps a keyboard reversal immediate while a pointer rail transition is in flight', async () => {
+    const wrapper = mount(AssistantView)
+    await flushPromises()
+
+    const workspace = wrapper.get('.assistant-workspace')
+    const toggle = workspace.get('.history-sidebar .history-sidebar-toggle')
+    toggle.element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    await nextTick()
+    expect(workspace.classes()).toContain('history-motion-collapsing')
+
+    toggle.element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }))
+    await nextTick()
+
+    expect(workspace.classes()).not.toContain('history-motion')
+    expect(workspace.classes()).not.toContain('history-collapsed')
+    expect(workspace.get('.history-extended-content').attributes('aria-hidden')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('settles the rail immediately when reduced motion is requested', async () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = vi.fn((query) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    }))
+    try {
+      const wrapper = mount(AssistantView)
+      await flushPromises()
+      const workspace = wrapper.get('.assistant-workspace')
+      workspace.get('.history-sidebar .history-sidebar-toggle').element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+      await nextTick()
+
+      expect(workspace.classes()).not.toContain('history-motion')
+      expect(workspace.classes()).toContain('history-collapsed')
+      expect(workspace.find('.history-extended-content').exists()).toBe(false)
+      wrapper.unmount()
+    } finally {
+      window.matchMedia = originalMatchMedia
+    }
   })
 
   it('sends an explicit false pinned value when cancelling a pinned session', async () => {

@@ -7,7 +7,7 @@
       <AssistantHistorySidebar
         :items="historyItems" :scope="historyScope" :search-query="historyQuery" :selected-id="selectedSessionId"
         :loading="historyLoading" :searching="historySearching" :has-more="historyHasMore" :error="historyError"
-        :collapsed="historyCollapsed" :mobile-open="mobileHistoryOpen" :mobile-motion="mobileHistoryMotion" :motion-phase="historyMotionPhase"
+        :collapsed="historyCollapsed" :mobile-open="mobileHistoryOpen" :mobile-motion="mobileHistoryMotion" :motion-phase="historyMotionPhase" :motion-content-visible="historyContentVisible"
         @toggle="toggleHistory" @close-mobile="closeMobileHistory($event)" @new="startNewResearch" @search="scheduleHistorySearch"
         @scope="changeHistoryScope" @select="selectHistorySession" @load-more="loadHistory(false)"
         @rename="renameSession" @pin="pinSession" @archive="archiveSession" @unarchive="unarchiveSession"
@@ -162,8 +162,8 @@ const TERMINAL = new Set(['completed', 'clarification_needed', 'evidence_insuffi
 const POLLING_INTERVAL_MS = 1200
 const POLLING_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 10000]
 const LOCAL_POLLING_MAX_WAIT_MS = 120000
-const HISTORY_BUTTON_STAGE_MS = 120
 const HISTORY_RAIL_DURATION_MS = 500
+const HISTORY_CONTENT_REVEAL_MS = 180
 const defaultProfile = () => ({ ventureType: 'solo_company', regionId: '', industryTagId: '', industry: '', stage: 'validation', budgetRange: 'under_100k', goal: '', existingResources: '' })
 const drafts = createAssistantDraftStore(globalThis.localStorage, USER_NAMESPACE)
 const historyGate = createLatestRequestGate()
@@ -194,6 +194,7 @@ const historySearching = ref(false)
 const historyError = ref('')
 const historyCollapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1')
 const historyMotionPhase = ref('')
+const historyContentVisible = ref(!historyCollapsed.value)
 const mobileHistoryOpen = ref(false)
 const mobileHistoryMotion = ref(false)
 const selectedSessionId = ref('')
@@ -257,6 +258,7 @@ const analyticsResearchDraft = ref(null)
 const branchResearchDraft = ref(readStoredBranchDraft())
 let historyTimer
 let historyMotionTimer
+let historyContentRevealTimer
 let readinessTimer
 let industryTimer
 let pollingTimer
@@ -355,7 +357,7 @@ watch(evidenceOpenRequest, () => openEvidenceInspector(evidencePointerMotion.val
 watch(historyControl.request, () => openMobileHistory(historyControl.motion?.value ? { detail: 1 } : null))
 
 onMounted(loadPage)
-onBeforeUnmount(() => { clearTimeout(historyTimer); clearTimeout(historyMotionTimer); clearTimeout(industryTimer); clearTimeout(readinessTimer); stopPolling(); clearTimeout(toastTimer) })
+onBeforeUnmount(() => { clearTimeout(historyTimer); clearTimeout(historyMotionTimer); clearTimeout(historyContentRevealTimer); clearTimeout(industryTimer); clearTimeout(readinessTimer); stopPolling(); clearTimeout(toastTimer) })
 watch(profile, (value) => {
   if (!currentSession.value) localStorage.setItem(PROFILE_KEY, JSON.stringify(value))
 }, { deep: true })
@@ -439,19 +441,31 @@ async function changeHistoryScope(scope) {
   await loadHistory(true).catch(() => {})
 }
 function toggleHistory(event = null) {
-  if (historyMotionPhase.value) return
   const animated = shouldAnimateWorkspaceMotion(event)
   const targetCollapsed = !historyCollapsed.value
+  const wasCollapsing = historyMotionPhase.value === 'collapsing'
   clearTimeout(historyMotionTimer)
-  historyCollapsed.value = targetCollapsed
-  localStorage.setItem(SIDEBAR_KEY, targetCollapsed ? '1' : '0')
+  clearTimeout(historyContentRevealTimer)
   if (!animated) {
+    historyMotionPhase.value = ''
+    historyCollapsed.value = targetCollapsed
+    historyContentVisible.value = !targetCollapsed
+    localStorage.setItem(SIDEBAR_KEY, targetCollapsed ? '1' : '0')
     return
   }
   historyMotionPhase.value = targetCollapsed ? 'collapsing' : 'expanding'
+  historyCollapsed.value = targetCollapsed
+  historyContentVisible.value = targetCollapsed || wasCollapsing
+  localStorage.setItem(SIDEBAR_KEY, targetCollapsed ? '1' : '0')
+  if (!targetCollapsed && !wasCollapsing) {
+    historyContentRevealTimer = window.setTimeout(() => {
+      if (historyMotionPhase.value === 'expanding') historyContentVisible.value = true
+    }, HISTORY_CONTENT_REVEAL_MS)
+  }
   historyMotionTimer = window.setTimeout(() => {
     historyMotionPhase.value = ''
-  }, targetCollapsed ? HISTORY_BUTTON_STAGE_MS + HISTORY_RAIL_DURATION_MS : HISTORY_RAIL_DURATION_MS)
+    historyContentVisible.value = !historyCollapsed.value
+  }, HISTORY_RAIL_DURATION_MS)
 }
 function shouldAnimateWorkspaceMotion(event) {
   return Boolean((event?.detail > 0 || event === true) && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
@@ -1429,9 +1443,8 @@ function showToast(message) { toast.value = message; clearTimeout(toastTimer); t
 @media(prefers-reduced-motion:reduce){.assistant-toast-enter-active,.assistant-toast-leave-active{transition:opacity 100ms var(--ease-out)}.assistant-toast-enter-from,.assistant-toast-leave-to{transform:none}.assistant-page :deep(button){transition:none;transform:none!important}}
 </style>
 <style scoped>
- .assistant-page { --assistant-drawer-duration: 500ms; --assistant-panel-duration: 360ms; --assistant-rail-ease: cubic-bezier(0.32, 0.72, 0, 1); }
- .assistant-workspace.history-motion { will-change: grid-template-columns; transition: grid-template-columns var(--assistant-drawer-duration) var(--assistant-rail-ease); }
- .assistant-workspace.history-motion-collapsing { transition: grid-template-columns var(--assistant-drawer-duration) var(--assistant-rail-ease) 120ms; }
+ .assistant-page { --assistant-drawer-duration: 500ms; --assistant-panel-duration: 360ms; --assistant-rail-duration: 500ms; --assistant-rail-ease: cubic-bezier(0.32, 0.72, 0, 1); }
+ .assistant-workspace.history-motion { transition: grid-template-columns var(--assistant-rail-duration) var(--assistant-rail-ease); }
  @media (prefers-reduced-motion: reduce) {
    .assistant-workspace.history-motion { transition: none; will-change: auto; }
  }
