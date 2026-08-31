@@ -13,7 +13,7 @@
       <div class="section-header">
         <div>
           <h2>政策检索</h2>
-          <p>点击地区或类型即可自动筛选政策，关键词输入后自动搜索。</p>
+          <p>点击地区或涉及主题即可自动筛选政策，关键词输入后自动搜索。</p>
         </div>
         <button class="button button-export" type="button" @click="exportPolicies">导出 Excel</button>
       </div>
@@ -32,11 +32,11 @@
           <strong>{{ coveredRegionCount }}</strong>
         </div>
         <div>
-          <span>政策类型</span>
+          <span>涉及主题</span>
           <strong>{{ usedPolicyTypeCount }}</strong>
         </div>
       </div>
-      <p class="policy-summary-note">统计口径：基于当前资料库记录，随筛选条件实时更新；地区及类型字段合并标签统计。</p>
+      <p class="policy-summary-note">统计口径：主分类用于研究统计，涉及主题按七类标签筛选，一项政策可涉及多个主题。</p>
 
       <div class="auto-filter-grid">
         <label>
@@ -67,7 +67,7 @@
           </div>
         </label>
         <label>
-          <span>政策类型</span>
+          <span>涉及主题</span>
           <div class="custom-select" :class="{ open: policyTypeMenuOpen }">
             <button class="custom-select-trigger" type="button" @click="togglePolicyTypeMenu">
               <span>{{ selectedPolicyTypeLabel }}</span>
@@ -156,7 +156,7 @@
               <td>
                 <span class="visit-count-pill">{{ getPolicyPv(policy.id) }} 次</span>
               </td>
-              <td><span class="status-pill">{{ policy.status || '-' }}</span></td>
+              <td><span class="status-pill">{{ materialNatureText(policy) }}</span></td>
             </tr>
           </tbody>
         </table>
@@ -218,14 +218,26 @@ const sortOptions = [
 
 const policyTypeOptions = [
   { label: '全部类型', value: '' },
-  { label: '综合政策', value: 'comprehensive' },
-  { label: '算力支持', value: 'computing_support' },
-  { label: '资金补贴', value: 'funding_subsidy' },
-  { label: '场景需求', value: 'scenario_demand' },
-  { label: '人才服务', value: 'talent_service' },
-  { label: '投资融资', value: 'investment' },
-  { label: '其他', value: 'other' },
+  { label: '算力技术', value: 'computing_support' },
+  { label: '财政激励', value: 'funding_subsidy' },
+  { label: '场景开放', value: 'scenario_demand' },
+  { label: '创业生态', value: 'ecology_support' },
+  { label: '金融资本', value: 'investment' },
+  { label: '制度治理', value: 'governance_market' },
+  { label: '人才培育', value: 'talent_service' },
 ]
+
+// The filter labels follow the revised four-character taxonomy. Keep legacy
+// labels readable so previously imported policy records remain searchable.
+const legacyPolicyTagAliases = {
+  computing_support: ['算力与技术基础设施'],
+  funding_subsidy: ['资金补贴与财政激励'],
+  scenario_demand: ['场景与应用推广'],
+  ecology_support: ['生态社区支持', '生态建设与社区支持'],
+  investment: ['投融资与金融服务'],
+  governance_market: ['制度治理与市场环境'],
+  talent_service: ['人才与高校支持'],
+}
 
 const policyTypeLabels = policyTypeOptions.reduce((map, item) => {
   if (item.value) {
@@ -233,16 +245,6 @@ const policyTypeLabels = policyTypeOptions.reduce((map, item) => {
   }
   return map
 }, {})
-
-const policyTypeKeywords = {
-  comprehensive: ['综合政策', '综合', '规划', '行动方案', '指导意见', '实施意见'],
-  computing_support: ['算力支持', '算力', '计算资源', '智算', '数据中心', '模型'],
-  funding_subsidy: ['资金补贴', '资金', '补贴', '奖励', '扶持', '基金', '专项资金'],
-  scenario_demand: ['场景需求', '场景', '应用场景', '需求', '揭榜挂帅', '试点示范'],
-  talent_service: ['人才服务', '人才', '培训', '高校', '团队', '创业服务'],
-  investment: ['投资融资', '投资', '融资', '贷款', '创投', '风投', '基金'],
-  other: ['其他'],
-}
 
 const visibleRegions = computed(() => {
   const usedRegionIds = new Set(allPolicies.value.map((item) => item.regionId).filter(Boolean))
@@ -311,7 +313,7 @@ const paginationPages = computed(() => {
 const resultText = computed(() => {
   const parts = []
   if (query.policyType) {
-    parts.push(`类型/标签：${policyTypeLabels[query.policyType] || query.policyType}`)
+    parts.push(`涉及主题：${policyTypeLabels[query.policyType] || query.policyType}`)
   }
   const region = regions.value.find((item) => item.id === Number(query.regionId))
   if (region) {
@@ -370,11 +372,9 @@ function matchesPolicyType(policy, selectedType) {
   if (!selectedType) {
     return true
   }
-  if (policy.policyType === selectedType) {
-    return true
-  }
-  const text = policySearchText(policy)
-  return (policyTypeKeywords[selectedType] || []).some((word) => text.includes(word))
+  const selectedLabel = policyTypeLabels[selectedType]
+  const tags = splitPolicyTags(policy.tags)
+  return tags.includes(selectedLabel) || legacyPolicyTagAliases[selectedType]?.some((label) => tags.includes(label))
 }
 
 function policySearchText(policy) {
@@ -448,6 +448,10 @@ function goToPage(page) {
 }
 
 function formatTags(tags) {
+  return splitPolicyTags(tags).slice(0, 4)
+}
+
+function splitPolicyTags(tags) {
   if (!tags) {
     return []
   }
@@ -455,7 +459,16 @@ function formatTags(tags) {
     .split(/[,，、]/)
     .map((tag) => tag.trim())
     .filter(Boolean)
-    .slice(0, 4)
+}
+
+function materialNatureText(policy) {
+  if (policy?.materialNatureLabel) return policy.materialNatureLabel
+  if (policy?.materialNature === 'consultation_draft' || policy?.status === 'consultation') return '征求意见稿'
+  if (policy?.materialNature === 'standard_reference') return '标准规范文件'
+  if (policy?.materialNature === 'official_platform_service') return '官方平台/服务信息'
+  if (policy?.materialNature === 'formal_policy') return policy.status === 'expired' ? '正式文件（失效）' : '正式文件'
+  if (policy?.materialNature) return '其他资料'
+  return policy?.status === 'published' ? '正式文件' : (policy?.status || '-')
 }
 
 function getPolicyPv(id) {

@@ -385,6 +385,9 @@ public class CaseAnalysisService {
             payload.put("case", Map.of(
                     "id", item.getId(),
                     "title", safe(item.getTitle()),
+                    "articleTitle", safe(item.getArticleTitle()),
+                    "category", safe(item.getCategory()),
+                    "subcategory", safe(item.getSubcategory()),
                     "summary", safe(item.getSummary()),
                     "businessModel", safe(item.getBusinessModel()),
                     "aiTools", safe(item.getAiTools()),

@@ -9,7 +9,12 @@
       <div class="admin-quick">
         <RouterLink class="button" to="/admin/policies">维护政策</RouterLink>
         <RouterLink class="button button-ghost" to="/admin/sources">维护来源</RouterLink>
+        <button class="button button-ghost" type="button" :disabled="exportingDataset" @click="downloadPaperDataset">
+          {{ exportingDataset ? '正在生成...' : '导出论文数据快照' }}
+        </button>
       </div>
+      <p v-if="exportNotice" class="muted" role="status">{{ exportNotice }}</p>
+      <p v-if="exportError" class="error" role="alert">{{ exportError }}</p>
     </section>
 
     <section class="admin-grid">
@@ -255,6 +260,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { getVisitRankings, getVisitSummary, getVisitTrend } from '@/api/visit'
 import { getHotSearchKeywords } from '@/api/searchLog'
+import { exportPaperDataset } from '@/api/export'
 
 const loading = ref(false)
 const error = ref('')
@@ -268,7 +274,24 @@ const loadedTrendDays = ref(7)
 const activeTrendPoint = ref(null)
 const trendLoading = ref(false)
 const trendError = ref('')
+const exportingDataset = ref(false)
+const exportNotice = ref('')
+const exportError = ref('')
 let trendRequestId = 0
+
+async function downloadPaperDataset() {
+  exportingDataset.value = true
+  exportNotice.value = ''
+  exportError.value = ''
+  try {
+    await exportPaperDataset()
+    exportNotice.value = '论文数据快照已导出；请保留原文件，并在副本中进行字段优化。'
+  } catch (error) {
+    exportError.value = error.message || '论文数据快照导出失败。'
+  } finally {
+    exportingDataset.value = false
+  }
+}
 
 const trendRangeOptions = [
   { days: 7, label: '7 天' },

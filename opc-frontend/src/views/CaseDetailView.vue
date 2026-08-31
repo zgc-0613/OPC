@@ -9,6 +9,11 @@
         <div class="detail-hero-card">
           <span class="caption">case detail</span>
           <h2>{{ item.title }}</h2>
+          <p v-if="item.articleTitle" class="case-article-title">原文：{{ item.articleTitle }}</p>
+          <div class="case-classification-row" aria-label="案例分类">
+            <span class="case-taxonomy-tag case-taxonomy-major">{{ item.category || '未标注大类' }}</span>
+            <span class="case-taxonomy-tag case-taxonomy-minor">{{ item.subcategory || '未标注小类' }}</span>
+          </div>
           <div v-if="formatTags(item.tags).length" class="chip-row detail-chip-row">
             <span v-for="tag in formatTags(item.tags)" :key="tag" class="chip">{{ tag }}</span>
           </div>
@@ -16,7 +21,8 @@
 
         <div class="meta-grid">
           <span><b>地区</b>{{ item.regionName || '-' }}</span>
-          <span><b>领域</b>{{ item.category || '-' }}</span>
+          <span><b>大类</b>{{ item.category || '-' }}</span>
+          <span><b>小类</b>{{ item.subcategory || '-' }}</span>
           <span><b>主体</b>{{ item.actorName || '-' }}</span>
           <span><b>状态</b>{{ item.status || '-' }}</span>
           <span><b>来源</b>{{ item.sourceTitle || '-' }}</span>

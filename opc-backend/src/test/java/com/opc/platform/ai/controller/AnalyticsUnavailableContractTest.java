@@ -89,22 +89,22 @@ class AnalyticsUnavailableContractTest {
     }
 
     @Test
-    void caseRegionRoleGapIsUnavailableInsteadOfBeingReportedAsAnEmptyDistribution() throws Exception {
+    void caseProvinceRankingIsAvailableAndKeepsTheRecordIdDeduplicationCaveat() throws Exception {
         mockMvc.perform(get("/api/analytics/regions")
                         .param("metricId", "region.case_count")
                         .requestAttr(AUTHENTICATED_USER_ATTRIBUTE,
                                 new AuthenticatedUser(42L, "owner", "owner@example.com")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.status").value("unavailable"))
-                .andExpect(jsonPath("$.data.available").value(false))
-                .andExpect(jsonPath("$.data.unavailableReason")
-                        .value("CASE_REGION_ROLE_NOT_READY"))
+                .andExpect(jsonPath("$.data.status").value("empty"))
+                .andExpect(jsonPath("$.data.available").value(true))
+                .andExpect(jsonPath("$.data.unavailableReason").doesNotExist())
                 .andExpect(jsonPath("$.data.rows").isEmpty())
                 .andExpect(jsonPath("$.data.data").isEmpty())
-                .andExpect(jsonPath("$.data.metric.readiness").value("Red"))
+                .andExpect(jsonPath("$.data.metric.readiness").value("Yellow"))
+                .andExpect(jsonPath("$.data.filters.regionLevel").value("province"))
                 .andExpect(jsonPath("$.data.caveats[0].code")
-                        .value("CASE_REGION_ROLE_NOT_READY"));
+                        .value("CANONICAL_CASE_DEDUPLICATION_NOT_READY"));
     }
 
     @Test

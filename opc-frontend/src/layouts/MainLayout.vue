@@ -108,6 +108,43 @@
           <span>案例索引</span>
           <small>Case archive</small>
         </RouterLink>
+        <div
+          class="nav-group university-nav-group"
+          :class="{ 'nav-group-open': universityMenuOpen || universityMenuActive }"
+        >
+          <button
+            type="button"
+            class="nav-group-trigger"
+            :aria-expanded="universityMenuOpen || universityMenuActive"
+            aria-controls="university-opc-subnav"
+            aria-label="展开高校 OPC 子菜单"
+            @click="universityMenuOpen = !universityMenuOpen"
+          >
+            <span>
+              <strong>高校 OPC</strong>
+              <small>University OPC</small>
+            </span>
+            <ChevronDown :size="16" aria-hidden="true" />
+          </button>
+          <div
+            v-show="universityMenuOpen || universityMenuActive"
+            id="university-opc-subnav"
+            class="nav-submenu"
+          >
+            <RouterLink to="/university-opc?tab=communities" :class="{ 'nav-active': universityTabActive('communities') }">
+              <span>OPC 社区</span>
+            </RouterLink>
+            <RouterLink to="/university-opc?tab=support" :class="{ 'nav-active': universityTabActive('support') }">
+              <span>支持措施</span>
+            </RouterLink>
+            <RouterLink to="/university-opc?tab=activities" :class="{ 'nav-active': universityTabActive('activities') }">
+              <span>竞赛活动</span>
+            </RouterLink>
+            <RouterLink to="/university-opc?tab=cases" :class="{ 'nav-active': universityTabActive('cases') }">
+              <span>高校创业案例</span>
+            </RouterLink>
+          </div>
+        </div>
         <RouterLink
           to="/sources"
           aria-label="来源台账"
@@ -171,7 +208,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowUp, UserRound } from 'lucide-vue-next'
+import { ArrowUp, ChevronDown, UserRound } from 'lucide-vue-next'
 import BrandMark from '@/components/BrandMark.vue'
 import { isUserAuthenticated } from '@/api/auth'
 
@@ -180,10 +217,12 @@ const route = useRoute()
 const isHome = computed(() => route.name === 'home')
 const sidebarCollapsed = ref(false)
 const mobileSidebarOpen = ref(false)
+const universityMenuOpen = ref(false)
 const showBackToTop = ref(false)
 const routeClass = computed(() => (route.name ? `route-${route.name}` : ''))
 const userLoggedIn = computed(() => Boolean(route.fullPath) && isUserAuthenticated())
 const accountEntryTarget = computed(() => (userLoggedIn.value ? '/account' : '/login'))
+const universityMenuActive = computed(() => isNavActive('university-opc'))
 
 watch(
   () => route.fullPath,
@@ -202,6 +241,7 @@ const routeTitle = computed(() => {
     'policy-detail': '政策详情',
     'case-list': '案例索引',
     'case-detail': '案例详情',
+    'university-opc': '高校 OPC',
     'source-ledger': '来源台账',
     'user-account': '个人主页',
   }
@@ -218,6 +258,7 @@ const routeSubtitle = computed(() => {
     'policy-detail': '查看政策摘要、支持措施、来源链接和关键字段。',
     'case-list': '汇集一人公司与 AI 创业案例，支持多维度检索与分析。',
     'case-detail': '查看案例主体、模式、工具和成果记录。',
+    'university-opc': '展示高校 OPC 社区、支持措施、竞赛活动与高校创业项目。',
     'source-ledger': '查看来源链接、文件名、访问日期及状态，确保资料可追溯、可复核。',
     'user-account': '管理你的 SoloFirm 账号与个人资料空间。',
   }
@@ -232,9 +273,14 @@ function isNavActive(section) {
     regions: ['region-directory'],
     policies: ['policy-list', 'policy-detail'],
     cases: ['case-list', 'case-detail'],
+    'university-opc': ['university-opc'],
     sources: ['source-ledger'],
   }
   return sectionMap[section]?.includes(route.name)
+}
+
+function universityTabActive(tab) {
+  return route.name === 'university-opc' && (route.query?.tab || 'communities') === tab
 }
 
 function updateBackToTopVisibility() {

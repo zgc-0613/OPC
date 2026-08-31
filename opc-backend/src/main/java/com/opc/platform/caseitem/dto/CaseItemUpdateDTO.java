@@ -13,11 +13,17 @@ public class CaseItemUpdateDTO {
     @NotBlank
     private String title;
 
+    @NotBlank
+    private String articleTitle;
+
     @NotNull
     private Long regionId;
 
     @NotBlank
     private String category;
+
+    @NotBlank
+    private String subcategory;
 
     private String actorName;
 

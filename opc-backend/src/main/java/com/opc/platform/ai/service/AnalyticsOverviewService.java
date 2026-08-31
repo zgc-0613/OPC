@@ -83,7 +83,39 @@ public class AnalyticsOverviewService {
                 new AnalyticsOverviewVO.MetricCard(
                         "overview.covered_technologies", "覆盖技术数量", null, "种", "Red",
                         "正式技术 taxonomy 尚未完成审核。")
-        ), "partial");
+        ), "partial", materialCounts());
+    }
+
+    private List<AnalyticsOverviewVO.MaterialCount> materialCounts() {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        List<PolicyMapper.MaterialNatureCountRow> rows = policyMapper.selectMaterialNatureCounts();
+        if (rows != null) {
+            rows.stream().filter(java.util.Objects::nonNull)
+                    .filter(row -> row.getMaterialNature() != null && row.getValue() != null)
+                    .forEach(row -> counts.put(row.getMaterialNature(), row.getValue()));
+        }
+        List<AnalyticsOverviewVO.MaterialCount> result = new ArrayList<>();
+        result.add(new AnalyticsOverviewVO.MaterialCount("formal_policy", "正式文件",
+                Math.max(0L, counts.getOrDefault("formal_policy", 0L)
+                        - countPoliciesByStatusAndNature("expired", "formal_policy"))));
+        addMaterialCount(result, counts, "consultation_draft", "征求意见稿");
+        addMaterialCount(result, counts, "standard_reference", "标准规范文件");
+        addMaterialCount(result, counts, "official_platform_service", "官方平台/服务信息");
+        long shown = result.stream().mapToLong(item -> item.value() == null ? 0L : item.value()).sum();
+        long total = policyMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>());
+        result.add(new AnalyticsOverviewVO.MaterialCount("other_material", "其他资料",
+                Math.max(0L, total - shown)));
+        return List.copyOf(result);
+    }
+
+    private void addMaterialCount(List<AnalyticsOverviewVO.MaterialCount> result, Map<String, Long> counts,
+                                  String code, String label) {
+        result.add(new AnalyticsOverviewVO.MaterialCount(code, label, counts.getOrDefault(code, 0L)));
+    }
+
+    private long countPoliciesByStatusAndNature(String status, String nature) {
+        return policyMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.opc.platform.policy.entity.Policy>()
+                .eq("status", status).eq("material_nature", nature));
     }
 
     @Transactional(readOnly = true)
@@ -199,90 +231,122 @@ public class AnalyticsOverviewService {
                 || !("operation".equals(regionRole) || "registration".equals(regionRole))) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "ANALYTICS_INVALID_FILTER");
         }
-        long cases = count("case");
-        long policies = count("policy");
-        long sources = count("source");
-        OffsetDateTime generatedAt = OffsetDateTime.now(ANALYTICS_ZONE);
-        return new AnalyticsUnavailableVO(
-                List.of(),
-                new AnalyticsUnavailableVO.Metric(
-                        metricId, "地区案例数量", "phase3-metrics-v1", "Red",
-                        "按审核通过的主要经营或注册地区关系统计独立案例数量。",
-                        "条", false),
-                Map.of("regionRole", regionRole),
-                0, cases, cases, generatedAt, version(cases, policies, sources),
-                new AnalyticsUnavailableVO.Freshness(null, null, -1, "unknown"),
-                List.of(new AnalyticsUnavailableVO.Caveat(
-                        "CASE_REGION_ROLE_NOT_READY",
-                        "案例的规范化地区角色关系尚未建立或完成审核。",
-                        "blocking", List.of("regionRole", "data"))),
-                null, "unavailable");
+        return caseRegions(regionRole);
     }
 
     private AnalyticsUnavailableVO policyRegions(String regionRole) {
-        List<PolicyMapper.AnalyticsPolicyRow> eligibleRows = policyMapper.selectEligibleAnalyticsRows(null);
-        eligibleRows = eligibleRows == null ? List.of() : eligibleRows.stream()
+        List<PolicyMapper.AnalyticsProvinceRow> groupedRows =
+                policyMapper.selectEligibleProvinceAnalyticsRows();
+        groupedRows = groupedRows == null ? List.of() : groupedRows.stream()
                 .filter(java.util.Objects::nonNull)
-                .toList();
-        List<PolicyMapper.AnalyticsPolicyRow> coveredRows = eligibleRows.stream()
                 .filter(row -> row.getRegionId() != null && row.getRegionId() > 0)
-                .filter(row -> row.getRegionName() != null && !row.getRegionName().isBlank())
+                .filter(row -> row.getLabel() != null && !row.getLabel().isBlank())
+                .filter(row -> row.getValue() != null && row.getValue() > 0)
                 .toList();
-        Map<Long, List<PolicyMapper.AnalyticsPolicyRow>> grouped = coveredRows.stream()
-                .collect(java.util.stream.Collectors.groupingBy(
-                        PolicyMapper.AnalyticsPolicyRow::getRegionId, LinkedHashMap::new,
-                        java.util.stream.Collectors.toList()));
-        long totalEligible = eligibleRows.size();
-        List<AnalyticsUnavailableVO.RegionRow> values = grouped.values().stream()
-                .map(rows -> policyRegionRow(rows, regionRole, totalEligible))
+        long totalEligible = count("policy");
+        List<AnalyticsUnavailableVO.RegionRow> values = groupedRows.stream()
+                .map(row -> provinceRegionRow(
+                        row.getRegionId(), row.getLabel(), row.getValue(), regionRole,
+                        totalEligible, "Green", true))
                 .sorted(java.util.Comparator.comparingLong(AnalyticsUnavailableVO.RegionRow::value)
-                        .reversed()
-                        .thenComparing(AnalyticsUnavailableVO.RegionRow::regionId))
+                        .reversed().thenComparing(AnalyticsUnavailableVO.RegionRow::regionId))
                 .toList();
         List<Object> rows = new ArrayList<>(values);
-        long covered = coveredRows.size();
-        long missing = Math.max(0L, eligibleRows.size() - covered);
+        long covered = values.stream().mapToLong(AnalyticsUnavailableVO.RegionRow::value).sum();
+        long missing = Math.max(0L, totalEligible - covered);
         OffsetDateTime generatedAt = OffsetDateTime.now(ANALYTICS_ZONE);
         AnalyticsUnavailableVO.Freshness freshness = policyFreshness(generatedAt);
         List<AnalyticsUnavailableVO.Caveat> caveats = missing == 0 ? List.of() : List.of(
                 new AnalyticsUnavailableVO.Caveat(
                         "POLICY_REGION_MISSING",
-                        "部分合格政策缺少可解析的适用地区，已从地区分组中排除并计入覆盖缺失。",
+                        "全国性政策及缺少可解析省份的合格政策不纳入省级排名，已计入未归属数量。",
                         "warning", List.of("rows", "coverage")));
         String status = rows.isEmpty() ? "empty" : missing > 0 ? "partial" : "complete";
         long cases = count("case");
+        long sources = count("source");
+        return new AnalyticsUnavailableVO(
+                rows,
+                new AnalyticsUnavailableVO.Metric(
+                        "region.policy_count", "各省政策数量", "province-ranking-v1", "Green",
+                        "将省、地市和区县适用地区统一上卷至所属省，统计具备完整已核验来源链的独立政策 ID 数量。",
+                        "条", false),
+                Map.of("regionRole", regionRole, "regionLevel", "province"),
+                covered, missing, totalEligible, generatedAt,
+                version(cases, totalEligible, sources), freshness, caveats,
+                new AnalyticsUnavailableVO.Drilldown(
+                        "/api/analytics/drilldown", List.of("policy"), null, true),
+                status, true, null, freshness, true,
+                AnalyticsUnavailableVO.Coverage.from(totalEligible, covered, missing),
+                rows, List.of(), null, false, covered);
+    }
+
+    private AnalyticsUnavailableVO caseRegions(String regionRole) {
+        List<CaseItemMapper.AnalyticsProvinceRow> groupedRows =
+                caseMapper.selectEligibleProvinceAnalyticsRows();
+        groupedRows = groupedRows == null ? List.of() : groupedRows.stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(row -> row.getRegionId() != null && row.getRegionId() > 0)
+                .filter(row -> row.getLabel() != null && !row.getLabel().isBlank())
+                .filter(row -> row.getValue() != null && row.getValue() > 0)
+                .toList();
+        long totalEligible = count("case");
+        List<AnalyticsUnavailableVO.RegionRow> values = groupedRows.stream()
+                .map(row -> provinceRegionRow(
+                        row.getRegionId(), row.getLabel(), row.getValue(), regionRole,
+                        totalEligible, "Yellow", false))
+                .sorted(java.util.Comparator.comparingLong(AnalyticsUnavailableVO.RegionRow::value)
+                        .reversed().thenComparing(AnalyticsUnavailableVO.RegionRow::regionId))
+                .toList();
+        List<Object> rows = new ArrayList<>(values);
+        long covered = values.stream().mapToLong(AnalyticsUnavailableVO.RegionRow::value).sum();
+        long missing = Math.max(0L, totalEligible - covered);
+        OffsetDateTime generatedAt = OffsetDateTime.now(ANALYTICS_ZONE);
+        AnalyticsUnavailableVO.Freshness freshness = caseFreshness(generatedAt);
+        List<AnalyticsUnavailableVO.Caveat> caveats = new ArrayList<>();
+        caveats.add(new AnalyticsUnavailableVO.Caveat(
+                "CANONICAL_CASE_DEDUPLICATION_NOT_READY",
+                "当前按已核验案例记录 ID 去重；与全部收录案例总量分开解释。",
+                "warning", List.of("rows", "sampleSize")));
+        if (missing > 0) {
+            caveats.add(new AnalyticsUnavailableVO.Caveat(
+                    "CASE_PROVINCE_MISSING",
+                    "缺少可解析省份的合格案例不纳入省级排名，已计入未归属数量。",
+                    "warning", List.of("rows", "coverage")));
+        }
+        String status = rows.isEmpty() ? "empty" : missing > 0 ? "partial" : "complete";
         long policies = count("policy");
         long sources = count("source");
         return new AnalyticsUnavailableVO(
                 rows,
                 new AnalyticsUnavailableVO.Metric(
-                        "region.policy_count", "地区政策数量", "phase3-metrics-v1", "Green",
-                        "按 policy_applicability 地区统计具备完整已核验来源链的独立政策 ID 数量。",
+                        "region.case_count", "各省案例数量", "province-ranking-v1", "Yellow",
+                        "将已核验案例当前地区上卷至所属省，按案例记录 ID 统计数量。",
                         "条", false),
-                Map.of("regionRole", regionRole), covered, missing, eligibleRows.size(), generatedAt,
-                version(cases, policies, sources), freshness, caveats,
-                new AnalyticsUnavailableVO.Drilldown(
-                        "/api/analytics/drilldown", List.of("policy"), null, true),
-                status, true, null, freshness, true,
-                AnalyticsUnavailableVO.Coverage.from(eligibleRows.size(), covered, missing),
+                Map.of("regionRole", regionRole, "regionLevel", "province"),
+                covered, missing, totalEligible, generatedAt,
+                version(totalEligible, policies, sources), freshness, List.copyOf(caveats),
+                null, status, true, null, freshness, true,
+                AnalyticsUnavailableVO.Coverage.from(totalEligible, covered, missing),
                 rows, List.of(), null, false, covered);
     }
 
-    private AnalyticsUnavailableVO.RegionRow policyRegionRow(
-            List<PolicyMapper.AnalyticsPolicyRow> rows,
+    private AnalyticsUnavailableVO.RegionRow provinceRegionRow(
+            long regionId,
+            String label,
+            long value,
             String regionRole,
-            long totalEligible
+            long totalEligible,
+            String readiness,
+            boolean drilldownAvailable
     ) {
-        PolicyMapper.AnalyticsPolicyRow first = rows.get(0);
-        long value = rows.size();
         BigDecimal ratio = totalEligible == 0 ? BigDecimal.ZERO
                 : BigDecimal.valueOf(value).divide(
                         BigDecimal.valueOf(totalEligible), 6, RoundingMode.HALF_UP);
         return new AnalyticsUnavailableVO.RegionRow(
-                "region:" + first.getRegionId(), first.getRegionId(), first.getParentId(),
-                first.getRegionLevel(), regionRole, first.getRegionName(), value, ratio, value,
-                "Green", new AnalyticsUnavailableVO.Drilldown(
-                        "/api/analytics/drilldown", List.of("policy"), null, true));
+                "region:" + regionId, regionId, null,
+                "province", regionRole, label, value, ratio, value,
+                readiness, drilldownAvailable ? new AnalyticsUnavailableVO.Drilldown(
+                        "/api/analytics/drilldown", List.of("policy"), null, true) : null);
     }
 
     @Transactional(readOnly = true)
@@ -493,6 +557,17 @@ public class AnalyticsOverviewService {
                 Math.max(0L, ChronoUnit.SECONDS.between(watermark, generatedAt)), "current");
     }
 
+    private AnalyticsUnavailableVO.Freshness caseFreshness(OffsetDateTime generatedAt) {
+        LocalDateTime lastUpdated = caseMapper.selectEligibleAnalyticsLastUpdatedAt();
+        if (lastUpdated == null) {
+            return new AnalyticsUnavailableVO.Freshness(null, null, -1, "unknown");
+        }
+        OffsetDateTime watermark = lastUpdated.atZone(ANALYTICS_ZONE).toOffsetDateTime();
+        return new AnalyticsUnavailableVO.Freshness(
+                watermark, watermark,
+                Math.max(0L, ChronoUnit.SECONDS.between(watermark, generatedAt)), "current");
+    }
+
     @Transactional(readOnly = true)
     public AnalyticsUnavailableVO drilldown(
             AuthenticatedUser user,
@@ -581,7 +656,7 @@ public class AnalyticsOverviewService {
         List<PolicyMapper.AnalyticsPolicyRow> eligibleRows = policyMapper.selectEligibleAnalyticsRows(null);
         eligibleRows = eligibleRows == null ? List.of() : eligibleRows.stream()
                 .filter(java.util.Objects::nonNull)
-                .filter(row -> Long.valueOf(regionId).equals(row.getRegionId()))
+                .filter(row -> Long.valueOf(regionId).equals(row.getProvinceId()))
                 .toList();
         if (offset > eligibleRows.size()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "ANALYTICS_INVALID_FILTER");

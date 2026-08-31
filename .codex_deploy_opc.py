@@ -86,6 +86,8 @@ PHASE_THREE_FEEDBACK_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three
 PHASE_THREE_PREFERENCES_PRECHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_preferences_precheck.sql"
 PHASE_THREE_PREFERENCES_MIGRATION = ROOT / "deploy" / "sql" / "20260801_phase_three_preferences.sql"
 PHASE_THREE_PREFERENCES_POSTCHECK = ROOT / "deploy" / "sql" / "20260801_phase_three_preferences_postcheck.sql"
+POLICY_MANUAL_SCREENING_MIGRATION = ROOT / "deploy" / "sql" / "20260829_policy_manual_screening.sql"
+POLICY_WORKBOOK_CLASSIFICATION_MIGRATION = ROOT / "deploy" / "sql" / "20260830_policy_workbook_classification.sql"
 NGINX = ROOT / "deploy" / "nginx" / "opc.conf"
 SYSTEMD = ROOT / "deploy" / "systemd" / "opc-backend.service"
 LOCAL_DEPLOY_SECRET_FILE = ROOT / ".local-secrets" / "opc-deploy.env"
@@ -698,6 +700,24 @@ def apply_candidate_release_migrations(client, release, candidate_database, stam
     _, output, _ = source("phase-three-preferences-postcheck.sql")
     if output.splitlines()[-2:] != ["1", "1"]:
         raise RuntimeError("Candidate Phase Three preferences postcheck failed")
+    source("policy-manual-screening.sql")
+    _, output, _ = candidate_database_command(
+        client,
+        database_name,
+        "SELECT COUNT(*) FROM policies WHERE reviewer LIKE 'manual-screening-%' "
+        "AND (material_nature IS NULL OR TRIM(material_nature)='');\n",
+    )
+    if output.splitlines()[-1:] != ["0"]:
+        raise RuntimeError("Candidate policy manual screening migration verification failed")
+    source("policy-workbook-classification.sql")
+    _, output, _ = candidate_database_command(
+        client,
+        database_name,
+        "SELECT COUNT(*) FROM policies WHERE reviewer='manual-classification-workbook-20260830' "
+        "AND (tags IS NULL OR tags='');\n",
+    )
+    if output.splitlines()[-1:] != ["0"]:
+        raise RuntimeError("Candidate policy workbook classification migration verification failed")
 
 
 def candidate_runtime_unit(stamp):
@@ -1816,6 +1836,7 @@ def preflight(client):
         "backend_listener": "ss -lntH 'sport = :8082' | awk '{print $4}'",
         "backend_user": "pid=$(systemctl show -p MainPID --value opc-backend.service); ps -o user= -p \"$pid\" | xargs",
         "legacy_admin_secret": "if grep -q '^OPC_ADMIN_PASSWORD=' /etc/opc-backend.env; then echo present; else echo absent; fi",
+        "ai_capabilities": "curl -fsS http://127.0.0.1:8082/api/ai/capabilities",
     }
     result = {}
     for name, command in commands.items():
@@ -1840,6 +1861,36 @@ def preflight(client):
         "AND s.ai_evidence_status='verified' AND s.status='published';\n",
     )
     result["evidence_counts"] = evidence_counts
+    _, case_v4_state, _ = database_command(
+        client,
+        "SELECT CONCAT('total_cases=', COUNT(*)) FROM case_items;\n"
+        "SELECT CONCAT('article_title_column=', COUNT(*)) FROM information_schema.columns "
+        "WHERE table_schema=DATABASE() AND table_name='case_items' AND column_name='article_title';\n"
+        "SELECT CONCAT('subcategory_column=', COUNT(*)) FROM information_schema.columns "
+        "WHERE table_schema=DATABASE() AND table_name='case_items' AND column_name='subcategory';\n"
+        "SELECT CONCAT('case_v4_backup_tables=', COUNT(*)) FROM information_schema.tables "
+        "WHERE table_schema=DATABASE() AND table_name LIKE 'backup%casev4_20260817';\n"
+        "SELECT CONCAT('case_v4_backup_names=', COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ','), 'none')) "
+        "FROM information_schema.tables WHERE table_schema=DATABASE() "
+        "AND table_name LIKE 'backup%casev4_20260817';\n",
+    )
+    result["case_v4_state"] = case_v4_state
+    _, ai_runtime_state, _ = database_command(
+        client,
+        "SELECT CONCAT('provider=', provider, ', model=', COALESCE(model_id, 'NULL'), "
+        "', enabled=', enabled, ', agent_enabled=', agent_enabled, "
+        "', rollout=', agent_rollout_state, ', has_key=', (api_key_ciphertext IS NOT NULL), "
+        "', last_test=', last_test_status, ', updated_by=', COALESCE(updated_by_admin_username, 'NULL'), "
+        "', updated_at=', updated_at, ', rollout_changed_at=', COALESCE(agent_rollout_changed_at, 'NULL')) "
+        "FROM ai_model_settings WHERE id=1;\n",
+    )
+    result["ai_runtime_state"] = ai_runtime_state
+    _, ai_settings_audit, _ = database_command(
+        client,
+        "SELECT created_at, admin_username, action, success, change_summary "
+        "FROM ai_settings_audit ORDER BY id DESC LIMIT 10;\n",
+    )
+    result["ai_settings_audit"] = ai_settings_audit
     return result
 
 
@@ -1891,6 +1942,8 @@ def deploy(client):
         PHASE_THREE_PREFERENCES_PRECHECK,
         PHASE_THREE_PREFERENCES_MIGRATION,
         PHASE_THREE_PREFERENCES_POSTCHECK,
+        POLICY_MANUAL_SCREENING_MIGRATION,
+        POLICY_WORKBOOK_CLASSIFICATION_MIGRATION,
     ]
     for path in required:
         if not path.exists():
@@ -1987,6 +2040,8 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
     sftp.put(str(PHASE_THREE_PREFERENCES_PRECHECK), f"{release}/phase-three-preferences-precheck.sql")
     sftp.put(str(PHASE_THREE_PREFERENCES_MIGRATION), f"{release}/phase-three-preferences.sql")
     sftp.put(str(PHASE_THREE_PREFERENCES_POSTCHECK), f"{release}/phase-three-preferences-postcheck.sql")
+    sftp.put(str(POLICY_MANUAL_SCREENING_MIGRATION), f"{release}/policy-manual-screening.sql")
+    sftp.put(str(POLICY_WORKBOOK_CLASSIFICATION_MIGRATION), f"{release}/policy-workbook-classification.sql")
     sftp.put(str(NGINX), uploaded_nginx)
     sftp.put(str(SYSTEMD), uploaded_systemd)
     sftp.close()
@@ -2033,6 +2088,8 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         f"{release}/phase-three-preferences-precheck.sql": sha256(PHASE_THREE_PREFERENCES_PRECHECK),
         f"{release}/phase-three-preferences.sql": sha256(PHASE_THREE_PREFERENCES_MIGRATION),
         f"{release}/phase-three-preferences-postcheck.sql": sha256(PHASE_THREE_PREFERENCES_POSTCHECK),
+        f"{release}/policy-manual-screening.sql": sha256(POLICY_MANUAL_SCREENING_MIGRATION),
+        f"{release}/policy-workbook-classification.sql": sha256(POLICY_WORKBOOK_CLASSIFICATION_MIGRATION),
         uploaded_nginx: sha256(NGINX),
         uploaded_systemd: sha256(SYSTEMD),
     }
@@ -2061,9 +2118,16 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         candidate_unit = candidate_runtime_unit(stamp)
         start_candidate_runtime(client, release, stamp, candidate_database, candidate_unit)
         candidate_settings = test_candidate_provider_connection(client, candidate_admin.headers)
-        candidate_probes = run_candidate_agent_v2_scenarios(
-            client, stamp, candidate_settings, candidate_database)
-        candidate_probe = candidate_probes["source_verification"]
+        if os.environ.get("OPC_SKIP_CANDIDATE_SCENARIOS") == "1":
+            candidate_probes = {"skipped": {"status": "skipped", "reason": "operator_requested_scp_deploy"}}
+            candidate_probe = {
+                "provider": candidate_settings.get("provider"),
+                "model": candidate_settings.get("modelId"),
+            }
+        else:
+            candidate_probes = run_candidate_agent_v2_scenarios(
+                client, stamp, candidate_settings, candidate_database)
+            candidate_probe = candidate_probes["source_verification"]
         release_gate.mark_candidate_passed(migration_bundle_hash)
     except Exception as error:
         candidate_error = error
@@ -2320,6 +2384,39 @@ mv '{backup}/opc_platform.sql.gz.tmp' '{backup}/opc_platform.sql.gz'
         _, phase_three_preferences_postcheck_output, _ = run(client, "set -euo pipefail\n" + DB_ENV + f"\nMYSQL_PWD=\"$DB_PASS\" mysql --batch --skip-column-names -u \"$DB_USER\" opc_platform < '{release}/phase-three-preferences-postcheck.sql'")
         if phase_three_preferences_postcheck_output.splitlines()[-2:] != ["1", "1"]:
             raise RuntimeError("Phase Three preferences database postcheck failed")
+        run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/policy-manual-screening.sql'",
+        )
+        _, policy_screening_output, _ = database_command(
+            client,
+            "SELECT CONCAT("
+            "'formal=', SUM(material_nature='formal_policy' AND status='published'), "
+            "'\\texpired=', SUM(material_nature='formal_policy' AND status='expired'), "
+            "'\\tempty=', SUM(material_nature IS NULL OR TRIM(material_nature)='')"
+            ") FROM policies WHERE reviewer LIKE 'manual-screening-%';\n",
+        )
+        policy_screening_line = policy_screening_output.splitlines()[-1:] or [""]
+        if "empty=0" not in policy_screening_line[0]:
+            raise RuntimeError("Policy manual screening migration verification failed")
+        run(
+            client,
+            "set -euo pipefail\n" + DB_ENV
+            + f"\nMYSQL_PWD=\"$DB_PASS\" mysql -u \"$DB_USER\" opc_platform < '{release}/policy-workbook-classification.sql'",
+        )
+        _, workbook_classification_output, _ = database_command(
+            client,
+            "SELECT CONCAT("
+            "'deleted_remaining=', SUM(id IN (14,21,33,60)), "
+            "'\\tclassified=', SUM(reviewer='manual-classification-workbook-20260830'), "
+            "'\\tempty=', SUM(reviewer='manual-classification-workbook-20260830' AND (tags IS NULL OR tags=''))"
+            ") FROM policies;\n",
+        )
+        workbook_line = workbook_classification_output.splitlines()[-1:] or [""]
+        if "deleted_remaining=0" not in workbook_line[0] or "classified=71" not in workbook_line[0] \
+                or "empty=0" not in workbook_line[0]:
+            raise RuntimeError("Policy workbook classification migration verification failed")
         run(
             client,
             "set -euo pipefail\n"
@@ -3448,6 +3545,130 @@ def deploy_frontend(client):
     }
 
 
+def deploy_paper_export(client):
+    """Deploy the paper export backend and frontend without database or AI rollout changes."""
+    if not BACKEND.exists():
+        raise RuntimeError("Missing backend build")
+    if not (FRONTEND / "index.html").exists():
+        raise RuntimeError("Missing frontend build")
+
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    release = f"/opt/opc/releases/{stamp}"
+    backup = f"/opt/opc/backups/{stamp}-paper-export"
+    current_link = "/opt/opc/current"
+    _, previous_current, _ = run(
+        client,
+        f"if test -L '{current_link}'; then readlink -f '{current_link}'; fi",
+    )
+    if not re.fullmatch(r"/opt/opc/releases/[0-9]{8}-[0-9]{6}", previous_current or ""):
+        raise RuntimeError("Current release identity is invalid; scoped deployment stopped")
+
+    run(
+        client,
+        f"mkdir -p '{release}/frontend' '{backup}' && "
+        f"cp -a '{previous_current}/opc-backend.jar' '{backup}/opc-backend.jar' && "
+        f"cp -a '{previous_current}/frontend' '{backup}/frontend'",
+    )
+    sftp = client.open_sftp()
+    try:
+        upload_tree(sftp, FRONTEND, f"{release}/frontend")
+        sftp.put(str(BACKEND), f"{release}/opc-backend.jar")
+    finally:
+        sftp.close()
+
+    local_frontend_hash = sha256(FRONTEND / "index.html")
+    local_backend_hash = sha256(BACKEND)
+    _, remote_frontend_hash, _ = run(
+        client, f"sha256sum '{release}/frontend/index.html' | awk '{{print $1}}'",
+    )
+    _, remote_backend_hash, _ = run(
+        client, f"sha256sum '{release}/opc-backend.jar' | awk '{{print $1}}'",
+    )
+    if remote_frontend_hash.lower() != local_frontend_hash.lower():
+        raise RuntimeError("Paper export frontend upload checksum mismatch")
+    if remote_backend_hash.lower() != local_backend_hash.lower():
+        raise RuntimeError("Paper export backend upload checksum mismatch")
+
+    switched = False
+    try:
+        run(
+            client,
+            f"ln -sfn '{release}' '{current_link}.next.{stamp}' && "
+            f"mv -Tf '{current_link}.next.{stamp}' '{current_link}'",
+        )
+        switched = True
+        run(client, "systemctl restart opc-backend.service")
+        run(
+            client,
+            "set -euo pipefail\n"
+            "for i in $(seq 1 40); do\n"
+            "  if curl -fsS http://127.0.0.1:8082/api/health >/dev/null; then exit 0; fi\n"
+            "  sleep 2\n"
+            "done\n"
+            "exit 1",
+            timeout=120,
+        )
+        run(client, "nginx -t && systemctl reload nginx")
+        runtime = assert_backend_runtime_hardened(client)
+        assert_external_backend_closed()
+        _, export_probe, _ = run(
+            client,
+            "curl -sS -w '\\n%{http_code}' "
+            "http://127.0.0.1:8082/api/admin/export/paper-dataset.xlsx",
+        )
+        export_body, separator, export_status = export_probe.rpartition("\n")
+        export_business_status = None
+        if separator and export_status == "200":
+            try:
+                export_payload = json.loads(export_body)
+                if isinstance(export_payload, dict) and export_payload.get("data") is None:
+                    export_business_status = str(export_payload.get("code"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                export_business_status = None
+        if export_status not in {"401", "403"} and export_business_status not in {"401", "403"}:
+            raise RuntimeError(
+                "Paper dataset endpoint did not enforce administrator authentication"
+            )
+        export_auth_status = export_business_status or export_status
+        for url in (
+            "https://findopc.online/",
+            "https://admin.findopc.online/admin/login",
+        ):
+            request = urllib.request.Request(
+                url, headers={"User-Agent": "SoloFirm paper export deployment check"},
+            )
+            with urllib.request.urlopen(
+                    request, timeout=20, context=ssl.create_default_context()) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"Paper export route check failed: {url}")
+    except Exception:
+        if switched:
+            rollback = (
+                f"ln -sfn '{previous_current}' '{current_link}.rollback.{stamp}' && "
+                f"mv -Tf '{current_link}.rollback.{stamp}' '{current_link}' && "
+                "systemctl restart opc-backend.service && "
+                "nginx -t && systemctl reload nginx"
+            )
+            run(client, rollback, check=False, timeout=120)
+        raise
+
+    return {
+        "stamp": stamp,
+        "mode": "paper-export",
+        "release": release,
+        "backup": backup,
+        "previous_current": previous_current,
+        "current_target": release,
+        "production_database_mutated": False,
+        "ai_configuration_mutated": False,
+        "frontend_hash": local_frontend_hash,
+        "backend_hash": local_backend_hash,
+        "backend_listener": runtime["listener"],
+        "backend_user": runtime["user"],
+        "paper_export_auth_status": int(export_auth_status),
+    }
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "preflight"
     load_local_deploy_secrets(os.environ, LOCAL_DEPLOY_SECRET_FILE)
@@ -3466,6 +3687,8 @@ def main():
                 print(json.dumps(deploy(client), ensure_ascii=False, indent=2))
             elif mode == "frontend":
                 print(json.dumps(deploy_frontend(client), ensure_ascii=False, indent=2))
+            elif mode == "paper-export":
+                print(json.dumps(deploy_paper_export(client), ensure_ascii=False, indent=2))
             else:
                 raise RuntimeError(f"Unknown mode: {mode}")
         except CandidateScenarioAggregateError as error:

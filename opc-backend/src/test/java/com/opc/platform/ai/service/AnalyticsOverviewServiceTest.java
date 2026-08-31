@@ -68,10 +68,9 @@ class AnalyticsOverviewServiceTest {
         PolicyMapper policies = mock(PolicyMapper.class);
         SourceMapper sources = mock(SourceMapper.class);
         stubAnalyticsVersion(cases, policies, sources, 0L, 3L, 3L);
-        when(policies.selectEligibleAnalyticsRows(null)).thenReturn(List.of(
-                policyRow(11L, LocalDate.of(2026, 1, 5), 7L, "浙江省"),
-                policyRow(12L, LocalDate.of(2026, 1, 20), 7L, "浙江省"),
-                policyRow(13L, LocalDate.of(2026, 2, 1), 9L, "江苏省")
+        when(policies.selectEligibleProvinceAnalyticsRows()).thenReturn(List.of(
+                new PolicyMapper.AnalyticsProvinceRow(33L, "浙江省", 2L),
+                new PolicyMapper.AnalyticsProvinceRow(32L, "江苏省", 1L)
         ));
         AnalyticsOverviewService service = new AnalyticsOverviewService(
                 cases, policies, sources, new ObjectMapper());
@@ -83,10 +82,38 @@ class AnalyticsOverviewServiceTest {
         assertEquals(3L, response.coverage().covered());
         assertEquals(2, response.rows().size());
         var first = (AnalyticsUnavailableVO.RegionRow) response.rows().get(0);
-        assertEquals("region:7", first.bucketId());
+        assertEquals("region:33", first.bucketId());
+        assertEquals("province", first.level());
         assertEquals("policy_applicability", first.regionRole());
         assertEquals(2L, first.value());
         assertEquals("Green", first.readiness());
+    }
+
+    @Test
+    void returnsVerifiedCaseProvinceRankingWithExplicitRecordIdCaveat() {
+        CaseItemMapper cases = mock(CaseItemMapper.class);
+        PolicyMapper policies = mock(PolicyMapper.class);
+        SourceMapper sources = mock(SourceMapper.class);
+        stubAnalyticsVersion(cases, policies, sources, 5L, 0L, 5L);
+        when(cases.selectEligibleProvinceAnalyticsRows()).thenReturn(List.of(
+                new CaseItemMapper.AnalyticsProvinceRow(44L, "广东省", 3L),
+                new CaseItemMapper.AnalyticsProvinceRow(33L, "浙江省", 1L)
+        ));
+        AnalyticsOverviewService service = new AnalyticsOverviewService(
+                cases, policies, sources, new ObjectMapper());
+
+        var response = service.regions(owner, "region.case_count", "operation");
+
+        assertEquals(true, response.available());
+        assertEquals("partial", response.status());
+        assertEquals(5L, response.coverage().eligible());
+        assertEquals(4L, response.coverage().covered());
+        assertEquals(1L, response.coverage().missing());
+        assertEquals(2, response.rows().size());
+        var first = (AnalyticsUnavailableVO.RegionRow) response.rows().get(0);
+        assertEquals("region:44", first.bucketId());
+        assertEquals("Yellow", first.readiness());
+        assertEquals("CANONICAL_CASE_DEDUPLICATION_NOT_READY", response.caveats().get(0).code());
     }
 
     @Test
@@ -341,6 +368,7 @@ class AnalyticsOverviewServiceTest {
     ) {
         return new PolicyMapper.AnalyticsPolicyRow(
                 id, "政策 " + id, publishDate, regionId, 1L, "province", regionName,
+                regionId, regionName,
                 "发布机关", "funding_subsidy", "verified",
                 LocalDateTime.of(2026, 3, 31, 9, 0));
     }

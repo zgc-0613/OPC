@@ -29,7 +29,8 @@ describe('CaseListView analytics drill-down', () => {
         title: '可核验 AI 服务案例',
         regionId: 1,
         regionName: '杭州',
-        category: '企业服务',
+        category: '软件工具',
+        subcategory: '应用开发',
         status: 'published',
       },
     ])

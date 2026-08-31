@@ -21,6 +21,7 @@
           <span><b>发布日期</b>{{ policy.publishDate || '-' }}</span>
           <span><b>实施时间</b>{{ policy.effectiveDate || '-' }}</span>
           <span><b>有效时长</b>{{ policy.validPeriod || '-' }}</span>
+          <span><b>资料性质</b>{{ policy.materialNatureLabel || '-' }}</span>
         </div>
 
         <section class="detail-section">
@@ -30,6 +31,7 @@
 
         <section class="detail-section">
           <h3>政策要点</h3>
+          <span v-if="policy.status === 'consultation'" class="status-pill">征求意见稿</span>
           <pre>{{ policy.keyPoints || '-' }}</pre>
         </section>
 

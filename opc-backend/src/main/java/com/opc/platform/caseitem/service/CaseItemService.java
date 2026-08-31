@@ -61,7 +61,7 @@ public class CaseItemService {
         CaseItem caseItem = new CaseItem();
         copyCreateFields(dto, caseItem);
         caseItemMapper.insert(caseItem);
-        syncCaseTags(caseItem.getId(), caseItem.getTags(), caseItem.getCategory());
+        syncCaseTags(caseItem.getId(), caseItem.getTags(), caseItem.getCategory(), caseItem.getSubcategory());
         return getCaseItemDetail(caseItem.getId());
     }
 
@@ -90,7 +90,7 @@ public class CaseItemService {
         }
         caseItem.setUpdatedAt(null);
         requireSingleWrite(caseItemMapper.updateById(caseItem));
-        syncCaseTags(id, caseItem.getTags(), caseItem.getCategory());
+        syncCaseTags(id, caseItem.getTags(), caseItem.getCategory(), caseItem.getSubcategory());
         return getCaseItemDetail(id);
     }
 
@@ -204,8 +204,10 @@ public class CaseItemService {
 
     private void copyCreateFields(CaseItemCreateDTO dto, CaseItem caseItem) {
         caseItem.setTitle(dto.getTitle());
+        caseItem.setArticleTitle(dto.getArticleTitle());
         caseItem.setRegionId(dto.getRegionId());
         caseItem.setCategory(dto.getCategory());
+        caseItem.setSubcategory(dto.getSubcategory());
         caseItem.setActorName(dto.getActorName());
         caseItem.setSourceId(dto.getSourceId());
         caseItem.setSummary(dto.getSummary());
@@ -224,8 +226,10 @@ public class CaseItemService {
 
     private void copyUpdateFields(CaseItemUpdateDTO dto, CaseItem caseItem) {
         caseItem.setTitle(dto.getTitle());
+        caseItem.setArticleTitle(dto.getArticleTitle());
         caseItem.setRegionId(dto.getRegionId());
         caseItem.setCategory(dto.getCategory());
+        caseItem.setSubcategory(dto.getSubcategory());
         caseItem.setActorName(dto.getActorName());
         caseItem.setSourceId(dto.getSourceId());
         caseItem.setSummary(dto.getSummary());
@@ -242,8 +246,10 @@ public class CaseItemService {
 
     private boolean evidenceRelevantFieldsChanged(CaseItem current, CaseItemUpdateDTO dto) {
         return !Objects.equals(current.getTitle(), dto.getTitle())
+                || !Objects.equals(current.getArticleTitle(), dto.getArticleTitle())
                 || !Objects.equals(current.getRegionId(), dto.getRegionId())
                 || !Objects.equals(current.getCategory(), dto.getCategory())
+                || !Objects.equals(current.getSubcategory(), dto.getSubcategory())
                 || !Objects.equals(current.getActorName(), dto.getActorName())
                 || !Objects.equals(current.getSourceId(), dto.getSourceId())
                 || !Objects.equals(current.getSummary(), dto.getSummary())
@@ -266,6 +272,10 @@ public class CaseItemService {
         if (StringUtils.hasText(query.getKeyword())) {
             wrapper.and(item -> item
                     .like(CaseItem::getTitle, query.getKeyword())
+                    .or()
+                    .like(CaseItem::getArticleTitle, query.getKeyword())
+                    .or()
+                    .like(CaseItem::getSubcategory, query.getKeyword())
                     .or()
                     .like(CaseItem::getSummary, query.getKeyword())
                     .or()
@@ -335,9 +345,11 @@ public class CaseItemService {
         CaseItemListVO vo = new CaseItemListVO();
         vo.setId(caseItem.getId());
         vo.setTitle(caseItem.getTitle());
+        vo.setArticleTitle(caseItem.getArticleTitle());
         vo.setRegionId(caseItem.getRegionId());
         vo.setRegionName(region == null ? null : region.getName());
         vo.setCategory(caseItem.getCategory());
+        vo.setSubcategory(caseItem.getSubcategory());
         vo.setActorName(caseItem.getActorName());
         vo.setSourceId(caseItem.getSourceId());
         vo.setSourceTitle(source == null ? null : source.getTitle());
@@ -355,9 +367,11 @@ public class CaseItemService {
         CaseItemDetailVO vo = new CaseItemDetailVO();
         vo.setId(caseItem.getId());
         vo.setTitle(caseItem.getTitle());
+        vo.setArticleTitle(caseItem.getArticleTitle());
         vo.setRegionId(caseItem.getRegionId());
         vo.setRegionName(region == null ? null : region.getName());
         vo.setCategory(caseItem.getCategory());
+        vo.setSubcategory(caseItem.getSubcategory());
         vo.setActorName(caseItem.getActorName());
         vo.setSourceId(caseItem.getSourceId());
         vo.setSourceTitle(source == null ? null : source.getTitle());
@@ -377,11 +391,14 @@ public class CaseItemService {
         return vo;
     }
 
-    private void syncCaseTags(Long caseId, String tagsText, String category) {
+    private void syncCaseTags(Long caseId, String tagsText, String category, String subcategory) {
         caseTagMapper.delete(new LambdaQueryWrapper<CaseTag>().eq(CaseTag::getCaseId, caseId));
         Set<String> names = parseTagNames(tagsText);
         if (StringUtils.hasText(category)) {
             names.add(category.trim());
+        }
+        if (StringUtils.hasText(subcategory)) {
+            names.add(subcategory.trim());
         }
         for (String name : names) {
             boolean industry = StringUtils.hasText(category) && category.trim().equals(name);

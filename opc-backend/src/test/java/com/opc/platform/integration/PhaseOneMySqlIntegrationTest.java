@@ -3317,7 +3317,8 @@ class PhaseOneMySqlIntegrationTest {
 
     private CaseItemCreateDTO caseCreate(Long sourceId) {
         CaseItemCreateDTO dto = new CaseItemCreateDTO();
-        dto.setTitle("Created case"); dto.setRegionId(1L); dto.setCategory("software"); dto.setSourceId(sourceId);
+        dto.setTitle("Created case"); dto.setArticleTitle("Created case article"); dto.setRegionId(1L);
+        dto.setCategory("software"); dto.setSubcategory("application"); dto.setSourceId(sourceId);
         dto.setSummary("Summary"); dto.setAccessedAt(LocalDate.of(2026, 7, 25)); dto.setStatus("published");
         return dto;
     }
@@ -3332,7 +3333,8 @@ class PhaseOneMySqlIntegrationTest {
 
     private CaseItemUpdateDTO caseUpdate(Long sourceId, String title, Long revision, LocalDateTime updatedAt) {
         CaseItemUpdateDTO dto = new CaseItemUpdateDTO();
-        dto.setTitle(title); dto.setRegionId(1L); dto.setCategory("software"); dto.setSourceId(sourceId);
+        dto.setTitle(title); dto.setArticleTitle(title + " article"); dto.setRegionId(1L);
+        dto.setCategory("software"); dto.setSubcategory("application"); dto.setSourceId(sourceId);
         dto.setSummary("Summary"); dto.setAccessedAt(LocalDate.of(2026, 7, 25)); dto.setStatus("published");
         dto.setExpectedEvidenceRevision(revision); dto.setExpectedUpdatedAt(updatedAt);
         return dto;

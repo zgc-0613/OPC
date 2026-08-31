@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   regions: vi.fn(),
   trends: vi.fn(),
   drilldown: vi.fn(),
+  policies: vi.fn(),
   startAnalytics: vi.fn(),
 }))
 const router = vi.hoisted(() => ({ push: vi.fn() }))
@@ -26,6 +27,7 @@ vi.mock('@/api/analytics', () => ({
 }))
 vi.mock('@/api/ai', () => ({ startResearchFromAnalytics: api.startAnalytics }))
 vi.mock('@/api/auth', () => ({ getUserProfile: () => auth.profile }))
+vi.mock('@/api/policy', () => ({ getPolicies: api.policies }))
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => router }))
 
 import AnalyticsDashboardView from '@/views/AnalyticsDashboardView.vue'
@@ -35,6 +37,10 @@ describe('AnalyticsDashboardView', () => {
     vi.clearAllMocks()
     sessionStorage.clear()
     route.query = {}
+    api.policies.mockResolvedValue([
+      { id: 1, policyType: 'comprehensive', tags: '综合发展政策，投融资与金融服务' },
+      { id: 2, policyType: 'governance_market', tags: '制度治理与市场环境' },
+    ])
     api.overview.mockResolvedValue({
       dataVersion: 'analytics-v1:9d18c2',
       generatedAt: '2026-08-01T10:00:00',
@@ -43,6 +49,12 @@ describe('AnalyticsDashboardView', () => {
         { metricId: 'overview.verified_cases', label: '已核验案例', value: null, unit: '条', readiness: 'Red', caveat: '案例尚未具备独立 canonical_case_id，不能发布已核验案例总数。' },
         { metricId: 'overview.verified_policies', label: '已核验政策', value: 18, unit: '条', readiness: 'Green', caveat: null },
         { metricId: 'overview.covered_technologies', label: '覆盖技术数量', value: null, unit: '种', readiness: 'Red', caveat: '正式技术 taxonomy 尚未完成审核。' },
+      ],
+      materialCounts: [
+        { code: 'formal_policy', label: '正式文件', value: 80 },
+        { code: 'expired_formal_policy', label: '失效正式文件', value: 1 },
+        { code: 'consultation_draft', label: '征求意见稿', value: 14 },
+        { code: 'other_material', label: '其他资料', value: 9 },
       ],
     })
     api.industries.mockResolvedValue({
@@ -72,18 +84,31 @@ describe('AnalyticsDashboardView', () => {
       rows: [],
       caveats: [{ code: 'REVENUE_SCHEMA_NOT_READY', message: '收入字段尚未结构化。' }],
     })
-    api.regions.mockResolvedValue({
+    api.regions.mockImplementation(({ metricId }) => Promise.resolve(metricId === 'region.case_count' ? {
+      available: true,
+      unavailableReason: null,
+      verifiedOnly: true,
+      dataVersion: 'analytics-v1:9d18c2',
+      coverage: { eligible: 5, covered: 4, missing: 1, ratio: 0.8 },
+      filters: { regionRole: 'operation', regionLevel: 'province' },
+      caveats: [{ code: 'CANONICAL_CASE_DEDUPLICATION_NOT_READY', message: '当前按已核验案例记录 ID 去重；与全部收录案例总量分开解释。' }],
+      rows: [
+        { bucketId: 'region:44', regionId: 44, label: '广东省', regionRole: 'operation', value: 3, readiness: 'Yellow' },
+        { bucketId: 'region:33', regionId: 33, label: '浙江省', regionRole: 'operation', value: 1, readiness: 'Yellow' },
+      ],
+    } : {
       available: true,
       unavailableReason: null,
       verifiedOnly: true,
       dataVersion: 'analytics-v1:9d18c2',
       coverage: { eligible: 3, covered: 3, missing: 0, ratio: 1 },
-      filters: { regionRole: 'policy_applicability' },
+      filters: { regionRole: 'policy_applicability', regionLevel: 'province' },
+      caveats: [],
       rows: [
-        { bucketId: 'region:7', regionId: 7, label: '浙江省', regionRole: 'policy_applicability', value: 2, readiness: 'Green' },
-        { bucketId: 'region:9', regionId: 9, label: '江苏省', regionRole: 'policy_applicability', value: 1, readiness: 'Green' },
+        { bucketId: 'region:33', regionId: 33, label: '浙江省', regionRole: 'policy_applicability', value: 2, readiness: 'Green' },
+        { bucketId: 'region:32', regionId: 32, label: '江苏省', regionRole: 'policy_applicability', value: 1, readiness: 'Green' },
       ],
-    })
+    }))
     api.trends.mockResolvedValue({
       available: true,
       unavailableReason: null,
@@ -114,22 +139,28 @@ describe('AnalyticsDashboardView', () => {
       currency: 'CNY', revenuePeriod: 'annual', revenueType: 'revenue',
     })
     expect(api.regions).toHaveBeenCalledWith({
+      metricId: 'region.case_count', regionRole: 'operation',
+    })
+    expect(api.regions).toHaveBeenCalledWith({
       metricId: 'region.policy_count', regionRole: 'policy_applicability',
     })
     expect(api.trends).toHaveBeenCalledWith({ metricId: 'trend.policy_publish_time' })
     expect(wrapper.get('[data-testid="policy-trend"]').text()).toContain('2026-01')
     expect(wrapper.get('[data-testid="policy-regions"]').text()).toContain('浙江省')
+    expect(wrapper.get('[data-testid="case-regions"]').text()).toContain('广东省')
+    expect(wrapper.get('[data-testid="case-regions"]').text()).toContain('当前按已核验案例记录 ID 去重')
+    expect(wrapper.get('[data-testid="case-regions"]').text()).toContain('未归属 1 条')
     expect(wrapper.text()).toContain('正式技术 taxonomy 尚未完成审核')
     expect(wrapper.text()).toContain('收入字段尚未结构化')
 
-    await wrapper.get('[data-testid="drilldown-region:7"]').trigger('click')
+    await wrapper.get('[data-testid="drilldown-region:33"]').trigger('click')
     await flushPromises()
 
     expect(api.drilldown).toHaveBeenCalledWith({
       metricId: 'region.policy_count',
       dataVersion: 'analytics-v1:9d18c2',
       entityType: 'policy',
-      bucketId: 'region:7',
+      bucketId: 'region:33',
     })
     expect(wrapper.get('[data-testid="policy-drilldown"]').text()).toContain('浙江省创业扶持政策')
   })
@@ -142,6 +173,8 @@ describe('AnalyticsDashboardView', () => {
     expect(api.industries).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('analytics-v1:9d18c2')
     expect(wrapper.text()).toContain('18')
+    expect(wrapper.get('[data-testid="policy-material-distribution"]').text()).toContain('正式文件')
+    expect(wrapper.get('[data-testid="policy-material-distribution"]').text()).toContain('80')
     expect(wrapper.text()).toContain('案例尚未具备独立 canonical_case_id')
     expect(wrapper.text()).toContain('正式技术 taxonomy 尚未完成审核')
     expect(wrapper.get('[data-testid="research-from-overview.verified_policies"]').attributes('aria-label')).toBe('将已核验政策带入研究')

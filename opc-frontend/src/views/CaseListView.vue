@@ -143,9 +143,12 @@
           <div class="case-index-main">
             <div class="case-index-meta">
               <span>{{ item.regionName || '未标注地区' }}</span>
-              <span>{{ item.category || '未标注类型' }}</span>
               <span>{{ item.actorName || '未标注主体' }}</span>
               <span>{{ formatCaseDate(item.accessedAt) }}</span>
+            </div>
+            <div class="case-classification-row" aria-label="案例分类">
+              <span class="case-taxonomy-tag case-taxonomy-major">{{ item.category || '未标注大类' }}</span>
+              <span class="case-taxonomy-tag case-taxonomy-minor">{{ item.subcategory || '未标注小类' }}</span>
             </div>
             <strong>{{ item.title }}</strong>
             <p>{{ item.summary || '暂无摘要' }}</p>
@@ -218,10 +221,11 @@ const sortOptions = [
   { label: '标题顺序', value: 'title' },
 ]
 
+const majorCategories = ['内容创作', '商业增长', '软件工具', '教育人才', '产业应用', '创业支撑']
+
 const categoryOptions = computed(() => {
-  const names = Array.from(new Set(allCases.value.map((item) => item.category).filter(Boolean)))
   const base = [{ label: '全部类型', value: '' }]
-  return base.concat(names.map((name) => ({ label: name, value: name })))
+  return base.concat(majorCategories.map((name) => ({ label: name, value: name })))
 })
 
 const visibleRegions = computed(() => {
@@ -384,7 +388,16 @@ function filterCases(list) {
 }
 
 function caseSearchText(item) {
-  return [item.title, item.summary, item.actorName, item.regionName, item.category, item.tags].filter(Boolean).join(' ')
+  return [
+    item.title,
+    item.articleTitle,
+    item.summary,
+    item.actorName,
+    item.regionName,
+    item.category,
+    item.subcategory,
+    item.tags,
+  ].filter(Boolean).join(' ')
 }
 
 function toggleRegionMenu() {

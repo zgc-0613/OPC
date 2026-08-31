@@ -158,8 +158,10 @@ public class PhaseThreeEvidenceResolver {
     private ObjectNode caseContent(CaseItem item) {
         ObjectNode value = objectMapper.createObjectNode();
         value.put("title", item.getTitle());
+        value.put("articleTitle", item.getArticleTitle());
         put(value, "regionId", item.getRegionId());
         value.put("category", item.getCategory());
+        value.put("subcategory", item.getSubcategory());
         value.put("actorName", item.getActorName());
         put(value, "sourceId", item.getSourceId());
         value.put("summary", item.getSummary());

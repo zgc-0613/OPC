@@ -77,6 +77,20 @@ class ExcelExportControllerAuthTest {
         verify(excelExportService).exportPolicies(org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void authenticatedPaperDatasetExportReachesExportService() throws Exception {
+        AdminAccount account = new AdminAccount();
+        account.setId(7L);
+        account.setUsername("ACha_");
+        when(adminAuthService.requireAccount("valid-admin-token")).thenReturn(account);
+
+        mockMvc.perform(get("/api/admin/export/paper-dataset.xlsx")
+                        .header("X-Admin-Token", "valid-admin-token"))
+                .andExpect(status().isOk());
+
+        verify(excelExportService).exportPaperDataset(org.mockito.ArgumentMatchers.any());
+    }
+
     @Configuration
     @EnableWebMvc
     @Import({WebMvcConfig.class, AdminAuthInterceptor.class, GlobalExceptionHandler.class})

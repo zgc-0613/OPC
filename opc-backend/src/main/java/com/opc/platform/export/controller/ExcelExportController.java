@@ -30,4 +30,9 @@ public class ExcelExportController {
     public void exportCases(HttpServletResponse response) throws IOException {
         excelExportService.exportCases(response);
     }
+
+    @GetMapping("/paper-dataset.xlsx")
+    public void exportPaperDataset(HttpServletResponse response) throws IOException {
+        excelExportService.exportPaperDataset(response);
+    }
 }

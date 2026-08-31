@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS sources (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
     title VARCHAR(255) NOT NULL COMMENT 'Source title',
     source_type VARCHAR(50) NOT NULL COMMENT 'government_site/cnki_journal/cnki_newspaper/news/report/file/other',
-    publisher VARCHAR(100) NULL COMMENT 'Publisher',
+    publisher VARCHAR(500) NULL COMMENT 'Publisher',
     url VARCHAR(1000) NULL COMMENT 'Original source URL',
     local_file VARCHAR(255) NULL COMMENT 'Local saved file name',
     accessed_at DATE NOT NULL COMMENT 'Access or download date',
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS policies (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
     title VARCHAR(255) NOT NULL COMMENT 'Policy title',
     region_id BIGINT NOT NULL COMMENT 'Related region ID',
-    issuing_body VARCHAR(255) NOT NULL COMMENT 'Issuing body',
+    issuing_body VARCHAR(500) NOT NULL COMMENT 'Issuing body',
     document_no VARCHAR(100) NULL COMMENT 'Document number',
     publish_date DATE NULL COMMENT 'Publish date',
     effective_date DATE NULL COMMENT 'Effective date',
@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS policies (
     source_id BIGINT NOT NULL COMMENT 'Main source ID',
     policy_level VARCHAR(30) NOT NULL COMMENT 'national/provincial/city/district',
     policy_type VARCHAR(50) NOT NULL COMMENT 'comprehensive/computing_support/space_station/funding_subsidy/scenario_demand/talent_service/investment/other',
+    material_nature VARCHAR(40) NULL COMMENT 'formal_policy/consultation_draft/standard_reference/official_platform_service/official_activity/authoritative_media/nonformal_policy_info/pending_verification',
     applicability_mode VARCHAR(20) NOT NULL DEFAULT 'unclassified' COMMENT 'general/specific/unclassified',
     summary TEXT NOT NULL COMMENT '100-300 word summary',
     key_points TEXT NULL COMMENT 'Key points',
@@ -42,7 +43,7 @@ CREATE TABLE IF NOT EXISTS policies (
     evidence_url VARCHAR(1000) NULL COMMENT 'Evidence URL',
     local_file VARCHAR(255) NULL COMMENT 'Local file name',
     accessed_at DATE NOT NULL COMMENT 'Access or download date',
-    status VARCHAR(20) NOT NULL DEFAULT 'draft' COMMENT 'draft/reviewed/published',
+    status VARCHAR(20) NOT NULL DEFAULT 'draft' COMMENT 'draft/reviewed/published/consultation',
     reviewer VARCHAR(100) NULL COMMENT 'Reviewer',
     ai_evidence_status VARCHAR(30) NOT NULL DEFAULT 'legacy_unverified' COMMENT 'legacy_unverified/verified/excluded',
     evidence_revision BIGINT NOT NULL DEFAULT 0 COMMENT 'Monotonic AI evidence version',
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS policies (
     INDEX idx_policies_source_id (source_id),
     INDEX idx_policies_document_no (document_no),
     INDEX idx_policies_policy_type (policy_type),
+    INDEX idx_policies_material_nature (material_nature),
     INDEX idx_policies_status (status),
     INDEX idx_policies_publish_date (publish_date),
     INDEX idx_policies_effective_date (effective_date)
@@ -63,9 +65,11 @@ CREATE TABLE IF NOT EXISTS policies (
 
 CREATE TABLE IF NOT EXISTS case_items (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
-    title VARCHAR(255) NOT NULL COMMENT 'Case title',
+    title VARCHAR(255) NOT NULL COMMENT 'Curated case display name',
+    article_title VARCHAR(500) NULL COMMENT 'Original source article title',
     region_id BIGINT NOT NULL COMMENT 'Related region ID',
-    category VARCHAR(50) NOT NULL COMMENT 'culture_creative/animation_short/education/office_efficiency/software_dev/ecommerce_marketing/other',
+    category VARCHAR(50) NOT NULL COMMENT 'Six-category case taxonomy',
+    subcategory VARCHAR(50) NULL COMMENT 'Twenty-five-subcategory case taxonomy',
     actor_name VARCHAR(255) NULL COMMENT 'Person, company or project name',
     source_id BIGINT NOT NULL COMMENT 'Main source ID',
     summary TEXT NOT NULL COMMENT 'Case summary',
@@ -86,12 +90,42 @@ CREATE TABLE IF NOT EXISTS case_items (
     INDEX idx_case_items_region_id (region_id),
     INDEX idx_case_items_source_id (source_id),
     INDEX idx_case_items_category (category),
+    INDEX idx_case_items_subcategory (subcategory),
     INDEX idx_case_items_status (status),
     INDEX idx_case_items_accessed_at (accessed_at)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
   COMMENT='Case item table';
+
+CREATE TABLE IF NOT EXISTS university_opc_records (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
+    record_type VARCHAR(30) NOT NULL COMMENT 'communities/support/activities/cases',
+    record_type_label VARCHAR(100) NOT NULL,
+    record_code VARCHAR(50) NOT NULL,
+    record_name VARCHAR(500) NOT NULL,
+    institution_name VARCHAR(1000) NULL,
+    province VARCHAR(100) NULL,
+    city VARCHAR(100) NULL,
+    district VARCHAR(200) NULL,
+    verification_status VARCHAR(30) NOT NULL DEFAULT 'pending',
+    evidence_grade VARCHAR(30) NULL,
+    date_original VARCHAR(100) NULL,
+    source_title VARCHAR(1000) NULL,
+    source_url TEXT NULL,
+    summary_text TEXT NULL,
+    notes TEXT NULL,
+    raw_details LONGTEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_university_opc_type_code (record_type, record_code),
+    INDEX idx_university_opc_type (record_type),
+    INDEX idx_university_opc_province (province),
+    INDEX idx_university_opc_status (verification_status)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='University OPC research records';
 
 CREATE TABLE IF NOT EXISTS tags (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',

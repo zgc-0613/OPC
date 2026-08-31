@@ -27,7 +27,7 @@ public interface AgentEvidenceToolMapper {
     @Select("""
             <script>
             SELECT c.id AS caseId, c.title, r.name AS region, c.region_id AS regionId,
-                   r.level AS geographicLevel, c.category,
+                   r.level AS geographicLevel, CONCAT_WS(' / ',c.category,c.subcategory) AS category,
                    c.summary, c.business_model AS businessModel, c.ai_tools AS aiTools, c.outcome,
                    c.source_id AS sourceId,
                    c.evidence_revision AS caseRevision,
@@ -56,10 +56,10 @@ public interface AgentEvidenceToolMapper {
                   LEFT JOIN tag_aliases industry_alias ON industry_alias.tag_id=industry_tag.id
                   WHERE industry_tag.id=#{industryTagId}
                     AND (
-                      CONCAT_WS(' ',c.title,c.tags,c.summary,c.ai_tools,c.category)
+                      CONCAT_WS(' ',c.title,c.article_title,c.tags,c.summary,c.ai_tools,c.category,c.subcategory)
                         LIKE CONCAT('%',industry_tag.name,'%')
                       OR (industry_alias.alias IS NOT NULL AND
-                          CONCAT_WS(' ',c.title,c.tags,c.summary,c.ai_tools,c.category)
+                          CONCAT_WS(' ',c.title,c.article_title,c.tags,c.summary,c.ai_tools,c.category,c.subcategory)
                             LIKE CONCAT('%',industry_alias.alias,'%'))
                     )
                 )
@@ -67,11 +67,15 @@ public interface AgentEvidenceToolMapper {
             </if>
             <if test="industryTagId == null and industry != null and industry != ''">
               AND (c.title LIKE CONCAT('%',#{industry},'%')
+                   OR c.article_title LIKE CONCAT('%',#{industry},'%')
+                   OR c.subcategory LIKE CONCAT('%',#{industry},'%')
                    OR c.tags LIKE CONCAT('%',#{industry},'%')
                    OR c.summary LIKE CONCAT('%',#{industry},'%'))
             </if>
             <if test="industryTagId == null and keywords != null and keywords != ''">
               AND (c.title LIKE CONCAT('%',#{keywords},'%')
+                   OR c.article_title LIKE CONCAT('%',#{keywords},'%')
+                   OR c.subcategory LIKE CONCAT('%',#{keywords},'%')
                    OR c.summary LIKE CONCAT('%',#{keywords},'%')
                    OR c.business_model LIKE CONCAT('%',#{keywords},'%')
                    OR c.tags LIKE CONCAT('%',#{keywords},'%'))
@@ -164,7 +168,7 @@ public interface AgentEvidenceToolMapper {
     @Select("""
             <script>
             SELECT c.id AS caseId, c.title, r.name AS region, c.region_id AS regionId,
-                   r.level AS geographicLevel, c.category,
+                   r.level AS geographicLevel, CONCAT_WS(' / ',c.category,c.subcategory) AS category,
                    c.summary, c.business_model AS businessModel, c.ai_tools AS aiTools, c.outcome,
                    c.source_id AS sourceId,
                    c.evidence_revision AS caseRevision,

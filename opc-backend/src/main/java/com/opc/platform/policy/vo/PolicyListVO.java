@@ -35,6 +35,10 @@ public class PolicyListVO {
 
     private String policyType;
 
+    private String materialNature;
+
+    private String materialNatureLabel;
+
     private String applicabilityMode;
 
     private List<Long> industryTagIds;

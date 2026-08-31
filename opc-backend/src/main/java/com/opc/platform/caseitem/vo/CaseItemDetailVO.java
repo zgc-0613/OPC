@@ -12,11 +12,15 @@ public class CaseItemDetailVO {
 
     private String title;
 
+    private String articleTitle;
+
     private Long regionId;
 
     private String regionName;
 
     private String category;
+
+    private String subcategory;
 
     private String actorName;
 

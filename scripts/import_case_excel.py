@@ -153,6 +153,7 @@ def read_case_rows(excel_path: Path, limit: int | None) -> tuple[list[CaseRow], 
         ai_tools = normalize_text(raw.get("用到的AI工具或能力")) or None
         outcome = normalize_text(raw.get("结果（效果、成果、数据）")) or None
         publish_date = parse_date(raw.get("发布日期"))
+        province, city, district = infer_case_region(title, actor_name, province, city, district)
 
         if province not in PROVINCE_NAMES:
             warnings.append(f"Row {excel_row}: unknown province '{province}'")
@@ -191,6 +192,20 @@ def read_case_rows(excel_path: Path, limit: int | None) -> tuple[list[CaseRow], 
             break
 
     return rows, warnings
+
+
+def infer_case_region(
+    title: str,
+    actor_name: str | None,
+    province: str,
+    city: str | None,
+    district: str | None,
+) -> tuple[str, str | None, str | None]:
+    if province:
+        return province, city, district
+    if title == "一人公司，只是开始" and actor_name == "王钰博":
+        return "北京市", city or "北京市", district or "海淀区"
+    return province, city, district
 
 
 def build_report(rows: list[CaseRow], warnings: list[str]) -> dict[str, Any]:

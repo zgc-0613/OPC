@@ -5,6 +5,7 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({
     name: 'policy-list',
     fullPath: '/policies',
+    query: {},
   }),
 }))
 
@@ -34,5 +35,9 @@ describe('MainLayout public archive shell', () => {
 
     await wrapper.get('.sidebar-toggle').trigger('click')
     expect(wrapper.classes()).toContain('sidebar-collapsed')
+
+    await wrapper.get('.nav-group-trigger').trigger('click')
+    expect(wrapper.get('.nav-group-trigger').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('.nav-submenu a')).toHaveLength(4)
   })
 })

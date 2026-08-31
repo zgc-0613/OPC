@@ -14,6 +14,7 @@ import CaseListView from '@/views/CaseListView.vue'
 import CaseDetailView from '@/views/CaseDetailView.vue'
 import CaseAnalysisView from '@/views/CaseAnalysisView.vue'
 import SourceLedgerView from '@/views/SourceLedgerView.vue'
+import UniversityOpcView from '@/views/UniversityOpcView.vue'
 import AdminHomeView from '@/views/admin/AdminHomeView.vue'
 import PolicyAdminView from '@/views/admin/PolicyAdminView.vue'
 import CaseAdminView from '@/views/admin/CaseAdminView.vue'
@@ -88,6 +89,11 @@ export const routes = [
         path: 'sources',
         name: 'source-ledger',
         component: SourceLedgerView,
+      },
+      {
+        path: 'university-opc',
+        name: 'university-opc',
+        component: UniversityOpcView,
       },
       {
         path: 'account',

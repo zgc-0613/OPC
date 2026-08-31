@@ -34,6 +34,8 @@ LEVEL_MAP = {
     "省级": "provincial",
     "市级": "city",
     "区级": "district",
+    "县级": "district",
+    "区县级": "district",
 }
 
 STATUS_MAP = {
@@ -152,6 +154,30 @@ def find_default_excel() -> Path:
     return files[0]
 
 
+def map_policy_level(level_text: str, province: str, city: str | None, issuing_body: str) -> str | None:
+    if level_text in LEVEL_MAP:
+        return LEVEL_MAP[level_text]
+    if level_text == "团体标准":
+        if province and province in issuing_body:
+            return "provincial"
+        if city and city in issuing_body:
+            return "city"
+        return "provincial"
+    return None
+
+
+def map_status(status_text: str) -> str | None:
+    if status_text in STATUS_MAP:
+        return STATUS_MAP[status_text]
+    if not status_text:
+        return "draft"
+    if "征求意见" in status_text:
+        return "draft"
+    if "现行" in status_text:
+        return "published"
+    return None
+
+
 def read_policy_rows(excel_path: Path, limit: int | None) -> tuple[list[PolicyRow], list[str]]:
     workbook = openpyxl.load_workbook(excel_path, data_only=True)
     sheet = workbook.active
@@ -178,6 +204,9 @@ def read_policy_rows(excel_path: Path, limit: int | None) -> tuple[list[PolicyRo
         level_text = normalize_text(raw.get("policy_level政策等级"))
         status_text = normalize_text(raw.get("政策状态"))
         original_url = normalize_text(raw.get("url政策原文网页链接")) or None
+        city = normalize_text(raw.get("region市")) or None
+        policy_level = map_policy_level(level_text, province, city, issuing_body)
+        status = map_status(status_text)
 
         if province not in PROVINCE_NAMES:
             warnings.append(f"Row {excel_row}: unknown province '{province}'")
@@ -185,9 +214,9 @@ def read_policy_rows(excel_path: Path, limit: int | None) -> tuple[list[PolicyRo
             warnings.append(f"Row {excel_row}: missing issuing body")
         if not summary:
             warnings.append(f"Row {excel_row}: missing summary")
-        if level_text not in LEVEL_MAP:
+        if not policy_level:
             warnings.append(f"Row {excel_row}: unknown policy level '{level_text}'")
-        if status_text and status_text not in STATUS_MAP:
+        if status_text and not status:
             warnings.append(f"Row {excel_row}: unknown status '{status_text}', will use draft")
 
         duplicate_key = (title, issuing_body)
@@ -201,7 +230,6 @@ def read_policy_rows(excel_path: Path, limit: int | None) -> tuple[list[PolicyRo
 
         tag_names = parse_tags(raw.get("政策要点(多值)"))
         tags = ",".join(tag_names) if tag_names else None
-        city = normalize_text(raw.get("region市")) or None
         district = normalize_text(raw.get("region区")) or None
 
         rows.append(PolicyRow(
@@ -209,9 +237,9 @@ def read_policy_rows(excel_path: Path, limit: int | None) -> tuple[list[PolicyRo
             title=title,
             publish_date=parse_date(raw.get("发布日期")),
             original_url=original_url,
-            status=STATUS_MAP.get(status_text, "draft"),
+            status=status or "draft",
             evidence_url=normalize_text(raw.get("辅证链接")) or None,
-            policy_level=LEVEL_MAP.get(level_text, "district"),
+            policy_level=policy_level or "district",
             province=province,
             city=city,
             district=district,

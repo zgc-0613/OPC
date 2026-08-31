@@ -10,8 +10,12 @@
 
       <form class="admin-form" @submit.prevent="submitForm">
         <label class="span-2">
-          <span>案例标题 *</span>
+          <span>案例命名 *</span>
           <input v-model.trim="form.title" required />
+        </label>
+        <label class="span-2">
+          <span>原始文章名 *</span>
+          <input v-model.trim="form.articleTitle" required />
         </label>
         <label>
           <span>地区 *</span>
@@ -21,8 +25,20 @@
           </select>
         </label>
         <label>
-          <span>领域 *</span>
-          <input v-model.trim="form.category" required placeholder="例如：AI 电商 / 内容创业" />
+          <span>大类 *</span>
+          <select v-model="form.category" required @change="handleCategoryChange">
+            <option value="">请选择大类</option>
+            <option v-for="category in majorCategories" :key="category" :value="category">{{ category }}</option>
+          </select>
+        </label>
+        <label>
+          <span>小类 *</span>
+          <select v-model="form.subcategory" required>
+            <option value="">请选择小类</option>
+            <option v-for="subcategory in availableSubcategories" :key="subcategory" :value="subcategory">
+              {{ subcategory }}
+            </option>
+          </select>
         </label>
         <label>
           <span>主体</span>
@@ -106,9 +122,20 @@
       <div class="admin-section-head">
         <div>
           <h2>案例列表</h2>
-          <p>点击编辑会读取完整详情，再回填到上方表单。</p>
+          <p>点击标题或查看详情可打开完整案例及来源链接；编辑会回填到上方表单。</p>
         </div>
         <button class="button button-ghost" type="button" @click="loadCases">刷新</button>
+      </div>
+
+      <div class="admin-list-filter" aria-label="案例地区筛选">
+        <label>
+          <span>按省筛选</span>
+          <select v-model="selectedProvinceId">
+            <option value="">全部省份</option>
+            <option v-for="province in provinceOptions" :key="province.id" :value="province.id">{{ province.name }}</option>
+          </select>
+        </label>
+        <span>当前显示 {{ filteredCases.length }} / {{ cases.length }} 条案例</span>
       </div>
 
       <AdminBulkStatusToolbar
@@ -125,6 +152,7 @@
 
       <div v-if="loading" class="muted">正在加载案例...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
+      <div v-else-if="!filteredCases.length" class="admin-list-empty muted">当前省份没有案例记录。</div>
       <div v-else class="table-wrap">
         <table class="admin-resizable-table">
           <colgroup>
@@ -172,13 +200,27 @@
                 />
               </td>
               <td>{{ item.id }}</td>
-              <td>{{ item.title }}</td>
+              <td>
+                <RouterLink
+                  class="admin-record-link"
+                  :to="{ name: 'case-detail', params: { id: item.id } }"
+                  target="_blank"
+                  rel="noopener"
+                  :aria-label="`查看案例详情：${item.title}`"
+                >
+                  <span>{{ item.title }}</span><ArrowUpRight :size="14" aria-hidden="true" />
+                </RouterLink>
+              </td>
               <td>{{ item.regionName || '-' }}</td>
-              <td>{{ item.category || '-' }}</td>
+              <td>
+                <span class="case-taxonomy-tag case-taxonomy-major">{{ item.category || '-' }}</span>
+                <span class="case-taxonomy-tag case-taxonomy-minor">{{ item.subcategory || '-' }}</span>
+              </td>
               <td>{{ item.actorName || '-' }}</td>
               <td><span class="status-pill">{{ item.status || '-' }}</span></td>
               <td>
                 <div class="row-actions">
+                  <RouterLink :to="{ name: 'case-detail', params: { id: item.id } }" target="_blank" rel="noopener">查看详情</RouterLink>
                   <button type="button" @click="startEdit(item)">编辑</button>
                   <button type="button" class="danger" @click="removeCase(item)">删除</button>
                 </div>
@@ -192,7 +234,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ArrowUpRight } from 'lucide-vue-next'
 import AdminBulkStatusToolbar from '@/components/AdminBulkStatusToolbar.vue'
 import SortableTableHeader from '@/components/SortableTableHeader.vue'
@@ -200,7 +242,9 @@ import { createCase, deleteCase, getAdminCaseDetail, getAdminCases, updateCase }
 import { getRegions } from '@/api/region'
 import { getAdminSources, resolveSourcePlaceholder } from '@/api/source'
 import { useAdminTableControls } from '@/composables/useAdminTableControls'
+import { useProvinceFilter } from '@/composables/useProvinceFilter'
 import { useResizableColumns } from '@/composables/useResizableColumns'
+import { deletionConfirmation, prepareEvidenceItemDeletion } from '@/utils/adminEvidenceDeletion'
 
 const today = new Date().toISOString().slice(0, 10)
 const loading = ref(false)
@@ -215,6 +259,16 @@ const bulkUpdating = ref(false)
 const bulkMessage = ref('')
 const bulkError = ref('')
 
+const caseTaxonomy = {
+  内容创作: ['短剧动漫', '图文音频', '游戏虚拟', '文化IP', '文旅体验'],
+  商业增长: ['电商运营', '跨境电商', '广告种草', '智能零售'],
+  软件工具: ['应用开发', '办公智能体', '数据服务', '语音交互'],
+  教育人才: ['学习产品', '培训课程', '就业服务'],
+  产业应用: ['工业能源', '城市空间', '智能硬件', '健康养老', '农业生产', '农产品品牌营销', '乡村综合服务'],
+  创业支撑: ['活动赛事', '算力服务'],
+}
+const majorCategories = Object.keys(caseTaxonomy)
+
 const caseStatusOptions = [
   { value: 'published', label: '已发布' },
   { value: 'draft', label: '草稿' },
@@ -225,20 +279,22 @@ const caseSortableColumns = [
   { key: 'id', label: 'ID', width: 72, minWidth: 58, maxWidth: 150 },
   { key: 'title', label: '标题', width: 340, minWidth: 180, maxWidth: 620 },
   { key: 'regionName', label: '地区', width: 120, minWidth: 90, maxWidth: 260 },
-  { key: 'category', label: '领域', width: 190, minWidth: 120, maxWidth: 360 },
+  { key: 'category', label: '分类', width: 220, minWidth: 150, maxWidth: 380 },
   { key: 'actorName', label: '主体', width: 240, minWidth: 140, maxWidth: 460 },
   { key: 'status', label: '状态', width: 112, minWidth: 90, maxWidth: 220 },
 ]
 const caseTableColumns = [
   { key: 'selection', width: 46, minWidth: 46, maxWidth: 46, resizable: false },
   ...caseSortableColumns,
-  { key: 'actions', width: 112, minWidth: 90, maxWidth: 180, resizable: false },
+  { key: 'actions', width: 210, minWidth: 190, maxWidth: 260, resizable: false },
 ]
 
 const defaultForm = () => ({
   title: '',
+  articleTitle: '',
   regionId: '',
   category: '',
+  subcategory: '',
   actorName: '',
   sourceId: '',
   sourceTitle: '',
@@ -255,6 +311,12 @@ const defaultForm = () => ({
 })
 
 const form = reactive(defaultForm())
+const availableSubcategories = computed(() => caseTaxonomy[form.category] || [])
+const {
+  filteredItems: filteredCases,
+  provinceOptions,
+  selectedProvinceId,
+} = useProvinceFilter(cases, regions)
 const {
   allSelected: allCasesSelected,
   clearSelection: clearCaseSelection,
@@ -268,7 +330,7 @@ const {
   toggleAll: toggleAllCases,
   toggleRow: toggleCaseRow,
   toggleSort: toggleCaseSort,
-} = useAdminTableControls(cases)
+} = useAdminTableControls(filteredCases)
 const {
   columnPercentages: caseColumnPercentages,
   resizeBy: resizeCaseColumn,
@@ -341,6 +403,12 @@ function handleSourceTitleInput() {
   sourceValidationError.value = ''
 }
 
+function handleCategoryChange() {
+  if (!availableSubcategories.value.includes(form.subcategory)) {
+    form.subcategory = ''
+  }
+}
+
 async function submitForm() {
   let sourceResolution
   try {
@@ -365,18 +433,18 @@ async function submitForm() {
 }
 
 async function removeCase(item) {
-  if (!window.confirm(`确认删除案例「${item.title}」吗？`)) {
+  if (!window.confirm(deletionConfirmation('case', item))) {
     return
   }
+  error.value = ''
   try {
-    await deleteCase(item.id, {
-      expectedEvidenceRevision: Number(item.evidenceRevision ?? 0),
-      expectedUpdatedAt: item.updatedAt,
-    })
+    const snapshot = await prepareEvidenceItemDeletion('case', item)
+    await deleteCase(item.id, snapshot)
   } catch (err) {
     error.value = err?.businessCode === 409
       ? '案例已被其他操作修改，列表已重新加载，请确认后重试。'
       : (err.message || '案例删除失败')
+    window.alert(error.value)
     await loadCases()
     return
   }
@@ -386,8 +454,10 @@ async function removeCase(item) {
 function caseDetailPayload(detail, status) {
   return {
     title: detail.title,
+    articleTitle: detail.articleTitle,
     regionId: Number(detail.regionId),
     category: detail.category,
+    subcategory: detail.subcategory,
     actorName: detail.actorName || '',
     sourceId: Number(detail.sourceId),
     summary: detail.summary,

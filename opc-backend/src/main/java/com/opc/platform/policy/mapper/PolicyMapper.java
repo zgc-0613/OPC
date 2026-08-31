@@ -12,8 +12,26 @@ import org.apache.ibatis.annotations.Update;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public interface PolicyMapper extends BaseMapper<Policy> {
+
+    @Select("""
+            SELECT material_nature AS materialNature, COUNT(*) AS value
+            FROM policies
+            WHERE material_nature IS NOT NULL AND TRIM(material_nature) <> ''
+            GROUP BY material_nature
+            ORDER BY material_nature
+            """)
+    List<MaterialNatureCountRow> selectMaterialNatureCounts();
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class MaterialNatureCountRow {
+        private String materialNature;
+        private Long value;
+    }
 
     @Select("""
             SELECT COUNT(*)
@@ -27,6 +45,35 @@ public interface PolicyMapper extends BaseMapper<Policy> {
               AND (LOWER(TRIM(source.url)) LIKE 'http://%' OR LOWER(TRIM(source.url)) LIKE 'https://%')
             """)
     long countEligibleAnalyticsRecords();
+
+    @Select("""
+            SELECT CASE
+                     WHEN region.level='province' THEN region.id
+                     WHEN parent.level='province' THEN parent.id
+                     WHEN grandparent.level='province' THEN grandparent.id
+                   END AS regionId,
+                   CASE
+                     WHEN region.level='province' THEN region.name
+                     WHEN parent.level='province' THEN parent.name
+                     WHEN grandparent.level='province' THEN grandparent.name
+                   END AS label,
+                   COUNT(DISTINCT item.id) AS value
+            FROM policies item
+            INNER JOIN sources source ON source.id=item.source_id
+            LEFT JOIN regions region ON region.id=item.region_id
+            LEFT JOIN regions parent ON parent.id=region.parent_id
+            LEFT JOIN regions grandparent ON grandparent.id=parent.parent_id
+            WHERE item.status='published' AND item.ai_evidence_status='verified'
+              AND source.status='published' AND source.ai_evidence_status='verified'
+              AND source.title IS NOT NULL AND TRIM(source.title)<>''
+              AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
+              AND source.url IS NOT NULL
+              AND (LOWER(TRIM(source.url)) LIKE 'http://%' OR LOWER(TRIM(source.url)) LIKE 'https://%')
+              AND (region.level='province' OR parent.level='province' OR grandparent.level='province')
+            GROUP BY regionId, label
+            ORDER BY value DESC, regionId ASC
+            """)
+    List<AnalyticsProvinceRow> selectEligibleProvinceAnalyticsRows();
 
     @Select("""
             SELECT CONCAT(item.id, ':', COALESCE(item.evidence_revision,0), ':',
@@ -52,6 +99,16 @@ public interface PolicyMapper extends BaseMapper<Policy> {
                    region.parent_id AS parentId,
                    region.level AS regionLevel,
                    region.name AS regionName,
+                   CASE
+                     WHEN region.level='province' THEN region.id
+                     WHEN parent.level='province' THEN parent.id
+                     WHEN grandparent.level='province' THEN grandparent.id
+                   END AS provinceId,
+                   CASE
+                     WHEN region.level='province' THEN region.name
+                     WHEN parent.level='province' THEN parent.name
+                     WHEN grandparent.level='province' THEN grandparent.name
+                   END AS provinceName,
                    item.issuing_body AS issuingBody,
                    item.policy_type AS policyType,
                    item.ai_evidence_status AS aiEvidenceStatus,
@@ -59,6 +116,8 @@ public interface PolicyMapper extends BaseMapper<Policy> {
             FROM policies item
             INNER JOIN sources source ON source.id=item.source_id
             LEFT JOIN regions region ON region.id=item.region_id
+            LEFT JOIN regions parent ON parent.id=region.parent_id
+            LEFT JOIN regions grandparent ON grandparent.id=parent.parent_id
             WHERE item.status='published' AND item.ai_evidence_status='verified'
               AND source.status='published' AND source.ai_evidence_status='verified'
               AND source.title IS NOT NULL AND TRIM(source.title)&lt;&gt;''
@@ -97,10 +156,21 @@ public interface PolicyMapper extends BaseMapper<Policy> {
         private Long parentId;
         private String regionLevel;
         private String regionName;
+        private Long provinceId;
+        private String provinceName;
         private String issuingBody;
         private String policyType;
         private String aiEvidenceStatus;
         private LocalDateTime updatedAt;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class AnalyticsProvinceRow {
+        private Long regionId;
+        private String label;
+        private Long value;
     }
 
     @Select("SELECT * FROM policies WHERE id = #{id} FOR UPDATE")

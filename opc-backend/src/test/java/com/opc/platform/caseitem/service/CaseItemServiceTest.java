@@ -191,6 +191,7 @@ class CaseItemServiceTest {
     void updateLocksTheSourceBeforeTheCaseRow() {
         CaseItem current = editableCase();
         current.setCategory(null);
+        current.setSubcategory(null);
         when(caseItemMapper.selectById(9L)).thenReturn(current);
         when(caseItemMapper.selectByIdForUpdate(9L)).thenReturn(current);
         when(regionMapper.selectById(1L)).thenReturn(new Region());
@@ -199,6 +200,7 @@ class CaseItemServiceTest {
 
         CaseItemUpdateDTO dto = updateDto();
         dto.setCategory(null);
+        dto.setSubcategory(null);
         service.updateCaseItem(9L, dto, new AuthenticatedAdmin(7L, "reviewer"));
 
         var order = inOrder(sourceMapper, caseItemMapper);
@@ -242,8 +244,10 @@ class CaseItemServiceTest {
         CaseItem item = new CaseItem();
         item.setId(9L);
         item.setTitle("Case");
+        item.setArticleTitle("Original article");
         item.setRegionId(1L);
         item.setCategory("software");
+        item.setSubcategory("application");
         item.setSourceId(2L);
         item.setSummary("Summary");
         item.setAccessedAt(LocalDate.of(2026, 7, 25));
@@ -257,8 +261,10 @@ class CaseItemServiceTest {
     private CaseItemUpdateDTO updateDto() {
         CaseItemUpdateDTO dto = new CaseItemUpdateDTO();
         dto.setTitle("Case updated");
+        dto.setArticleTitle("Original article");
         dto.setRegionId(1L);
         dto.setCategory("software");
+        dto.setSubcategory("application");
         dto.setSourceId(2L);
         dto.setSummary("Summary");
         dto.setAccessedAt(LocalDate.of(2026, 7, 25));

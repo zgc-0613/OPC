@@ -63,13 +63,13 @@
         <label>
           <span>政策类型 *</span>
           <select v-model="form.policyType" required>
-            <option value="comprehensive">综合政策</option>
-            <option value="computing_support">算力支持</option>
-            <option value="funding_subsidy">资金补贴</option>
-            <option value="scenario_demand">场景需求</option>
-            <option value="talent_service">人才服务</option>
-            <option value="investment">投资融资</option>
-            <option value="other">其他</option>
+            <option value="comprehensive">综合发展政策</option>
+            <option value="computing_support">算力与技术基础设施</option>
+            <option value="funding_subsidy">资金补贴与财政激励</option>
+            <option value="scenario_demand">场景与应用推广</option>
+            <option value="talent_service">人才与高校支持</option>
+            <option value="investment">投融资与金融服务</option>
+            <option value="governance_market">制度治理与市场环境</option>
           </select>
         </label>
         <label>
@@ -113,6 +113,7 @@
           <span>状态 *</span>
           <select v-model="form.status" required>
             <option value="published">已发布</option>
+            <option value="consultation">征求意见稿（不纳入分类）</option>
             <option value="draft">草稿</option>
             <option value="pending">待校对</option>
             <option value="archived">归档</option>
@@ -136,7 +137,7 @@
         </label>
         <label class="span-3">
           <span>支持措施标签</span>
-          <input v-model.trim="form.tags" placeholder="多个标签用中文逗号隔开，例如：资金补贴，算力支持" />
+          <input v-model.trim="form.tags" placeholder="多个标签用中文逗号隔开，仅限七大主分类" />
         </label>
         <label class="span-2">
           <span>原文链接</span>
@@ -164,9 +165,20 @@
       <div class="admin-section-head">
         <div>
           <h2>政策列表</h2>
-          <p>点击编辑会读取完整详情，再回填到上方表单。</p>
+          <p>点击标题或查看详情可打开完整政策及来源链接；编辑会回填到上方表单。</p>
         </div>
         <button class="button button-ghost" type="button" @click="loadPolicies">刷新</button>
+      </div>
+
+      <div class="admin-list-filter" aria-label="政策地区筛选">
+        <label>
+          <span>按省筛选</span>
+          <select v-model="selectedProvinceId">
+            <option value="">全部省份</option>
+            <option v-for="province in provinceOptions" :key="province.id" :value="province.id">{{ province.name }}</option>
+          </select>
+        </label>
+        <span>当前显示 {{ filteredPolicies.length }} / {{ policies.length }} 条政策</span>
       </div>
 
       <AdminBulkStatusToolbar
@@ -206,6 +218,7 @@
 
       <div v-if="loading" class="muted">正在加载政策...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
+      <div v-else-if="!filteredPolicies.length" class="admin-list-empty muted">当前省份没有政策记录。</div>
       <div v-else class="table-wrap">
         <table class="admin-resizable-table">
           <colgroup>
@@ -253,7 +266,17 @@
                 />
               </td>
               <td>{{ policy.id }}</td>
-              <td>{{ policy.title }}</td>
+              <td>
+                <RouterLink
+                  class="admin-record-link"
+                  :to="{ name: 'policy-detail', params: { id: policy.id } }"
+                  target="_blank"
+                  rel="noopener"
+                  :aria-label="`查看政策详情：${policy.title}`"
+                >
+                  <span>{{ policy.title }}</span><ArrowUpRight :size="14" aria-hidden="true" />
+                </RouterLink>
+              </td>
               <td>{{ policy.regionName || '-' }}</td>
               <td>{{ policy.issuingBody || '-' }}</td>
               <td>{{ policy.publishDate || '-' }}</td>
@@ -265,9 +288,10 @@
                   {{ policy.industryTagNames?.join('、') || '未关联行业' }}
                 </small>
               </td>
-              <td><span class="status-pill">{{ policy.status || '-' }}</span></td>
+              <td><span class="status-pill">{{ materialNatureText(policy) }}</span></td>
               <td>
                 <div class="row-actions">
+                  <RouterLink :to="{ name: 'policy-detail', params: { id: policy.id } }" target="_blank" rel="noopener">查看详情</RouterLink>
                   <button type="button" @click="startEdit(policy)">编辑</button>
                   <button type="button" class="danger" @click="removePolicy(policy)">删除</button>
                 </div>
@@ -297,7 +321,9 @@ import { getRegions } from '@/api/region'
 import { getAdminSources, resolveSourcePlaceholder } from '@/api/source'
 import { getIndustryTags } from '@/api/tag'
 import { useAdminTableControls } from '@/composables/useAdminTableControls'
+import { useProvinceFilter } from '@/composables/useProvinceFilter'
 import { useResizableColumns } from '@/composables/useResizableColumns'
+import { deletionConfirmation, prepareEvidenceItemDeletion } from '@/utils/adminEvidenceDeletion'
 
 const today = new Date().toISOString().slice(0, 10)
 const loading = ref(false)
@@ -320,6 +346,7 @@ const batchIndustryTagIds = ref([])
 
 const policyStatusOptions = [
   { value: 'published', label: '已发布' },
+  { value: 'consultation', label: '征求意见稿（不纳入分类）' },
   { value: 'draft', label: '草稿' },
   { value: 'pending', label: '待校对' },
   { value: 'archived', label: '归档' },
@@ -336,7 +363,7 @@ const policySortableColumns = [
 const policyTableColumns = [
   { key: 'selection', width: 46, minWidth: 46, maxWidth: 46, resizable: false },
   ...policySortableColumns,
-  { key: 'actions', width: 112, minWidth: 90, maxWidth: 180, resizable: false },
+  { key: 'actions', width: 210, minWidth: 190, maxWidth: 260, resizable: false },
 ]
 
 const defaultForm = () => ({
@@ -367,6 +394,11 @@ const defaultForm = () => ({
 
 const form = reactive(defaultForm())
 const {
+  filteredItems: filteredPolicies,
+  provinceOptions,
+  selectedProvinceId,
+} = useProvinceFilter(policies, regions)
+const {
   allSelected: allPoliciesSelected,
   clearSelection: clearPolicySelection,
   replaceSelection: replacePolicySelection,
@@ -379,7 +411,7 @@ const {
   toggleAll: toggleAllPolicies,
   toggleRow: togglePolicyRow,
   toggleSort: togglePolicySort,
-} = useAdminTableControls(policies)
+} = useAdminTableControls(filteredPolicies)
 const {
   columnPercentages: policyColumnPercentages,
   resizeBy: resizePolicyColumn,
@@ -504,18 +536,18 @@ async function submitForm() {
 }
 
 async function removePolicy(policy) {
-  if (!window.confirm(`确认删除政策「${policy.title}」吗？`)) {
+  if (!window.confirm(deletionConfirmation('policy', policy))) {
     return
   }
+  error.value = ''
   try {
-    await deletePolicy(policy.id, {
-      expectedEvidenceRevision: Number(policy.evidenceRevision ?? 0),
-      expectedUpdatedAt: policy.updatedAt,
-    })
+    const snapshot = await prepareEvidenceItemDeletion('policy', policy)
+    await deletePolicy(policy.id, snapshot)
   } catch (err) {
     error.value = err?.businessCode === 409
       ? '政策已被其他操作修改，列表已重新加载，请确认后重试。'
       : (err.message || '政策删除失败')
+    window.alert(error.value)
     await loadPolicies()
     return
   }
@@ -558,6 +590,16 @@ function applicabilityLabel(policy) {
     unclassified: '未分类',
   }
   return labels[policy.applicabilityMode] || labels.unclassified
+}
+
+function materialNatureText(policy) {
+  if (policy?.materialNatureLabel) return policy.materialNatureLabel
+  if (policy?.materialNature === 'consultation_draft' || policy?.status === 'consultation') return '征求意见稿'
+  if (policy?.materialNature === 'standard_reference') return '标准规范文件'
+  if (policy?.materialNature === 'official_platform_service') return '官方平台/服务信息'
+  if (policy?.materialNature === 'formal_policy') return policy.status === 'expired' ? '正式文件（失效）' : '正式文件'
+  if (policy?.materialNature) return '其他资料'
+  return policy?.status === 'published' ? '正式文件' : (policy?.status || '-')
 }
 
 async function applyBulkApplicability(mode) {

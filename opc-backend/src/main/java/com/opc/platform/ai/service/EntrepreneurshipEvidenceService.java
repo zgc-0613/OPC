@@ -416,7 +416,8 @@ public class EntrepreneurshipEvidenceService {
             Long requestedRegionId
     ) {
         int relevance = relevance(
-                searchable(item.getTitle(), item.getCategory(), item.getSummary(), item.getTags(), item.getBusinessModel(), item.getOutcome()),
+                searchable(item.getTitle(), item.getArticleTitle(), item.getCategory(), item.getSubcategory(),
+                        item.getSummary(), item.getTags(), item.getBusinessModel(), item.getOutcome()),
                 industryText,
                 resolution.name(),
                 goal,
@@ -628,7 +629,9 @@ public class EntrepreneurshipEvidenceService {
             for (String term : terms) {
                 if (hasPrevious) group.or();
                 group.and(text -> text.like(CaseItem::getTitle, term)
+                        .or().like(CaseItem::getArticleTitle, term)
                         .or().like(CaseItem::getCategory, term)
+                        .or().like(CaseItem::getSubcategory, term)
                         .or().like(CaseItem::getSummary, term)
                         .or().like(CaseItem::getTags, term)
                         .or().like(CaseItem::getBusinessModel, term)

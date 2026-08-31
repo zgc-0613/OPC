@@ -11,7 +11,8 @@ public record AnalyticsOverviewVO(
         String dataVersion,
         LocalDateTime generatedAt,
         List<MetricCard> cards,
-        String status
+        String status,
+        List<MaterialCount> materialCounts
 ) {
     @JsonProperty("available")
     public boolean available() {
@@ -68,4 +69,6 @@ public record AnalyticsOverviewVO(
     }
 
     public record MetricCard(String metricId, String label, Long value, String unit, String readiness, String caveat) {}
+
+    public record MaterialCount(String code, String label, Long value) {}
 }

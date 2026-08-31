@@ -28,6 +28,48 @@ public interface CaseItemMapper extends BaseMapper<CaseItem> {
     long countEligibleAnalyticsRecords();
 
     @Select("""
+            SELECT CASE
+                     WHEN region.level='province' THEN region.id
+                     WHEN parent.level='province' THEN parent.id
+                     WHEN grandparent.level='province' THEN grandparent.id
+                   END AS regionId,
+                   CASE
+                     WHEN region.level='province' THEN region.name
+                     WHEN parent.level='province' THEN parent.name
+                     WHEN grandparent.level='province' THEN grandparent.name
+                   END AS label,
+                   COUNT(DISTINCT item.id) AS value
+            FROM case_items item
+            INNER JOIN sources source ON source.id=item.source_id
+            LEFT JOIN regions region ON region.id=item.region_id
+            LEFT JOIN regions parent ON parent.id=region.parent_id
+            LEFT JOIN regions grandparent ON grandparent.id=parent.parent_id
+            WHERE item.status='published' AND item.ai_evidence_status='verified'
+              AND source.status='published' AND source.ai_evidence_status='verified'
+              AND source.title IS NOT NULL AND TRIM(source.title)<>''
+              AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
+              AND source.url IS NOT NULL
+              AND (LOWER(TRIM(source.url)) LIKE 'http://%' OR LOWER(TRIM(source.url)) LIKE 'https://%')
+              AND (region.level='province' OR parent.level='province' OR grandparent.level='province')
+            GROUP BY regionId, label
+            ORDER BY value DESC, regionId ASC
+            """)
+    List<AnalyticsProvinceRow> selectEligibleProvinceAnalyticsRows();
+
+    @Select("""
+            SELECT MAX(GREATEST(item.updated_at, source.updated_at))
+            FROM case_items item
+            INNER JOIN sources source ON source.id=item.source_id
+            WHERE item.status='published' AND item.ai_evidence_status='verified'
+              AND source.status='published' AND source.ai_evidence_status='verified'
+              AND source.title IS NOT NULL AND TRIM(source.title)<>''
+              AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
+              AND source.url IS NOT NULL
+              AND (LOWER(TRIM(source.url)) LIKE 'http://%' OR LOWER(TRIM(source.url)) LIKE 'https://%')
+            """)
+    LocalDateTime selectEligibleAnalyticsLastUpdatedAt();
+
+    @Select("""
             SELECT CONCAT(item.id, ':', COALESCE(item.evidence_revision,0), ':',
                           source.id, ':', COALESCE(source.evidence_revision,0))
             FROM case_items item
@@ -50,6 +92,7 @@ public interface CaseItemMapper extends BaseMapper<CaseItem> {
             INNER JOIN case_items item ON item.id=relation.case_id
             INNER JOIN sources source ON source.id=item.source_id
             WHERE tag.is_industry=1
+              AND tag.name IN ('内容创作','商业增长','软件工具','教育人才','产业应用','创业支撑')
               AND item.status='published' AND item.ai_evidence_status='verified'
               AND source.status='published' AND source.ai_evidence_status='verified'
               AND source.title IS NOT NULL AND TRIM(source.title)&lt;&gt;''
@@ -74,6 +117,7 @@ public interface CaseItemMapper extends BaseMapper<CaseItem> {
             INNER JOIN case_tags relation ON relation.case_id=item.id
             INNER JOIN tags tag ON tag.id=relation.tag_id AND tag.is_industry=1
             WHERE item.status='published' AND item.ai_evidence_status='verified'
+              AND tag.name IN ('内容创作','商业增长','软件工具','教育人才','产业应用','创业支撑')
               AND source.status='published' AND source.ai_evidence_status='verified'
               AND source.title IS NOT NULL AND TRIM(source.title)&lt;&gt;''
               AND source.publisher IS NOT NULL AND TRIM(source.publisher)&lt;&gt;''
@@ -87,12 +131,13 @@ public interface CaseItemMapper extends BaseMapper<CaseItem> {
             """)
     long countEligibleIndustryTaggedCases(@Param("tagIds") List<Long> tagIds);
 
-    @Select("SELECT COUNT(*) FROM tags WHERE is_industry=1")
+    @Select("SELECT COUNT(*) FROM tags WHERE is_industry=1 AND name IN ('内容创作','商业增长','软件工具','教育人才','产业应用','创业支撑')")
     long countIndustryTaxonomyTags();
 
     @Select("""
             <script>
             SELECT id FROM tags WHERE is_industry=1
+              AND name IN ('内容创作','商业增长','软件工具','教育人才','产业应用','创业支撑')
               <if test="tagIds != null and !tagIds.isEmpty()">
                 AND id IN
                 <foreach collection="tagIds" item="tagId" open="(" separator="," close=")">#{tagId}</foreach>
@@ -112,6 +157,7 @@ public interface CaseItemMapper extends BaseMapper<CaseItem> {
             INNER JOIN case_tags relation ON relation.case_id=item.id
             INNER JOIN tags tag ON tag.id=relation.tag_id AND tag.is_industry=1
             WHERE item.status='published' AND item.ai_evidence_status='verified'
+              AND tag.name IN ('内容创作','商业增长','软件工具','教育人才','产业应用','创业支撑')
               AND source.status='published' AND source.ai_evidence_status='verified'
               AND source.title IS NOT NULL AND TRIM(source.title)<>''
               AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
@@ -128,6 +174,7 @@ public interface CaseItemMapper extends BaseMapper<CaseItem> {
             INNER JOIN case_tags relation ON relation.case_id=item.id
             INNER JOIN tags tag ON tag.id=relation.tag_id AND tag.is_industry=1
             WHERE item.status='published' AND item.ai_evidence_status='verified'
+              AND tag.name IN ('内容创作','商业增长','软件工具','教育人才','产业应用','创业支撑')
               AND source.status='published' AND source.ai_evidence_status='verified'
               AND source.title IS NOT NULL AND TRIM(source.title)<>''
               AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
@@ -141,6 +188,15 @@ public interface CaseItemMapper extends BaseMapper<CaseItem> {
     @AllArgsConstructor
     class AnalyticsIndustryRow {
         private Long tagId;
+        private String label;
+        private Long value;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class AnalyticsProvinceRow {
+        private Long regionId;
         private String label;
         private Long value;
     }

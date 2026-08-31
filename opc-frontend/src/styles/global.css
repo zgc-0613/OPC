@@ -175,6 +175,7 @@ button {
 
 .archive-sidebar {
   justify-content: flex-start;
+  overflow: hidden;
   transition:
     padding var(--duration-base) var(--ease-out),
     width var(--duration-base) var(--ease-out);
@@ -391,6 +392,29 @@ button {
   content: "06";
 }
 
+.archive-sidebar .archive-nav {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.archive-sidebar .archive-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.archive-sidebar .archive-nav::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.nav > a:nth-child(8)::before {
+  content: "07";
+}
+
 .nav a span {
   color: inherit;
   font-size: 14px;
@@ -401,6 +425,136 @@ button {
   color: var(--faint);
   font-size: 11px;
   line-height: 1.2;
+}
+
+.university-nav-group {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+}
+
+.nav-group-trigger {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: center;
+  min-height: 48px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.nav-group-trigger::before {
+  content: "06";
+  flex: 0 0 34px;
+  color: var(--faint);
+  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.nav-group-trigger > span {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+
+.nav-group-trigger strong {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.nav-group-trigger small {
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.nav-group-trigger svg {
+  flex: 0 0 auto;
+  margin-left: auto;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.nav-group-open .nav-group-trigger,
+.nav-group-trigger:hover {
+  color: var(--ink);
+  background: rgba(23, 25, 22, 0.045);
+}
+
+.nav-group-open .nav-group-trigger svg {
+  transform: rotate(180deg);
+}
+
+.nav-group-trigger:focus-visible,
+.nav-submenu a:focus-visible {
+  outline: 2px solid #4f6f58;
+  outline-offset: -2px;
+}
+
+.nav-submenu {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 4px 34px;
+}
+
+.archive-nav .nav-submenu a {
+  display: block;
+  min-height: 0;
+  padding: 6px 8px;
+  border-radius: 3px;
+  color: var(--muted);
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+}
+
+.archive-nav .nav-submenu a::before {
+  content: none;
+}
+
+.archive-nav .nav-submenu a span {
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.archive-nav .nav-submenu a:hover,
+.archive-nav .nav-submenu a.nav-active {
+  color: var(--ink);
+  background: rgba(23, 25, 22, 0.07);
+  box-shadow: none;
+}
+
+.sidebar-collapsed .university-nav-group {
+  position: relative;
+}
+
+.sidebar-collapsed .nav-group-trigger {
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  min-height: 44px;
+  padding: 6px;
+}
+
+.sidebar-collapsed .nav-group-trigger > span,
+.sidebar-collapsed .nav-group-trigger svg,
+.sidebar-collapsed .nav-submenu {
+  display: none;
+}
+
+.sidebar-collapsed .nav-group-trigger::before {
+  grid-row: auto;
 }
 
 .nav a:hover,
@@ -3241,7 +3395,11 @@ td a:hover,
   grid-column: span 3;
 }
 
-.row-actions button {
+.row-actions button,
+.row-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 30px;
   padding: 0 10px;
   border: 1px solid var(--line-strong);
@@ -3249,15 +3407,80 @@ td a:hover,
   color: var(--ink);
   background: var(--paper);
   cursor: pointer;
+  text-decoration: none;
 }
 
-.row-actions button:hover {
+.row-actions button:hover,
+.row-actions a:hover {
   background: var(--soft);
 }
 
 .row-actions .danger {
   color: var(--danger);
   background: #fff3f1;
+}
+
+.admin-list-filter {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 4px 0 18px;
+  padding: 14px 0;
+  border-block: 1px solid var(--line);
+}
+
+.admin-list-filter label {
+  display: grid;
+  gap: 6px;
+  min-width: min(280px, 100%);
+}
+
+.admin-list-filter label span,
+.admin-list-filter > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-list-filter select {
+  min-height: 42px;
+  padding: 0 38px 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.admin-record-link {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--ink);
+  font-weight: 650;
+  line-height: 1.5;
+  text-decoration-color: transparent;
+}
+
+.admin-record-link svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.admin-record-link:hover {
+  color: var(--accent);
+  text-decoration-color: currentColor;
+}
+
+.admin-list-empty {
+  padding: 28px 0;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .admin-list-filter {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 @keyframes scan-x {
@@ -6505,6 +6728,63 @@ td a:hover,
 
 .case-index-page .case-index-main p {
   color: #64748b;
+}
+
+.case-classification-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.case-taxonomy-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 760;
+}
+
+.case-taxonomy-major {
+  border: 1px solid #181a18;
+  color: #fbfbf8;
+  background: #181a18;
+}
+
+.case-taxonomy-minor {
+  border: 1px solid #aeb4ae;
+  color: #515752;
+  background: #fbfbf8;
+}
+
+.case-taxonomy-tag {
+  letter-spacing: 0.01em;
+}
+
+.case-taxonomy-major,
+.case-taxonomy-minor {
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.case-taxonomy-major:hover {
+  border-color: #515752;
+  background: #515752;
+}
+
+.case-taxonomy-minor:hover {
+  border-color: #747b75;
+  color: #181a18;
+  background: #eceeeb;
+}
+
+.case-article-title {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-size: 14px;
 }
 
 .case-index-page .status-pill {
@@ -10089,5 +10369,62 @@ td a:hover,
     margin-right: calc(50% - 50vw);
     margin-left: calc(50% - 50vw);
     padding: 34px 24px;
+  }
+}
+
+/* Keep the public archive navigation visually even: active routes remain legible
+   without a heavy block that makes one menu item look selected above the others. */
+.archive-shell:not(.home-shell) .archive-nav a.nav-active,
+.archive-shell:not(.home-shell) .archive-nav a.nav-active.router-link-active,
+.archive-shell:not(.home-shell) .route-case-list .archive-nav a.nav-active,
+.archive-shell:not(.home-shell) .route-policy-list .archive-nav a.nav-active,
+.archive-shell:not(.home-shell) .route-region-directory .archive-nav a.nav-active,
+.archive-shell:not(.home-shell) .route-source-ledger .archive-nav a.nav-active,
+.archive-shell:not(.home-shell) .route-policy-detail .archive-nav a.nav-active,
+.archive-shell:not(.home-shell) .route-case-detail .archive-nav a.nav-active {
+  color: #374151;
+  background: transparent;
+  box-shadow: none;
+}
+
+.archive-shell:not(.home-shell) .archive-nav > a,
+.archive-shell:not(.home-shell) .university-nav-group {
+  margin-block: 0;
+}
+
+.archive-shell:not(.home-shell) .nav-group-trigger {
+  min-height: 48px;
+}
+
+@media (max-width: 860px) {
+  .archive-nav .university-nav-group {
+    flex: 0 0 156px;
+    min-width: 156px;
+  }
+
+  .archive-nav .nav-group-trigger {
+    display: flex;
+    min-height: 44px;
+    padding: 8px 10px;
+    border: 1px solid rgba(213, 219, 229, 0.72);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.64);
+  }
+
+  .archive-nav .nav-group-trigger small {
+    display: none;
+  }
+
+  .archive-nav .nav-submenu {
+    margin: 2px 0 0;
+    padding: 4px;
+    border: 1px solid rgba(213, 219, 229, 0.72);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.48);
+  }
+
+  .archive-nav .nav-submenu a {
+    min-width: 0;
+    padding: 7px 8px;
   }
 }

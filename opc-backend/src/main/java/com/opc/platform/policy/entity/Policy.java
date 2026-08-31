@@ -35,6 +35,8 @@ public class Policy {
 
     private String policyType;
 
+    private String materialNature;
+
     private String applicabilityMode;
 
     private String summary;

@@ -229,7 +229,7 @@ public class PolicyService {
 
     public PolicyDetailVO getPublicPolicyDetail(Long id) {
         Policy policy = policyMapper.selectById(id);
-        if (policy == null || !PUBLISHED_STATUS.equals(policy.getStatus())) {
+        if (policy == null || !(PUBLISHED_STATUS.equals(policy.getStatus()) || "consultation".equals(policy.getStatus()))) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Policy not found");
         }
 
@@ -437,7 +437,11 @@ public class PolicyService {
             wrapper.eq(Policy::getPolicyType, query.getPolicyType());
         }
         if (StringUtils.hasText(query.getStatus())) {
-            wrapper.eq(Policy::getStatus, query.getStatus());
+            if (PUBLISHED_STATUS.equals(query.getStatus())) {
+                wrapper.in(Policy::getStatus, PUBLISHED_STATUS, "consultation");
+            } else {
+                wrapper.eq(Policy::getStatus, query.getStatus());
+            }
         }
         return wrapper;
     }
@@ -490,6 +494,8 @@ public class PolicyService {
         vo.setSourceTitle(source == null ? null : source.getTitle());
         vo.setPolicyLevel(policy.getPolicyLevel());
         vo.setPolicyType(policy.getPolicyType());
+        vo.setMaterialNature(policy.getMaterialNature());
+        vo.setMaterialNatureLabel(materialNatureLabel(policy));
         vo.setApplicabilityMode(safeApplicabilityMode(policy.getApplicabilityMode()));
         List<Long> industryTagIds = industryRelations.getOrDefault(policy.getId(), Set.of()).stream().sorted().toList();
         vo.setIndustryTagIds(industryTagIds);
@@ -526,6 +532,8 @@ public class PolicyService {
         vo.setSourceTitle(source == null ? null : source.getTitle());
         vo.setPolicyLevel(policy.getPolicyLevel());
         vo.setPolicyType(policy.getPolicyType());
+        vo.setMaterialNature(policy.getMaterialNature());
+        vo.setMaterialNatureLabel(materialNatureLabel(policy));
         vo.setApplicabilityMode(safeApplicabilityMode(policy.getApplicabilityMode()));
         List<Long> orderedIndustryTagIds = industryTagIds.stream().sorted().toList();
         vo.setIndustryTagIds(orderedIndustryTagIds);
@@ -544,6 +552,25 @@ public class PolicyService {
         vo.setEvidenceRevision(policy.getEvidenceRevision());
         vo.setUpdatedAt(policy.getUpdatedAt());
         return vo;
+    }
+
+    private String materialNatureLabel(Policy policy) {
+        if (policy == null) {
+            return "其他资料";
+        }
+        if (policy.getMaterialNature() == null || policy.getMaterialNature().isBlank()) {
+            return "其他资料";
+        }
+        if ("formal_policy".equals(policy.getMaterialNature())) {
+            return "expired".equals(policy.getStatus()) ? "正式文件（失效）" : "正式文件";
+        }
+        return switch (policy.getMaterialNature()) {
+            case "consultation_draft" -> "征求意见稿";
+            case "standard_reference" -> "标准规范文件";
+            case "official_platform_service" -> "官方平台/服务信息";
+            case "official_activity", "authoritative_media", "nonformal_policy_info", "pending_verification" -> "其他资料";
+            default -> "其他资料";
+        };
     }
 
     private void syncPolicyTags(Long policyId, String tagsText) {
