@@ -10337,37 +10337,32 @@ td a:hover,
 }
 
 .home-shell .home-contact-footer {
-  width: min(1680px, calc(100% - 96px));
-  max-width: 1680px;
+  width: min(calc(100% - 8vw), 1840px);
+  max-width: 1840px;
   margin-top: 34px;
   padding-bottom: 0;
 }
 
 .home-shell .home-site-footer {
-  width: 100vw;
-  margin-right: calc(50% - 50vw);
-  margin-left: calc(50% - 50vw);
+  width: 100%;
+  margin-right: auto;
+  margin-left: auto;
   margin-top: 34px;
-  padding: 46px max(48px, calc((100vw - 1680px) / 2 + 48px));
+  padding: 46px clamp(28px, 3.4vw, 64px);
   border-radius: 0;
-  border-top: 1px solid rgba(174, 188, 255, 0.18);
-  border-bottom: 1px solid rgba(174, 188, 255, 0.12);
-  background:
-    radial-gradient(circle at 14% 0%, rgba(174, 188, 255, 0.12), transparent 30%),
-    linear-gradient(135deg, #172033, #0e1726);
-  box-shadow: none;
 }
 
 @media (max-width: 860px) {
   .home-shell .home-contact-footer {
     width: min(100% - 28px, 720px);
+    max-width: 720px;
     padding-bottom: 0;
   }
 
   .home-shell .home-site-footer {
-    width: 100vw;
-    margin-right: calc(50% - 50vw);
-    margin-left: calc(50% - 50vw);
+    width: 100%;
+    margin-right: auto;
+    margin-left: auto;
     padding: 34px 24px;
   }
 }

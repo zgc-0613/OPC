@@ -7315,3 +7315,660 @@ html {
   }
 
 }
+
+/* High-density displays need a fluid homepage shell. Public index routes keep
+   their existing reading-width cap; the landing page itself should not inherit it. */
+.archive-shell.home-shell {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+@media (min-width: 1440px) {
+  .home-shell .prisma-hero {
+    padding: clamp(24px, 1.5vw, 40px);
+  }
+
+  .home-shell .prisma-hero-copy {
+    padding-right: clamp(34px, 2.4vw, 72px);
+    padding-bottom: clamp(24px, 2vw, 40px);
+    padding-left: clamp(34px, 2.4vw, 72px);
+  }
+
+  .home-shell .prisma-hero-title {
+    font-size: 272px;
+  }
+
+  .home-shell .prisma-hero-brand-lockup > .brand-logo-mark {
+    width: 190px !important;
+    height: 190px !important;
+    flex-basis: 190px !important;
+  }
+}
+
+@media (min-width: 2000px) {
+  .home-shell .prisma-hero-title {
+    font-size: 312px;
+  }
+
+  .home-shell .prisma-hero-brand-lockup > .brand-logo-mark {
+    width: 212px !important;
+    height: 212px !important;
+    flex-basis: 212px !important;
+  }
+}
+
+@media (min-width: 2400px) {
+  .home-shell .prisma-hero-title {
+    font-size: 348px;
+  }
+
+  .home-shell .prisma-hero-brand-lockup > .brand-logo-mark {
+    width: 228px !important;
+    height: 228px !important;
+    flex-basis: 228px !important;
+  }
+}
+
+/* Keep the contact section readable when the viewport is wider than its content
+   rail. The former viewport-based footer padding was applied inside a capped
+   parent, leaving the contact column only a few pixels wide on large screens. */
+.home-shell .home-contact-footer {
+  width: min(calc(100% - clamp(48px, 5vw, 128px)), 1840px) !important;
+  max-width: 1840px !important;
+  margin-top: clamp(32px, 3vw, 56px) !important;
+}
+
+.home-shell .home-site-footer {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.92fr) !important;
+  gap: clamp(32px, 4vw, 72px) !important;
+  width: 100% !important;
+  max-width: none !important;
+  box-sizing: border-box;
+  margin-right: auto !important;
+  margin-left: auto !important;
+  padding: clamp(32px, 2.6vw, 48px) clamp(28px, 3.4vw, 64px) !important;
+}
+
+.home-shell .home-site-footer > * {
+  min-width: 0;
+}
+
+.home-shell .home-footer-summary {
+  max-width: 64ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.home-shell .home-footer-contact {
+  min-width: 0;
+}
+
+.home-shell .home-footer-contact a {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+@media (max-width: 760px) {
+  .home-shell .home-contact-footer {
+    width: calc(100% - 32px) !important;
+  }
+
+  .home-shell .home-site-footer {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 28px !important;
+    padding: 28px 24px !important;
+  }
+}
+
+/* University OPC follows the same numbered archive rhythm as sections 00-05.
+   The submenu keeps the trigger's spatial story when it enters or leaves. */
+.archive-shell:not(.home-shell) .university-nav-group {
+  display: grid !important;
+  gap: 4px !important;
+  min-width: 0;
+  width: 100% !important;
+  justify-self: stretch !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-group-trigger {
+  display: grid !important;
+  grid-template-columns: 34px minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto !important;
+  align-items: center !important;
+  width: 100% !important;
+  min-height: 68px !important;
+  padding: 11px 12px !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  color: #555b56 !important;
+  background: transparent !important;
+  text-align: left !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-group-trigger::before {
+  grid-row: 1 / span 2 !important;
+  color: #6b716c !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-group-copy {
+  grid-column: 2 !important;
+  grid-row: 1 / span 2 !important;
+  display: grid !important;
+  min-width: 0 !important;
+  align-content: center !important;
+  gap: 2px !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-group-title {
+  color: inherit !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-group-trigger small {
+  display: block !important;
+}
+
+.archive-shell:not(.home-shell) .archive-nav > a > span,
+.archive-shell:not(.home-shell) .university-nav-group .nav-group-title {
+  font-family: 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', serif !important;
+  font-size: 14px !important;
+  font-weight: 760 !important;
+  line-height: 1.5 !important;
+}
+
+.archive-shell:not(.home-shell) .archive-nav > a > small,
+.archive-shell:not(.home-shell) .university-nav-group .nav-group-trigger small {
+  color: var(--prisma-quiet) !important;
+  font-family: 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', serif !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-group-trigger svg {
+  grid-column: 3 !important;
+  grid-row: 1 / span 2 !important;
+  align-self: center !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group.nav-group-active .nav-group-trigger {
+  border-color: #181a18 !important;
+  background: #181a18 !important;
+  color: #fbfbf8 !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group.nav-group-active .nav-group-trigger::before,
+.archive-shell:not(.home-shell) .university-nav-group.nav-group-active .nav-group-trigger small {
+  color: #daddd9 !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-submenu {
+  display: grid !important;
+  width: calc(100% - 34px) !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  gap: 4px !important;
+  margin: 0 0 4px 34px !important;
+  padding: 0 !important;
+  justify-self: stretch !important;
+  transform-origin: top left;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-submenu a {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto auto !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  min-height: 68px !important;
+  padding: 11px 8px !important;
+  align-content: center !important;
+  justify-items: stretch !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  color: #555b56 !important;
+  background: transparent !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-submenu a::before {
+  display: none !important;
+  content: none !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-submenu-copy {
+  display: grid !important;
+  grid-row: 1 / span 2 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  align-content: center !important;
+  gap: 2px !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-submenu-title {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  overflow-wrap: normal !important;
+  word-break: keep-all !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  color: inherit !important;
+  font-size: 14px !important;
+  font-weight: 760 !important;
+  line-height: 1.2 !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-submenu a small {
+  display: block !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  color: #515752 !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-submenu a.nav-active {
+  border-color: #181a18 !important;
+  background: #181a18 !important;
+  color: #fbfbf8 !important;
+}
+
+.archive-shell:not(.home-shell) .university-nav-group .nav-submenu a.nav-active small {
+  color: #daddd9 !important;
+}
+
+.university-submenu-enter-active,
+.university-submenu-leave-active {
+  transition:
+    opacity 220ms var(--prisma-ease),
+    transform 220ms var(--prisma-ease);
+  will-change: opacity, transform;
+}
+
+.university-submenu-enter-from {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.985);
+}
+
+.university-submenu-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.99);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .archive-shell:not(.home-shell) .university-nav-group .nav-group-trigger:hover {
+    border-color: #d0d4cf !important;
+    background: #eceeeb !important;
+    color: #181a18 !important;
+  }
+
+  .archive-shell:not(.home-shell) .university-nav-group.nav-group-active .nav-group-trigger:hover {
+    border-color: #181a18 !important;
+    background: #181a18 !important;
+    color: #fbfbf8 !important;
+  }
+
+  .archive-shell:not(.home-shell) .university-nav-group .nav-submenu a:hover:not(.nav-active) {
+    border-color: #d0d4cf !important;
+    background: #eceeeb !important;
+    color: #181a18 !important;
+  }
+
+  .archive-shell:not(.home-shell) .university-nav-group .nav-submenu a.nav-active:hover {
+    border-color: #181a18 !important;
+    background: #181a18 !important;
+    color: #fbfbf8 !important;
+  }
+}
+
+.archive-shell:not(.home-shell).sidebar-collapsed .university-nav-group .nav-group-trigger {
+  grid-template-columns: 1fr !important;
+  min-height: 52px !important;
+  padding: 8px 6px !important;
+  justify-items: center !important;
+}
+
+.archive-shell:not(.home-shell).sidebar-collapsed .university-nav-group .nav-group-trigger > span,
+.archive-shell:not(.home-shell).sidebar-collapsed .university-nav-group .nav-group-trigger svg,
+.archive-shell:not(.home-shell).sidebar-collapsed .university-nav-group .nav-submenu {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  .archive-shell:not(.home-shell) .university-nav-group {
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: initial !important;
+    justify-self: stretch !important;
+  }
+
+  .archive-shell:not(.home-shell) .university-nav-group .nav-group-trigger {
+    min-height: 58px !important;
+    padding: 9px 11px !important;
+  }
+
+  .archive-shell:not(.home-shell).sidebar-collapsed .university-nav-group .nav-group-trigger {
+    grid-template-columns: 34px minmax(0, 1fr) auto !important;
+    grid-template-rows: auto auto !important;
+    justify-items: stretch !important;
+  }
+
+  .archive-shell:not(.home-shell).sidebar-collapsed .university-nav-group .nav-group-copy,
+  .archive-shell:not(.home-shell).sidebar-collapsed .university-nav-group .nav-group-trigger svg {
+    display: grid !important;
+  }
+
+  .archive-shell:not(.home-shell).sidebar-collapsed .university-nav-group .nav-submenu {
+    display: grid !important;
+  }
+
+  .archive-shell:not(.home-shell) .university-nav-group .nav-submenu a {
+    min-height: 58px !important;
+    padding: 9px 8px !important;
+  }
+}
+
+/* Give wide monitors enough physical scale while retaining the same reading
+   measure and the 4px-based spacing used by the archive routes. */
+@media (min-width: 1440px) {
+  .archive-shell:not(.home-shell) {
+    width: min(calc(100% - 64px), 2200px);
+    max-width: 2200px;
+  }
+
+  .archive-shell:not(.home-shell) .public-page-heading,
+  .archive-shell:not(.home-shell) .content-shell {
+    width: min(1480px, calc(100% - 96px)) !important;
+  }
+
+  .route-university-opc .university-opc-page {
+    width: min(100%, 1360px);
+    max-width: 1360px;
+    min-width: 0;
+    padding-top: 24px;
+    padding-bottom: 72px;
+    overflow-wrap: anywhere;
+  }
+
+  .route-university-opc .university-opc-intro h2 {
+    font-size: clamp(2.25rem, 2.8vw, 3.25rem);
+  }
+
+  .route-university-opc .intro-copy {
+    max-width: 760px;
+    font-size: 0.95rem;
+  }
+
+  .route-university-opc .stat-item {
+    padding: 22px;
+  }
+
+  .route-university-opc .stat-item span,
+  .route-university-opc .filter-row label {
+    font-size: 0.82rem;
+  }
+
+  .route-university-opc .stat-item strong {
+    font-size: 2.1rem;
+  }
+
+  .route-university-opc .stat-item small {
+    font-size: 0.76rem;
+  }
+
+  .route-university-opc .workspace-heading h3 {
+    font-size: 1.3rem;
+  }
+
+  .route-university-opc .filter-row :is(select, input) {
+    min-height: 46px;
+    font-size: 0.9rem;
+  }
+
+  .route-university-opc .record-heading h4 {
+    font-size: 1rem;
+  }
+
+  .route-university-opc .record-meta,
+  .route-university-opc .record-summary {
+    font-size: 0.86rem;
+  }
+
+  .route-university-opc .record-source {
+    font-size: 0.84rem;
+  }
+
+  .route-university-opc .preview-note,
+  .route-university-opc .university-pagination-summary,
+  .route-university-opc .university-opc-page-size {
+    font-size: 0.8rem;
+  }
+
+  .route-analysis-overview .analysis-overview-page {
+    max-width: 1480px;
+    margin-inline: auto;
+  }
+
+  .route-analysis-overview .archive-analysis-grid {
+    gap: 18px !important;
+  }
+
+  .route-analysis-overview .archive-analysis-grid > .analysis-panel {
+    min-height: 480px !important;
+    padding: 34px !important;
+  }
+
+  .route-analysis-overview .analysis-panel .section-header p,
+  .route-analysis-overview .analysis-panel :is(.public-visit-summary > div, .public-visit-hot > div, .trace-item, .category-row, .list-row),
+  .route-analysis-overview .analysis-panel :is(.rank-name, .category-row span, .insight-list p, .muted) {
+    font-size: 0.95rem;
+  }
+}
+
+@media (min-width: 2000px) {
+  .archive-shell:not(.home-shell) {
+    width: min(calc(100% - 96px), 2360px);
+    max-width: 2360px;
+    grid-template-columns: 280px minmax(0, 1fr) !important;
+  }
+
+  .route-university-opc .university-opc-page {
+    max-width: 1480px;
+  }
+
+  .route-university-opc .record-meta,
+  .route-university-opc .record-summary {
+    font-size: 0.92rem;
+  }
+}
+
+@media (max-width: 1439px) and (min-width: 861px) {
+  .route-university-opc .university-opc-page {
+    width: min(100%, 1240px);
+    padding-inline: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .university-submenu-enter-active,
+  .university-submenu-leave-active {
+    transition: none;
+  }
+}
+
+/* The University OPC pager is part of the archive control vocabulary rather
+   than another floating card. Its three desktop anchors keep filters, page
+   navigation, and the result count easy to scan without competing with data. */
+.route-university-opc .university-opc-pagination {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 16px;
+  min-width: 0;
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--prisma-border);
+}
+
+.route-university-opc .university-opc-page-size {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  justify-self: start;
+  color: var(--prisma-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.route-university-opc .university-opc-page-size select {
+  min-width: 66px;
+  min-height: 44px;
+  padding: 0 26px 0 10px;
+  border: 1px solid var(--prisma-border-strong);
+  border-radius: 6px;
+  background: var(--prisma-surface);
+  color: var(--prisma-text);
+  cursor: pointer;
+}
+
+.route-university-opc .university-opc-page-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-self: center;
+}
+
+.route-university-opc .university-opc-page-controls button {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid var(--prisma-border-strong);
+  border-radius: 6px;
+  background: var(--prisma-surface);
+  color: var(--prisma-text);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.route-university-opc .university-opc-page-controls button.active {
+  border-color: var(--prisma-text);
+  background: var(--prisma-text);
+  color: var(--prisma-surface);
+}
+
+.route-university-opc .university-opc-page-controls button:disabled {
+  border-color: var(--prisma-border);
+  background: var(--prisma-card);
+  color: var(--prisma-quiet);
+  cursor: not-allowed;
+}
+
+.route-university-opc .university-opc-page-controls button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.route-university-opc .university-pagination-summary {
+  min-width: 0;
+  justify-self: end;
+  color: var(--prisma-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .route-university-opc .university-opc-page-size select:hover,
+  .route-university-opc .university-opc-page-controls button:hover:not(:disabled) {
+    border-color: var(--prisma-text);
+    background: var(--prisma-card);
+  }
+
+  .route-university-opc .university-opc-page-controls button.active:hover {
+    background: #303530;
+    color: var(--prisma-surface);
+  }
+}
+
+@media (min-width: 1440px) {
+  .route-university-opc .university-opc-pagination {
+    margin-top: 10px;
+    padding-top: 20px;
+  }
+
+  .route-university-opc .university-opc-page-size,
+  .route-university-opc .university-pagination-summary {
+    font-size: 0.86rem;
+  }
+
+  .route-university-opc .university-opc-page-controls button {
+    min-width: 46px;
+    min-height: 46px;
+    font-size: 0.86rem;
+  }
+}
+
+@media (max-width: 1024px) {
+  .route-university-opc .university-opc-pagination {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .route-university-opc .university-pagination-summary {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 640px) {
+  .route-university-opc .university-opc-pagination {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 12px;
+    margin-top: 4px;
+    padding-top: 14px;
+  }
+
+  .route-university-opc .university-opc-page-size,
+  .route-university-opc .university-opc-page-controls,
+  .route-university-opc .university-pagination-summary {
+    grid-column: auto;
+    justify-self: start;
+  }
+
+  .route-university-opc .university-opc-page-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .route-university-opc .university-pagination-summary {
+    text-align: left;
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-university-opc .university-opc-pagination :is(select, button) {
+    transition: none;
+  }
+}

@@ -4,7 +4,23 @@
 Preserve every existing SoloFirm core function, name, icon, route, and content contract while rebuilding the frontend user page with the supplied Prisma visual language and interactions, then verify the result in real browsers.
 
 ## Current Phase
-Phase 49 (Assistant single-control continuous rail closure)
+Phase 50 (public archive high-density and University OPC coherence)
+
+### Phase 50: Public Archive High-Density And University OPC Coherence
+- [x] Audit the actual public home, public archive shell, `06 高校 OPC` navigation group, `UniversityOpcView`, its existing `/api/public/university-opc` response, and the supplied submenu reference without changing the data contract.
+- [x] Make the home shell independent of the archive reading-width cap and repair the high-density contact/footer geometry so wide desktop layouts retain readable type and stable content tracks.
+- [x] Bring `06 高校 OPC` into the numbered public navigation rhythm, retain its four real tabs, and make its submenu pointer/keyboard closable through the existing Vue layout rather than adding a new menu system.
+- [x] Add client-side rendering pagination for the existing real preview records: page sizes `10`, `20`, and `50`; bounded previous/next and page controls; reset on tab/filter/page-size change; and no eager rendering of the complete filtered result set.
+- [x] Preserve source URLs as real external links, existing filter semantics, static-preview disclosure, and all backend/API behavior.
+- [x] Add public-behavior coverage for pagination, filter reset, source-link preservation, submenu close behavior, and high-density responsive layout contracts.
+- [x] Follow up on the reported `06` mismatch: align the trigger with the ordinary two-line archive rhythm; add real English subtitles to all four existing child routes; make nested rows vertically centered; and recover the complete group after a desktop-collapsed shell crosses to the `<=900px` drawer.
+- [x] Re-run the final frontend and repository gates after the bilingual navigation closure: focused University/navigation Vitest `3/3`, complete Vitest `37` files / `243` tests, all eight frontend contract scripts, Vite production build, Python `133` passed with `7` explicit opt-in skips, syntax, diff, high-confidence credential, artifact, and ignore checks.
+- [x] Re-run Spring Boot packaging; the executable JAR was produced. The full test invocation remains separately blocked only at Docker/Testcontainers initialization.
+- [ ] Complete the full Spring Boot / MySQL 8.4 Testcontainers gate. The normal `mvnw.cmd test` has one Testcontainers initialization error and `scripts/run_phase_one_mysql_test.py` cannot start because this workstation has no Docker CLI, Docker service, or registered WSL distribution. This is an environment prerequisite, not a product-test assertion failure.
+- [x] Execute the user-authorized frontend-only atomic releases after remote preflight. The initial bilingual-navigation switch moved `/opt/opc/current` to `/opt/opc/releases/20260902-003155`; the mobile-rail correction reached `/opt/opc/releases/20260902-081330`; the shared `01-07` navigation typography correction is current at `/opt/opc/releases/20260902-235323`, with `/opt/opc/releases/20260902-081330` retained as rollback. No migration, Provider invocation, candidate loop, database backup, or backend restart was run.
+- [x] Correct the mobile 06 submenu intrinsic-width collapse: bilingual rows occupy the drawer rail, keep readable word boundaries, and remain vertically centered. Re-ran focused/full frontend validation and completed one frontend-only atomic switch to `/opt/opc/releases/20260902-081330`; `/opt/opc/releases/20260902-003155` remains rollback.
+- [x] Put ordinary numbered navigation titles and the `06 高校 OPC` trigger on one explicit Songti typography contract. Focused `MainLayout` tests passed `5/5`, complete Vitest passed `37` files / `245` tests, Vite built successfully, and one frontend-only atomic switch moved production to `/opt/opc/releases/20260902-235323`; `/opt/opc/releases/20260902-081330` is the rollback release.
+- **Status:** deployed frontend-only under the user's explicit deployment instruction. The Docker-backed MySQL gate remains an unrepaired workstation prerequisite and is recorded as a residual release risk rather than a passing result. See `docs/university-opc-phase-six.md` for exact evidence and postflight.
 
 ### Phase 49: Assistant Single-Control Continuous Rail Closure
 - [x] Review the supplied 59fps recording and confirm that the remaining discontinuity came from the prior dual-control/120ms handoff: content changed before the physical rail had contracted.

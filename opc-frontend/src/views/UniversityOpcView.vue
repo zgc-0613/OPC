@@ -24,22 +24,68 @@
       </header>
 
       <div class="filter-row" aria-label="高校 OPC 筛选条件">
-        <label><span>省份</span><select v-model="filters.province"><option value="">全部省份</option><option v-for="province in provinces" :key="province" :value="province">{{ province }}</option></select></label>
-        <label><span>证据等级</span><select v-model="filters.evidence"><option value="">全部等级</option><option value="A">A · 官方确认</option><option value="B">B · 官方支持</option><option value="C">C · 官方报道</option></select></label>
-        <label><span>关键词</span><input v-model.trim="filters.keyword" placeholder="搜索高校、社区或活动" /></label>
+        <label><span>省份</span><select v-model="filters.province" data-testid="university-province-filter"><option value="">全部省份</option><option v-for="province in provinces" :key="province" :value="province">{{ province }}</option></select></label>
+        <label><span>证据等级</span><select v-model="filters.evidence" data-testid="university-evidence-filter"><option value="">全部等级</option><option value="A">A · 官方确认</option><option value="B">B · 官方支持</option><option value="C">C · 官方报道</option></select></label>
+        <label><span>关键词</span><input v-model.trim="filters.keyword" data-testid="university-keyword-filter" placeholder="搜索高校、社区或活动" /></label>
       </div>
 
       <div v-if="loading" class="university-opc-empty" role="status"><strong>正在加载高校 OPC 预览数据</strong></div>
       <div v-else-if="loadError" class="university-opc-empty" role="alert"><strong>预览数据加载失败</strong><p>{{ loadError }}</p></div>
       <div v-else class="university-opc-records" aria-live="polite">
-        <p class="preview-note">当前为静态预览数据，仅供核验，不写入数据库。显示 {{ filteredRecords.length }} / {{ activeRecords.length }} 条。</p>
-        <article v-for="record in filteredRecords" :key="record.id" class="university-opc-record">
+        <p class="preview-note">当前为静态预览数据，仅供核验，不写入数据库。显示 {{ displayRangeText }}。</p>
+        <article v-for="record in paginatedRecords" :key="record.id" class="university-opc-record">
           <div class="record-heading"><span class="record-id">{{ record.id }}</span><h4>{{ record.name }}</h4><span class="record-status" :class="`status-${record.status}`">{{ statusLabel(record.status) }}</span></div>
           <p class="record-meta">{{ record.institution || '高校未明确' }} · {{ record.province }}{{ record.city ? ` · ${record.city}` : '' }} · 证据 {{ record.grade || '未标注' }}</p>
           <p v-if="record.summary" class="record-summary">{{ record.summary }}</p>
           <a v-if="record.sourceUrl" class="record-source" :href="firstUrl(record.sourceUrl)" target="_blank" rel="noopener noreferrer">查看来源：{{ record.sourceTitle || '原始链接' }}</a>
         </article>
         <div v-if="!filteredRecords.length" class="university-opc-empty"><strong>没有符合条件的记录</strong><p>请调整省份、证据等级或关键词。</p></div>
+        <nav v-else class="university-opc-pagination" aria-label="高校 OPC 分页">
+          <label class="university-opc-page-size">
+            <span>每页显示</span>
+            <select v-model.number="pageSize" data-testid="university-page-size" aria-label="每页显示条数">
+              <option :value="10">10</option>
+              <option :value="20">20</option>
+              <option :value="50">50</option>
+            </select>
+            <span>条</span>
+          </label>
+          <div class="university-opc-page-controls">
+            <button
+              type="button"
+              data-testid="university-prev-page"
+              :disabled="currentPage === 1"
+              aria-label="上一页"
+              @click="goToPage(currentPage - 1)"
+            >
+              上一页
+            </button>
+            <button
+              v-for="page in paginationPages"
+              :key="page"
+              type="button"
+              :data-testid="`university-page-${page}`"
+              :class="{ active: page === currentPage }"
+              :aria-current="page === currentPage ? 'page' : undefined"
+              :aria-label="`第 ${page} 页`"
+              @click="goToPage(page)"
+            >
+              {{ page }}
+            </button>
+            <button
+              type="button"
+              data-testid="university-next-page"
+              :disabled="currentPage === totalPages"
+              aria-label="下一页"
+              @click="goToPage(currentPage + 1)"
+            >
+              下一页
+            </button>
+          </div>
+          <span data-testid="university-pagination-summary" class="university-pagination-summary">
+            {{ currentPage }} / {{ totalPages }} · 共 {{ filteredRecords.length }} 条
+          </span>
+        </nav>
       </div>
     </section>
 
@@ -66,6 +112,8 @@ const records = ref([])
 const loading = ref(true)
 const loadError = ref('')
 const filters = reactive({ province: '', evidence: '', keyword: '' })
+const pageSize = ref(10)
+const currentPage = ref(1)
 const tabs = [
   { key: 'communities', label: 'OPC 社区', subtitle: '高校载体与空间' },
   { key: 'support', label: '支持措施', subtitle: '课程、算力与孵化' },
@@ -87,6 +135,25 @@ const filteredRecords = computed(() => activeRecords.value.filter((record) => {
     && (!filters.evidence || record.grade === filters.evidence)
     && (!filters.keyword || haystack.includes(filters.keyword.toLowerCase()))
 }))
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredRecords.value.length / pageSize.value)))
+const paginatedRecords = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredRecords.value.slice(start, start + pageSize.value)
+})
+const paginationPages = computed(() => {
+  const total = totalPages.value
+  const start = Math.max(1, Math.min(currentPage.value - 2, total - 4))
+  const end = Math.min(total, start + 4)
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index)
+})
+const displayRangeText = computed(() => {
+  if (!filteredRecords.value.length) {
+    return '0 / 0 条'
+  }
+  const start = (currentPage.value - 1) * pageSize.value + 1
+  const end = Math.min(currentPage.value * pageSize.value, filteredRecords.value.length)
+  return `${start}-${end} / ${filteredRecords.value.length} 条`
+})
 
 function statusLabel(status) {
   return { verified: '已核验', partially_verified: '部分核验', pending: '待核验' }[status] || status || '未标注'
@@ -94,6 +161,10 @@ function statusLabel(status) {
 
 function firstUrl(value) {
   return String(value).split(';')[0].trim()
+}
+
+function goToPage(page) {
+  currentPage.value = Math.min(Math.max(Number(page) || 1, 1), totalPages.value)
 }
 
 onMounted(async () => {
@@ -115,6 +186,19 @@ watch(
     activeTab.value = normalizeTab(tab)
   },
 )
+
+watch(
+  () => [activeTab.value, filters.province, filters.evidence, filters.keyword, pageSize.value],
+  () => {
+    currentPage.value = 1
+  },
+)
+
+watch(totalPages, (pages) => {
+  if (currentPage.value > pages) {
+    currentPage.value = pages
+  }
+})
 
 </script>
 

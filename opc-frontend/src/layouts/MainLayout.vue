@@ -109,41 +109,60 @@
           <small>Case archive</small>
         </RouterLink>
         <div
+          ref="universityNavGroup"
           class="nav-group university-nav-group"
-          :class="{ 'nav-group-open': universityMenuOpen || universityMenuActive }"
+          :class="{
+            'nav-group-open': universityMenuOpen,
+            'nav-group-active': universityMenuActive,
+          }"
         >
           <button
             type="button"
             class="nav-group-trigger"
-            :aria-expanded="universityMenuOpen || universityMenuActive"
+            :aria-expanded="universityMenuOpen"
             aria-controls="university-opc-subnav"
-            aria-label="展开高校 OPC 子菜单"
+            :aria-label="universityMenuOpen ? '收起高校 OPC 子菜单' : '展开高校 OPC 子菜单'"
             @click="universityMenuOpen = !universityMenuOpen"
+            @keydown.esc="universityMenuOpen = false"
           >
-            <span>
-              <strong>高校 OPC</strong>
+            <span class="nav-group-copy">
+              <span class="nav-group-title">高校 OPC</span>
               <small>University OPC</small>
             </span>
             <ChevronDown :size="16" aria-hidden="true" />
           </button>
-          <div
-            v-show="universityMenuOpen || universityMenuActive"
-            id="university-opc-subnav"
-            class="nav-submenu"
-          >
-            <RouterLink to="/university-opc?tab=communities" :class="{ 'nav-active': universityTabActive('communities') }">
-              <span>OPC 社区</span>
-            </RouterLink>
-            <RouterLink to="/university-opc?tab=support" :class="{ 'nav-active': universityTabActive('support') }">
-              <span>支持措施</span>
-            </RouterLink>
-            <RouterLink to="/university-opc?tab=activities" :class="{ 'nav-active': universityTabActive('activities') }">
-              <span>竞赛活动</span>
-            </RouterLink>
-            <RouterLink to="/university-opc?tab=cases" :class="{ 'nav-active': universityTabActive('cases') }">
-              <span>高校创业案例</span>
-            </RouterLink>
-          </div>
+          <Transition name="university-submenu">
+            <div
+              v-if="universityMenuOpen"
+              id="university-opc-subnav"
+              class="nav-submenu"
+            >
+              <RouterLink to="/university-opc?tab=communities" :class="{ 'nav-active': universityTabActive('communities') }" @click="universityMenuOpen = false">
+                <span class="nav-submenu-copy">
+                  <span class="nav-submenu-title">OPC 社区</span>
+                  <small>OPC communities</small>
+                </span>
+              </RouterLink>
+              <RouterLink to="/university-opc?tab=support" :class="{ 'nav-active': universityTabActive('support') }" @click="universityMenuOpen = false">
+                <span class="nav-submenu-copy">
+                  <span class="nav-submenu-title">支持措施</span>
+                  <small>Support measures</small>
+                </span>
+              </RouterLink>
+              <RouterLink to="/university-opc?tab=activities" :class="{ 'nav-active': universityTabActive('activities') }" @click="universityMenuOpen = false">
+                <span class="nav-submenu-copy">
+                  <span class="nav-submenu-title">竞赛活动</span>
+                  <small>Competition activities</small>
+                </span>
+              </RouterLink>
+              <RouterLink to="/university-opc?tab=cases" :class="{ 'nav-active': universityTabActive('cases') }" @click="universityMenuOpen = false">
+                <span class="nav-submenu-copy">
+                  <span class="nav-submenu-title">高校创业案例</span>
+                  <small>University venture cases</small>
+                </span>
+              </RouterLink>
+            </div>
+          </Transition>
         </div>
         <RouterLink
           to="/sources"
@@ -217,7 +236,8 @@ const route = useRoute()
 const isHome = computed(() => route.name === 'home')
 const sidebarCollapsed = ref(false)
 const mobileSidebarOpen = ref(false)
-const universityMenuOpen = ref(false)
+const universityMenuOpen = ref(route.name === 'university-opc')
+const universityNavGroup = ref(null)
 const showBackToTop = ref(false)
 const routeClass = computed(() => (route.name ? `route-${route.name}` : ''))
 const userLoggedIn = computed(() => Boolean(route.fullPath) && isUserAuthenticated())
@@ -228,6 +248,18 @@ watch(
   () => route.fullPath,
   () => {
     mobileSidebarOpen.value = false
+  },
+)
+
+watch(
+  () => route.name,
+  (name, previousName) => {
+    if (name === 'university-opc' && previousName !== 'university-opc') {
+      universityMenuOpen.value = true
+    }
+    if (name !== 'university-opc') {
+      universityMenuOpen.value = false
+    }
   },
 )
 
@@ -292,12 +324,28 @@ function scrollToTop() {
   window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
 }
 
+function closeUniversityMenuOnOutsidePointer(event) {
+  if (universityNavGroup.value && !universityNavGroup.value.contains(event.target)) {
+    universityMenuOpen.value = false
+  }
+}
+
+function closeUniversityMenuOnEscape(event) {
+  if (event.key === 'Escape') {
+    universityMenuOpen.value = false
+  }
+}
+
 onMounted(() => {
   updateBackToTopVisibility()
   window.addEventListener('scroll', updateBackToTopVisibility, { passive: true })
+  document.addEventListener('pointerdown', closeUniversityMenuOnOutsidePointer)
+  document.addEventListener('keydown', closeUniversityMenuOnEscape)
 })
 
 onUnmounted(() => {
   window.removeEventListener('scroll', updateBackToTopVisibility)
+  document.removeEventListener('pointerdown', closeUniversityMenuOnOutsidePointer)
+  document.removeEventListener('keydown', closeUniversityMenuOnEscape)
 })
 </script>
