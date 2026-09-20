@@ -68,7 +68,8 @@ class AnalyticsOverviewServiceTest {
         PolicyMapper policies = mock(PolicyMapper.class);
         SourceMapper sources = mock(SourceMapper.class);
         stubAnalyticsVersion(cases, policies, sources, 0L, 3L, 3L);
-        when(policies.selectEligibleProvinceAnalyticsRows()).thenReturn(List.of(
+        when(policies.countAllPolicyRecords()).thenReturn(3L);
+        when(policies.selectAllProvinceAnalyticsRows()).thenReturn(List.of(
                 new PolicyMapper.AnalyticsProvinceRow(33L, "浙江省", 2L),
                 new PolicyMapper.AnalyticsProvinceRow(32L, "江苏省", 1L)
         ));
@@ -122,7 +123,7 @@ class AnalyticsOverviewServiceTest {
         PolicyMapper policies = mock(PolicyMapper.class);
         SourceMapper sources = mock(SourceMapper.class);
         stubAnalyticsVersion(cases, policies, sources, 0L, 3L, 3L);
-        when(policies.selectEligibleAnalyticsRows(null)).thenReturn(List.of(
+        when(policies.selectAllPolicyAnalyticsRows()).thenReturn(List.of(
                 policyRow(11L, LocalDate.of(2026, 1, 5), 7L, "浙江省"),
                 policyRow(12L, LocalDate.of(2026, 1, 20), 7L, "浙江省"),
                 policyRow(13L, LocalDate.of(2026, 2, 1), 9L, "江苏省")
@@ -353,6 +354,7 @@ class AnalyticsOverviewServiceTest {
     ) {
         when(cases.countEligibleAnalyticsRecords()).thenReturn(caseCount);
         when(policies.countEligibleAnalyticsRecords()).thenReturn(policyCount);
+        when(policies.countAllPolicyRecords()).thenReturn(policyCount);
         when(sources.countEligibleAnalyticsRecords()).thenReturn(sourceCount);
         when(cases.selectEligibleAnalyticsVersionStamps()).thenReturn(List.of());
         when(cases.selectEligibleIndustryAnalyticsVersionStamps()).thenReturn(List.of());

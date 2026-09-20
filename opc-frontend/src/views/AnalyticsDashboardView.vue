@@ -17,7 +17,7 @@
     <template v-else>
       <header class="analytics-heading">
         <div>
-          <p class="analytics-eyebrow">已发布且已核验的数据范围</p>
+          <p class="analytics-eyebrow">政策资料全量统计范围</p>
           <h2 id="analytics-dashboard-title">研究数据看板</h2>
         </div>
         <dl class="analytics-provenance" aria-label="数据版本信息">
@@ -28,15 +28,15 @@
 
       <p v-if="handoffMessage" class="analytics-handoff-status" role="status">{{ handoffMessage }}</p>
 
-      <div v-if="availableCards.length" class="analytics-grid" aria-label="可研究的已核验指标">
+      <div v-if="availableCards.length" class="analytics-grid" aria-label="可研究的政策统计指标">
         <article v-for="card in availableCards" :key="card.metricId" class="analytics-metric">
           <div class="analytics-metric-copy">
             <p>{{ card.label }}</p>
             <strong>{{ formatValue(card.value) }}<small>{{ card.unit || '' }}</small></strong>
-            <span>当前已核验样本</span>
+            <span>当前政策全量记录</span>
           </div>
           <div class="analytics-metric-action">
-            <span class="analytics-status"><CheckCircle2 :size="15" aria-hidden="true" />已核验</span>
+            <span class="analytics-status"><CheckCircle2 :size="15" aria-hidden="true" />全量统计</span>
             <button
               type="button"
               class="analytics-command"
@@ -59,7 +59,7 @@
           <div>
             <p class="analytics-eyebrow">政策资料性质</p>
             <h3 id="policy-material-title">政策资料构成</h3>
-            <p>按人工核验的资料性质展示核心数量；其他资料不纳入 80 条正式政策的七类统计。</p>
+            <p>按人工核验的资料性质展示核心数量；七类主题统计以完成复核的政策分析样本为准。</p>
           </div>
           <strong class="analytics-resource-total">{{ formatValue(materialTotal) }} 条</strong>
         </header>
@@ -168,7 +168,7 @@
           <div>
             <p class="analytics-eyebrow">全国空间分布 · 已发布且已核验</p>
             <h3 id="regional-distribution-title">全国 OPC 区域分布</h3>
-            <p>按省份或七大区、港澳台及其他地区比较政策与案例数量，点击省份可进入对应明细。</p>
+            <p>按省份或七大区、港澳台及其他地区比较全部政策资料与案例数量，点击省份可进入对应明细。</p>
           </div>
           <div class="analytics-toggle-group" role="group" aria-label="区域统计范围">
             <button v-for="option in regionalLevelOptions" :key="option.value" type="button" :class="{ active: regionalLevel === option.value }" @click="regionalLevel = option.value">{{ option.label }}</button>

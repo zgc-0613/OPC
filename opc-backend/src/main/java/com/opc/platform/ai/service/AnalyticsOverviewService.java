@@ -76,7 +76,7 @@ public class AnalyticsOverviewService {
                         "overview.verified_cases", "已核验案例", null, "条", "Red",
                         "案例尚未具备独立 canonical_case_id，不能发布已核验案例总数。"),
                 new AnalyticsOverviewVO.MetricCard(
-                        "overview.verified_policies", "已核验政策", policies, "条", "Green", null),
+                        "overview.verified_policies", "政策分析样本", policies, "条", "Green", null),
                 new AnalyticsOverviewVO.MetricCard(
                         "overview.verified_sources", "已核验来源", sources, "条", "Yellow",
                         "来源尚未具备 canonical_source_id，当前按已核验来源记录 ID 去重。"),
@@ -236,14 +236,14 @@ public class AnalyticsOverviewService {
 
     private AnalyticsUnavailableVO policyRegions(String regionRole) {
         List<PolicyMapper.AnalyticsProvinceRow> groupedRows =
-                policyMapper.selectEligibleProvinceAnalyticsRows();
+                policyMapper.selectAllProvinceAnalyticsRows();
         groupedRows = groupedRows == null ? List.of() : groupedRows.stream()
                 .filter(java.util.Objects::nonNull)
                 .filter(row -> row.getRegionId() != null && row.getRegionId() > 0)
                 .filter(row -> row.getLabel() != null && !row.getLabel().isBlank())
                 .filter(row -> row.getValue() != null && row.getValue() > 0)
                 .toList();
-        long totalEligible = count("policy");
+        long totalEligible = policyMapper.countAllPolicyRecords();
         List<AnalyticsUnavailableVO.RegionRow> values = groupedRows.stream()
                 .map(row -> provinceRegionRow(
                         row.getRegionId(), row.getLabel(), row.getValue(), regionRole,
@@ -259,7 +259,7 @@ public class AnalyticsOverviewService {
         List<AnalyticsUnavailableVO.Caveat> caveats = missing == 0 ? List.of() : List.of(
                 new AnalyticsUnavailableVO.Caveat(
                         "POLICY_REGION_MISSING",
-                        "全国性政策及缺少可解析省份的合格政策不纳入省级排名，已计入未归属数量。",
+                        "全国性政策及缺少可解析省份的政策不纳入省级排名，已计入未归属数量。",
                         "warning", List.of("rows", "coverage")));
         String status = rows.isEmpty() ? "empty" : missing > 0 ? "partial" : "complete";
         long cases = count("case");
@@ -268,14 +268,14 @@ public class AnalyticsOverviewService {
                 rows,
                 new AnalyticsUnavailableVO.Metric(
                         "region.policy_count", "各省政策数量", "province-ranking-v1", "Green",
-                        "将省、地市和区县适用地区统一上卷至所属省，统计具备完整已核验来源链的独立政策 ID 数量。",
+                        "将省、地市和区县适用地区统一上卷至所属省，统计全部政策记录的省份归属数量。",
                         "条", false),
                 Map.of("regionRole", regionRole, "regionLevel", "province"),
                 covered, missing, totalEligible, generatedAt,
                 version(cases, totalEligible, sources), freshness, caveats,
                 new AnalyticsUnavailableVO.Drilldown(
                         "/api/analytics/drilldown", List.of("policy"), null, true),
-                status, true, null, freshness, true,
+                status, true, null, freshness, false,
                 AnalyticsUnavailableVO.Coverage.from(totalEligible, covered, missing),
                 rows, List.of(), null, false, covered);
     }
@@ -470,7 +470,7 @@ public class AnalyticsOverviewService {
         List<AnalyticsUnavailableVO.Caveat> caveats = missing == 0 ? List.of() : List.of(
                 new AnalyticsUnavailableVO.Caveat(
                         "POLICY_PUBLISH_DATE_MISSING",
-                        "部分合格政策缺少 publish_date，已从趋势分子中排除并计入覆盖缺失。",
+                        "部分已核验政策缺少 publish_date，已从趋势分子中排除并计入覆盖缺失。",
                         "warning", List.of("series", "coverage")));
         String status = sampleSize == 0 ? "empty" : missing > 0 ? "partial" : "complete";
         long cases = count("case");
@@ -480,7 +480,7 @@ public class AnalyticsOverviewService {
                 series,
                 new AnalyticsUnavailableVO.Metric(
                         "trend.policy_publish_time", "政策发布时间趋势", "phase3-metrics-v1", "Green",
-                        "按 publish_date 分桶统计具备完整已核验来源链的独立政策 ID 数量。",
+                        "按 publish_date 分桶统计已完成证据核验的独立政策 ID 数量。",
                         "条", false),
                 Map.copyOf(filters), sampleSize, missing, eligibleRows.size(), generatedAt,
                 version(cases, policies, sources), freshness, caveats,
@@ -653,7 +653,7 @@ public class AnalyticsOverviewService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "ANALYTICS_INVALID_FILTER");
         }
         int offset = decodeDrilldownOffset(cursor, metricId, dataVersion, bucketId);
-        List<PolicyMapper.AnalyticsPolicyRow> eligibleRows = policyMapper.selectEligibleAnalyticsRows(null);
+        List<PolicyMapper.AnalyticsPolicyRow> eligibleRows = policyMapper.selectAllPolicyAnalyticsRows();
         eligibleRows = eligibleRows == null ? List.of() : eligibleRows.stream()
                 .filter(java.util.Objects::nonNull)
                 .filter(row -> Long.valueOf(regionId).equals(row.getProvinceId()))
@@ -682,7 +682,7 @@ public class AnalyticsOverviewService {
                 rows,
                 new AnalyticsUnavailableVO.Metric(
                         metricId, "地区政策下钻", "phase3-metrics-v1", "Green",
-                        "返回与地区政策聚合相同合格集合中的已核验政策。", "条", false),
+                        "返回与地区政策聚合相同核验集合中的政策。", "条", false),
                 Map.copyOf(filters), aggregateValue, 0, aggregateValue, generatedAt,
                 dataVersion, freshness, List.of(),
                 new AnalyticsUnavailableVO.Drilldown(
@@ -1083,7 +1083,7 @@ public class AnalyticsOverviewService {
 
     private long count(String type) {
         if ("case".equals(type)) return caseMapper.countEligibleAnalyticsRecords();
-        if ("policy".equals(type)) return policyMapper.countEligibleAnalyticsRecords();
+        if ("policy".equals(type)) return policyMapper.countAllPolicyRecords();
         return sourceMapper.countEligibleAnalyticsRecords();
     }
 

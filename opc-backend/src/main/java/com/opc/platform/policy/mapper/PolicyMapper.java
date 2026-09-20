@@ -37,7 +37,7 @@ public interface PolicyMapper extends BaseMapper<Policy> {
             SELECT COUNT(*)
             FROM policies item
             INNER JOIN sources source ON source.id=item.source_id
-            WHERE item.status='published' AND item.ai_evidence_status='verified'
+            WHERE item.status IN ('published', 'consultation', 'expired') AND item.ai_evidence_status='verified'
               AND source.status='published' AND source.ai_evidence_status='verified'
               AND source.title IS NOT NULL AND TRIM(source.title)<>''
               AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
@@ -63,7 +63,7 @@ public interface PolicyMapper extends BaseMapper<Policy> {
             LEFT JOIN regions region ON region.id=item.region_id
             LEFT JOIN regions parent ON parent.id=region.parent_id
             LEFT JOIN regions grandparent ON grandparent.id=parent.parent_id
-            WHERE item.status='published' AND item.ai_evidence_status='verified'
+            WHERE item.status IN ('published', 'consultation', 'expired') AND item.ai_evidence_status='verified'
               AND source.status='published' AND source.ai_evidence_status='verified'
               AND source.title IS NOT NULL AND TRIM(source.title)<>''
               AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
@@ -76,11 +76,69 @@ public interface PolicyMapper extends BaseMapper<Policy> {
     List<AnalyticsProvinceRow> selectEligibleProvinceAnalyticsRows();
 
     @Select("""
+            SELECT COUNT(*)
+            FROM policies
+            """)
+    long countAllPolicyRecords();
+
+    @Select("""
+            SELECT CASE
+                     WHEN region.level='province' THEN region.id
+                     WHEN parent.level='province' THEN parent.id
+                     WHEN grandparent.level='province' THEN grandparent.id
+                   END AS regionId,
+                   CASE
+                     WHEN region.level='province' THEN region.name
+                     WHEN parent.level='province' THEN parent.name
+                     WHEN grandparent.level='province' THEN grandparent.name
+                   END AS label,
+                   COUNT(DISTINCT item.id) AS value
+            FROM policies item
+            LEFT JOIN regions region ON region.id=item.region_id
+            LEFT JOIN regions parent ON parent.id=region.parent_id
+            LEFT JOIN regions grandparent ON grandparent.id=parent.parent_id
+            WHERE region.level='province' OR parent.level='province' OR grandparent.level='province'
+            GROUP BY regionId, label
+            ORDER BY value DESC, regionId ASC
+            """)
+    List<AnalyticsProvinceRow> selectAllProvinceAnalyticsRows();
+
+    @Select("""
+            SELECT item.id,
+                   item.title,
+                   item.publish_date AS publishDate,
+                   item.region_id AS regionId,
+                   region.parent_id AS parentId,
+                   region.level AS regionLevel,
+                   region.name AS regionName,
+                   CASE
+                     WHEN region.level='province' THEN region.id
+                     WHEN parent.level='province' THEN parent.id
+                     WHEN grandparent.level='province' THEN grandparent.id
+                   END AS provinceId,
+                   CASE
+                     WHEN region.level='province' THEN region.name
+                     WHEN parent.level='province' THEN parent.name
+                     WHEN grandparent.level='province' THEN grandparent.name
+                   END AS provinceName,
+                   item.issuing_body AS issuingBody,
+                   item.policy_type AS policyType,
+                   item.ai_evidence_status AS aiEvidenceStatus,
+                   item.updated_at AS updatedAt
+            FROM policies item
+            LEFT JOIN regions region ON region.id=item.region_id
+            LEFT JOIN regions parent ON parent.id=region.parent_id
+            LEFT JOIN regions grandparent ON grandparent.id=parent.parent_id
+            ORDER BY item.publish_date DESC, item.updated_at DESC, item.id DESC
+            """)
+    List<AnalyticsPolicyRow> selectAllPolicyAnalyticsRows();
+
+    @Select("""
             SELECT CONCAT(item.id, ':', COALESCE(item.evidence_revision,0), ':',
                           source.id, ':', COALESCE(source.evidence_revision,0))
             FROM policies item
             INNER JOIN sources source ON source.id=item.source_id
-            WHERE item.status='published' AND item.ai_evidence_status='verified'
+            WHERE item.status IN ('published', 'consultation', 'expired') AND item.ai_evidence_status='verified'
               AND source.status='published' AND source.ai_evidence_status='verified'
               AND source.title IS NOT NULL AND TRIM(source.title)<>''
               AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
@@ -118,7 +176,7 @@ public interface PolicyMapper extends BaseMapper<Policy> {
             LEFT JOIN regions region ON region.id=item.region_id
             LEFT JOIN regions parent ON parent.id=region.parent_id
             LEFT JOIN regions grandparent ON grandparent.id=parent.parent_id
-            WHERE item.status='published' AND item.ai_evidence_status='verified'
+            WHERE item.status IN ('published', 'consultation', 'expired') AND item.ai_evidence_status='verified'
               AND source.status='published' AND source.ai_evidence_status='verified'
               AND source.title IS NOT NULL AND TRIM(source.title)&lt;&gt;''
               AND source.publisher IS NOT NULL AND TRIM(source.publisher)&lt;&gt;''
@@ -136,7 +194,7 @@ public interface PolicyMapper extends BaseMapper<Policy> {
             SELECT MAX(GREATEST(item.updated_at, source.updated_at))
             FROM policies item
             INNER JOIN sources source ON source.id=item.source_id
-            WHERE item.status='published' AND item.ai_evidence_status='verified'
+            WHERE item.status IN ('published', 'consultation', 'expired') AND item.ai_evidence_status='verified'
               AND source.status='published' AND source.ai_evidence_status='verified'
               AND source.title IS NOT NULL AND TRIM(source.title)<>''
               AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
@@ -186,7 +244,7 @@ public interface PolicyMapper extends BaseMapper<Policy> {
                    OR (#{expectedStatus} = 'legacy_unverified' AND item.ai_evidence_status IS NULL))
               AND item.evidence_revision = #{expectedVersion}
               AND item.updated_at = #{expectedUpdatedAt}
-              AND item.status = 'published'
+              AND item.status IN ('published', 'consultation', 'expired')
               AND source.status = 'published'
               AND source.ai_evidence_status = 'verified'
               AND source.title IS NOT NULL AND TRIM(source.title) <> ''
