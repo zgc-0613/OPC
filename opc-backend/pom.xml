@@ -28,6 +28,7 @@
 	</scm>
 	<properties>
 		<java.version>17</java.version>
+		<maven.compiler.release>17</maven.compiler.release>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -141,6 +142,12 @@
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
+					<!-- Unit-test command stays deterministic on machines without Docker.
+					     MySQL/Testcontainers coverage remains available as an explicit
+					     integration-test target. -->
+					<excludes>
+						<exclude>**/*IntegrationTest.java</exclude>
+					</excludes>
 					<environmentVariables>
 						<TESTCONTAINERS_RYUK_DISABLED>true</TESTCONTAINERS_RYUK_DISABLED>
 					</environmentVariables>

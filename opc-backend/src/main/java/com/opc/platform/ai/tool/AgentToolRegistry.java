@@ -152,12 +152,16 @@ public class AgentToolRegistry {
     }
 
     public String jsonCompactResearchRecoverySchemaV2(Set<Long> allowedSourceIds) {
+        return jsonCompactResearchRecoverySchemaV2(allowedSourceIds, null);
+    }
+
+    public String jsonCompactResearchRecoverySchemaV2(Set<Long> allowedSourceIds, String taskType) {
         var root = objectMapper.createObjectNode();
         var branches = root.putArray("oneOf");
         if (allowedSourceIds == null || !allowedSourceIds.isEmpty()) {
-            addCompactRecoveryFinalBranch(branches, "final", allowedSourceIds);
+            addCompactRecoveryFinalBranch(branches, "final", allowedSourceIds, taskType);
         }
-        addCompactRecoveryFinalBranch(branches, "evidence_insufficient", allowedSourceIds);
+        addCompactRecoveryFinalBranch(branches, "evidence_insufficient", allowedSourceIds, taskType);
         return serializeSchema(root);
     }
 
@@ -499,7 +503,8 @@ public class AgentToolRegistry {
     private void addCompactRecoveryFinalBranch(
             com.fasterxml.jackson.databind.node.ArrayNode branches,
             String action,
-            Set<Long> allowedSourceIds
+            Set<Long> allowedSourceIds,
+            String taskType
     ) {
         addResearchFinalBranch(branches, action, allowedSourceIds);
         var branch = (com.fasterxml.jackson.databind.node.ObjectNode) branches.get(branches.size() - 1);
@@ -509,10 +514,19 @@ public class AgentToolRegistry {
                 "citations", "confidence", "evidenceCoverage"
         )) required.add(field);
         var properties = (com.fasterxml.jackson.databind.node.ObjectNode) branch.get("properties");
-        properties.remove(List.of(
+        boolean policyResearch = taskType != null
+                && Set.of("policy_lookup", "mixed_research").contains(taskType);
+        if (policyResearch) required.add("policyInsights");
+        if ("case_analysis".equals(taskType)) required.add("caseInsights");
+        if ("case_comparison".equals(taskType)) required.add("comparison");
+        List<String> omittedFields = new java.util.ArrayList<>(List.of(
                 "caseInsights", "policyInsights", "comparison", "risks", "assumptions",
                 "uncertainties", "nextQuestions"
         ));
+        if (policyResearch) omittedFields.remove("policyInsights");
+        if ("case_analysis".equals(taskType)) omittedFields.remove("caseInsights");
+        if ("case_comparison".equals(taskType)) omittedFields.remove("comparison");
+        properties.remove(omittedFields);
         ((com.fasterxml.jackson.databind.node.ObjectNode) properties.get("directAnswer"))
                 .put("maxLength", 300);
         var keyFindings = (com.fasterxml.jackson.databind.node.ObjectNode) properties.get("keyFindings");

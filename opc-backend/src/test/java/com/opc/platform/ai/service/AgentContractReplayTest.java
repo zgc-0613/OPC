@@ -29,6 +29,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -92,7 +93,8 @@ class AgentContractReplayTest {
             assertEquals(1L, outcome.citations().get(0).sourceId());
             String discardedText = fixture.path("discardedText").asText("");
             if (!discardedText.isEmpty()) {
-                assertFalse(outcome.answer().contains(discardedText));
+                assertTrue(outcome.answer().contains(discardedText));
+                assertTrue(outcome.answer().contains("未通过结构化校验"));
             }
         } else if (fixture.has("status")) {
             AgentOrchestratorOutcome outcome = orchestrator.execute(input, provider, progress -> { });

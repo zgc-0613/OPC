@@ -253,21 +253,6 @@
                 @pointermove="handleContactIconPointerMove"
                 @pointerleave="handleContactIconPointerLeave"
                 @pointercancel="handleContactIconPointerLeave"
-              ><MapPin :size="18" /></span>
-              <div>
-                <strong>所属单位</strong>
-                <p>西北工业大学软件学院</p>
-              </div>
-            </div>
-
-            <div class="home-contact-method">
-              <span
-                class="home-contact-icon"
-                aria-hidden="true"
-                @pointerenter="handleContactIconPointerMove"
-                @pointermove="handleContactIconPointerMove"
-                @pointerleave="handleContactIconPointerLeave"
-                @pointercancel="handleContactIconPointerLeave"
               ><Mail :size="18" /></span>
               <div>
                 <strong>联系人</strong>
@@ -297,7 +282,6 @@
 
         <div class="home-footer-contact">
           <strong>联系我们</strong>
-          <span>西北工业大学软件学院</span>
           <a href="mailto:wangbingshu@nwpu.edu.cn">王兵书 wangbingshu@nwpu.edu.cn</a>
         </div>
       </section>
@@ -308,7 +292,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowRight, Check, LogIn, LogOut, Mail, MapPin, UserRound } from 'lucide-vue-next'
+import { ArrowRight, Check, LogIn, LogOut, Mail, UserRound } from 'lucide-vue-next'
 import AnimatedLetters from '@/components/AnimatedLetters.vue'
 import BrandMark from '@/components/BrandMark.vue'
 import WordsPullUp from '@/components/WordsPullUp.vue'

@@ -149,7 +149,11 @@ public class AgentOrchestrator {
                     : awaitingInitialPlan
                     ? toolRegistry.jsonResearchPlanSchemaV2(input.config().maxToolCalls())
                     : finalResponseRecoveryAttempts > 0
-                    ? toolRegistry.jsonCompactResearchRecoverySchemaV2(toolContext.allowedSourceIds())
+                    ? toolRegistry.jsonCompactResearchRecoverySchemaV2(
+                            toolContext.allowedSourceIds(),
+                            phaseThreeTaskContext == null
+                                    ? researchIntent
+                                    : phaseThreeTaskContext.path("taskType").asText(researchIntent))
                     : toolRegistry.jsonCompactResearchFinalSchemaV2(
                             remainingToolCalls,
                             toolContext.allowedSourceIds());
@@ -548,7 +552,11 @@ public class AgentOrchestrator {
                                 verificationContext.allowedCaseIds(), verificationContext.allowedPolicyIds(),
                                 verificationContext.allowedSourceIds(), phaseThreeTaskContext));
                     }
-                    FinalPayload finalPayload = plan.has("directAnswer")
+                    // Route legacy Phase-Three envelopes through the tolerant
+                    // structured normalizer as well as the current directAnswer
+                    // shape. Simple legacy answer/citations responses still use
+                    // the compact legacy validator.
+                    FinalPayload finalPayload = (plan.has("directAnswer") || plan.has("taskResult"))
                             ? validateStructuredFinal(plan, action, verificationContext, researchIntent,
                             phaseThreeTaskContext)
                             : validateFinal(plan, action, toolContext.allowedSourceIds());
@@ -575,7 +583,21 @@ public class AgentOrchestrator {
                                 || AgentResearchContract.MISSING_FIELD.equals(exception.getDiagnosticCode())
                                 || AgentResearchContract.INVALID_CONFIDENCE.equals(exception.getDiagnosticCode())
                                 || AgentResearchContract.INVALID_EVIDENCE_COVERAGE.equals(exception.getDiagnosticCode())) {
-                            FinalPayload fallback = boundedFinalFallback(
+                            // Phase-three tasks have a stricter structured result contract. Give the
+                            // provider one compact correction opportunity before falling back.
+                            if (phaseThreeTaskContext != null
+                                    && finalResponseRecoveryAttempts < 1
+                                    && round < input.config().maxModelRounds()) {
+                                finalResponseRecoveryAttempts++;
+                                messages.add(AiProviderMessage.user(structuredContractRecoveryPrompt(
+                                        exception.getDiagnosticCode(), toolContext.allowedSourceIds(),
+                                        phaseThreeTaskContext == null
+                                                ? researchIntent
+                                                : phaseThreeTaskContext.path("taskType").asText(researchIntent))));
+                                continue;
+                            }
+                            FinalPayload fallback = modelOutputFallback(
+                                    response.content(),
                                     fallbackEvidenceContext(executionRequirements, verificationContext),
                                     phaseThreeTaskContext, researchIntent,
                                     AgentResearchContract.FINAL_RESPONSE_INVALID_STRUCTURED_FALLBACK,
@@ -591,7 +613,8 @@ public class AgentOrchestrator {
                         if (sourceContractRecoveryAttempts >= MAX_FINAL_CONTRACT_RECOVERIES
                                 || round >= input.config().maxModelRounds()
                                 || sourceContractRecoveryDiagnostics.contains(exception.getDiagnosticCode())) {
-                            FinalPayload fallback = boundedFinalFallback(
+                            FinalPayload fallback = modelOutputFallback(
+                                    response.content(),
                                     fallbackEvidenceContext(executionRequirements, verificationContext),
                                     phaseThreeTaskContext, researchIntent,
                                     AgentResearchContract.FINAL_RESPONSE_CONTRACT_FALLBACK,
@@ -1315,6 +1338,7 @@ public class AgentOrchestrator {
             String resolvedIntent,
             JsonNode phaseThreeTaskContext
     ) {
+        plan = normalizeStructuredProviderResult(plan, action, toolContext, resolvedIntent, phaseThreeTaskContext);
         Set<Long> allowedSourceIds = toolContext.allowedSourceIds();
         if (hasUnknownFields(plan, STRUCTURED_FINAL_FIELDS)) {
             throw failure(ErrorCode.UPSTREAM_ERROR, AgentResearchContract.INVALID_STRUCTURED_RESULT, "结构化研究结果包含未知字段");
@@ -1383,6 +1407,273 @@ public class AgentOrchestrator {
                 ? List.of()
                 : sourceVerification ? mergeStructuredCitations(citations, structuredResult) : citations;
         return new FinalPayload(markdown, finalCitations, confidence.asDouble(), structuredResult);
+    }
+
+    /**
+     * DeepSeek occasionally returns the pre-Phase-Three result envelope even after
+     * receiving the v2 contract. Accept recognizable legacy fields, discard display
+     * metadata, and rebuild server-owned coverage values.
+     */
+    private JsonNode normalizeStructuredProviderResult(
+            JsonNode input,
+            String action,
+            AgentToolContext toolContext,
+            String resolvedIntent,
+            JsonNode phaseThreeTaskContext
+    ) {
+        if (!(input instanceof com.fasterxml.jackson.databind.node.ObjectNode source)) return input;
+        var result = source.deepCopy();
+
+        // Preserve useful legacy content before removing the old envelope.  Older
+        // providers returned taskResult/answer rather than the v2 top-level fields.
+        JsonNode legacyTaskResult = result.path("taskResult").deepCopy();
+
+        // These fields belong to the server assembler, not to the provider contract.
+        for (String field : List.of(
+                "taskType", "taskResult", "authorizedEvidence", "taskSelectedEvidence",
+                "schemaVersion", "evidenceVersion", "generatedAt", "finishReason",
+                "diagnosticCode", "dataVersion", "policyIds", "caseIds")) {
+            result.remove(field);
+        }
+
+        if (!result.has("action")) result.put("action", action);
+        if (!result.has("intent")) result.put("intent", resolvedIntent);
+
+        if (!result.has("directAnswer")) {
+            if (result.path("answer").isTextual()) {
+                result.set("directAnswer", result.path("answer").deepCopy());
+            } else if (legacyTaskResult.isObject()) {
+                String legacyAnswer = firstText(legacyTaskResult,
+                        "directAnswer", "answer", "summary", "caveat");
+                if (StringUtils.hasText(legacyAnswer)) result.put("directAnswer", legacyAnswer);
+            }
+        }
+        result.remove("answer");
+
+        // The provider may include useful policy_lookup details inside the legacy
+        // taskResult envelope.  Map only recognizable statements; never turn
+        // policyIds into sourceIds and never manufacture factual citations.
+        if ((!result.has("policyInsights") || !result.path("policyInsights").isArray()
+                || result.path("policyInsights").isEmpty()) && legacyTaskResult.isObject()) {
+            var legacyInsights = objectMapper.createArrayNode();
+            JsonNode supportMeasures = legacyTaskResult.path("supportMeasures");
+            if (supportMeasures.isObject() && supportMeasures.path("items").isArray()) {
+                for (JsonNode item : supportMeasures.path("items")) {
+                    String text = item.isTextual() ? item.asText() : firstText(item,
+                            "text", "description", "measure", "content");
+                    if (!StringUtils.hasText(text)) continue;
+                    JsonNode itemSourceIds = item.path("sourceIds");
+                    if (!itemSourceIds.isArray()) itemSourceIds = item.path("source_ids");
+                    if (!itemSourceIds.isArray() || itemSourceIds.isEmpty()) continue;
+                    var mapped = legacyInsights.addObject();
+                    mapped.put("text", text);
+                    mapped.put("evidenceType", item.path("evidenceType").asText("fact"));
+                    mapped.set("sourceIds", normalizeIdArray(itemSourceIds));
+                }
+            }
+            if (!legacyInsights.isEmpty()) result.set("policyInsights", legacyInsights);
+        }
+
+        for (String field : List.of(
+                "keyFindings", "caseInsights", "policyInsights", "comparison",
+                "recommendations", "risks", "assumptions", "uncertainties", "nextQuestions")) {
+            if (!result.has(field) || !result.path(field).isArray()) result.putArray(field);
+        }
+
+        JsonNode confidence = result.path("confidence");
+        if (confidence.isTextual()) {
+            String value = confidence.asText().trim().toLowerCase();
+            Double numeric = switch (value) {
+                case "very low", "very_low" -> 0.2D;
+                case "low" -> 0.35D;
+                case "medium", "moderate" -> 0.6D;
+                case "high" -> 0.85D;
+                case "very high", "very_high" -> 0.95D;
+                default -> null;
+            };
+            if (numeric == null) {
+                try {
+                    numeric = Double.parseDouble(value);
+                } catch (NumberFormatException ignored) {
+                    numeric = null;
+                }
+            }
+            if (numeric != null && Double.isFinite(numeric)) result.put("confidence", numeric);
+        }
+
+        // Keep only the citation contract. Metadata fields are ignored; source IDs
+        // are still checked against this run's authorization below.
+        JsonNode citations = result.path("citations");
+        if (citations.isArray()) {
+            var normalizedCitations = objectMapper.createArrayNode();
+            for (JsonNode citation : citations) {
+                if (!citation.isObject()) continue;
+                long sourceId = parsePositiveLong(citation.path("sourceId"));
+                if (sourceId <= 0) sourceId = parsePositiveLong(citation.path("source_id"));
+                if (sourceId <= 0) continue;
+                var item = normalizedCitations.addObject();
+                item.put("sourceId", sourceId);
+                String claim = citation.path("claim").asText("").trim();
+                item.put("claim", StringUtils.hasText(claim) ? claim : "本次研究使用该授权来源作为证据");
+            }
+            result.set("citations", normalizedCitations);
+        } else {
+            result.putArray("citations");
+        }
+
+        JsonNode coverage = result.path("evidenceCoverage");
+        boolean coverageShapeValid = coverage.isObject()
+                && coverage.path("status").isTextual()
+                && Set.of("sufficient", "partial", "insufficient").contains(coverage.path("status").asText())
+                && coverage.path("caseCount").isIntegralNumber()
+                && coverage.path("policyCount").isIntegralNumber()
+                && coverage.path("sourceCount").isIntegralNumber()
+                && coverage.path("limitations").isArray();
+        if (!coverageShapeValid || hasUnknownFields(coverage, COVERAGE_FIELDS)) {
+            AgentToolContext.EvidenceCoverage derived = toolContext.deriveCoverage();
+            var rebuilt = objectMapper.createObjectNode();
+            String status = derived.status();
+            if ("final".equals(action) && "insufficient".equals(status)
+                    && !toolContext.allowedSourceIds().isEmpty()) status = "partial";
+            if ("evidence_insufficient".equals(action)) status = "insufficient";
+            rebuilt.put("status", status);
+            rebuilt.put("caseCount", derived.caseCount());
+            rebuilt.put("policyCount", derived.policyCount());
+            rebuilt.put("sourceCount", derived.sourceCount());
+            rebuilt.putArray("limitations").add("证据覆盖由服务器根据本次授权证据重新计算");
+            result.set("evidenceCoverage", rebuilt);
+        }
+
+        // Be tolerant of provider-side convenience metadata at the top level and
+        // inside result items.  Security-relevant fields are validated below after
+        // this pruning; unknown fields are ignored rather than making the whole
+        // model response unusable.
+        pruneStructuredFields(result);
+        return result;
+    }
+
+    private com.fasterxml.jackson.databind.node.ArrayNode normalizeIdArray(JsonNode values) {
+        var normalized = objectMapper.createArrayNode();
+        if (values != null && values.isArray()) {
+            for (JsonNode value : values) {
+                long id = parsePositiveLong(value);
+                if (id > 0) normalized.add(id);
+            }
+        }
+        return normalized;
+    }
+
+    private long parsePositiveLong(JsonNode value) {
+        if (value == null) return -1;
+        if (value.isIntegralNumber()) return value.asLong() > 0 ? value.asLong() : -1;
+        if (value.isTextual()) {
+            try {
+                long parsed = Long.parseLong(value.asText().trim());
+                return parsed > 0 ? parsed : -1;
+            } catch (NumberFormatException ignored) {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    private String firstText(JsonNode node, String... names) {
+        for (String name : names) {
+            JsonNode value = node.path(name);
+            if (value.isTextual() && StringUtils.hasText(value.asText())) return value.asText().trim();
+        }
+        return "";
+    }
+
+    private void pruneStructuredFields(com.fasterxml.jackson.databind.node.ObjectNode result) {
+        Set<String> allowed = new LinkedHashSet<>(STRUCTURED_FINAL_FIELDS);
+        List<String> remove = new ArrayList<>();
+        result.fieldNames().forEachRemaining(name -> { if (!allowed.contains(name)) remove.add(name); });
+        result.remove(remove);
+        pruneStatementArray(result.path("keyFindings"));
+        pruneStatementArray(result.path("caseInsights"));
+        pruneStatementArray(result.path("policyInsights"));
+        pruneStatementArray(result.path("comparison"));
+        pruneRecommendationArray(result.path("recommendations"));
+        pruneVerificationArray(result.path("verificationClaims"));
+    }
+
+    private void pruneStatementArray(JsonNode values) {
+        if (!values.isArray()) return;
+        for (JsonNode value : values) {
+            if (!(value instanceof com.fasterxml.jackson.databind.node.ObjectNode item)) continue;
+            List<String> remove = new ArrayList<>();
+            item.fieldNames().forEachRemaining(name -> {
+                if (!STATEMENT_FIELDS.contains(name)) remove.add(name);
+            });
+            item.remove(remove);
+            JsonNode sourceIds = item.path("sourceIds");
+            if (sourceIds.isArray()) item.set("sourceIds", normalizeIdArray(sourceIds));
+        }
+    }
+
+    private void pruneRecommendationArray(JsonNode values) {
+        if (!values.isArray()) return;
+        for (JsonNode value : values) {
+            if (!(value instanceof com.fasterxml.jackson.databind.node.ObjectNode item)) continue;
+            List<String> remove = new ArrayList<>();
+            item.fieldNames().forEachRemaining(name -> {
+                if (!RECOMMENDATION_FIELDS.contains(name)) remove.add(name);
+            });
+            item.remove(remove);
+        }
+    }
+
+    private void pruneVerificationArray(JsonNode values) {
+        if (!values.isArray()) return;
+        for (JsonNode value : values) {
+            if (!(value instanceof com.fasterxml.jackson.databind.node.ObjectNode item)) continue;
+            List<String> remove = new ArrayList<>();
+            item.fieldNames().forEachRemaining(name -> {
+                if (!VERIFICATION_CLAIM_FIELDS.contains(name)) remove.add(name);
+            });
+            item.remove(remove);
+        }
+    }
+
+    /**
+     * Keep the model's own text visible when its JSON shape is not recoverable,
+     * while making clear that the text is not a verified factual conclusion.
+     */
+    private FinalPayload modelOutputFallback(
+            String modelContent,
+            AgentToolContext toolContext,
+            JsonNode phaseThreeTaskContext,
+            String resolvedIntent,
+            String diagnosticCode,
+            String directAnswer,
+            String limitation,
+            String nextAction
+    ) {
+        FinalPayload base = boundedFinalFallback(
+                toolContext, phaseThreeTaskContext, resolvedIntent,
+                diagnosticCode, directAnswer, limitation, nextAction);
+        String raw = modelContent == null ? "" : modelContent.trim();
+        int maxVisibleLength = AgentSessionService.MAX_ASSISTANT_MESSAGE_LENGTH;
+        if (raw.length() > maxVisibleLength) {
+            raw = raw.substring(0, maxVisibleLength) + "…";
+        }
+        String visible = "模型原始输出（未通过结构化校验，不能作为已验证事实）：\n" +
+                (StringUtils.hasText(raw) ? raw : "（模型未返回可展示文本）");
+        if (visible.length() > maxVisibleLength) {
+            visible = visible.substring(0, maxVisibleLength);
+        }
+        JsonNode structured = base.structuredResult();
+        if (structured instanceof com.fasterxml.jackson.databind.node.ObjectNode object) {
+            object.put("directAnswer", visible);
+            object.put("diagnosticCode", diagnosticCode);
+            object.putArray("uncertainties").add(limitation);
+            object.putArray("nextQuestions").add(nextAction);
+            return new FinalPayload(
+                    visible + "\n\n研究限制：" + limitation + "\n下一步：" + nextAction,
+                    base.citations(), 0D, object);
+        }
+        return new FinalPayload(visible, base.citations(), 0D, structured);
     }
 
     private List<AgentCitation> mergeStructuredCitations(
@@ -1759,10 +2050,9 @@ public class AgentOrchestrator {
                 Keep the plan compact: %s.
                 Select the relevant outputSections without duplicates. The final result still returns every schema field, using empty arrays where inapplicable.
                 The server executes requests deterministically. Dependent compare_cases/get_source requests may only reference IDs authorized earlier in this run.
-                Then return exactly one closed structured final result. Mark each statement as fact, inference, or methodology.
-                Facts and recommendations must cite only sourceId values returned in this run. Tailor priorities to stage, budget, goal, and resources.
-                Use evidenceCoverage=partial for bounded but useful evidence; reserve action=evidence_insufficient for evidence that cannot support the core facts.
-                The response schema defines the complete tool whitelist and exact argument contracts. Keep every field concise.
+                This is the planning phase: return only the action=plan object and its toolRequests.
+                Do not return taskResult, policyIds, citations, evidenceCoverage, or a final answer in this phase.
+                The response schema defines the complete tool whitelist and exact argument contracts. Keep the plan compact.
                 """.formatted(AgentResearchContract.planningBoundaryPrompt());
     }
 
@@ -1777,6 +2067,12 @@ public class AgentOrchestrator {
                 Every fact statement must contain at least one sourceId. If no source supports it, classify it as inference or methodology.
                 Mark statements as fact, inference, or methodology and tailor priorities to stage, budget, goal, and resources.
                 Keep the result compact: directAnswer within 300 Chinese characters, %s, and empty arrays for inapplicable sections.
+                Return exactly one JSON object with no Markdown or code fence. Use only fields allowed by the supplied schema;
+                never add taskResult, policyIds, URLs, titles, publisher fields, or any other convenience fields to the model result.
+                confidence must be a JSON number between 0 and 1, never a label such as low/medium/high.
+                evidenceCoverage.status must be exactly sufficient, partial, or insufficient; its counts must be integers.
+                Include every required array even when empty. For policy_lookup, put policy conclusions in policyInsights and
+                cite sourceIds in citations; do not substitute policyIds for sourceIds. For evidence_insufficient, citations must be [].
                 Use evidenceCoverage=partial for bounded useful evidence; use evidence_insufficient only when core facts are unsupported.
                 For source_verification, optionally return verificationClaims with claimId, text, relation (supports, contradicts, or unresolved), and only authorized sourceIds. The server derives the final verdict and preserves conflicts.
                 """.formatted(AgentResearchContract.synthesisBoundaryPrompt());
@@ -1791,6 +2087,22 @@ public class AgentOrchestrator {
                 + ". Return one corrected structured result. Use action=final with at least one authorized citation "
                 + "when the evidence supports a bounded answer. Use action=evidence_insufficient only with an empty "
                 + "citations array. Do not invent, translate, or substitute any ID.";
+    }
+
+    private String structuredContractRecoveryPrompt(
+            String diagnosticCode,
+            Set<Long> allowedSourceIds,
+            String taskType
+    ) {
+        return "The previous final JSON was rejected by the server contract ("
+                + diagnosticCode + "). Return one corrected compact JSON object only. "
+                + "Do not call tools, add prose, or introduce fields outside the supplied schema. "
+                + "Use only evidence already present in the verified evidence bundle. The only authorized sourceId values are "
+                + objectMapper.valueToTree(allowedSourceIds) + ". For taskType=" + taskType
+                + ", include its required result section. Use numeric confidence from 0 to 1, include every required field, "
+                + "and use empty arrays where appropriate. Every factual finding and recommendation must cite authorized sourceIds; "
+                + "if evidence does not support a claim, omit it or mark the result evidence_insufficient. "
+                + "Do not repeat or rely on any unverified conclusion from the discarded response.";
     }
 
     private boolean isRecoverableSourceContractFailure(String diagnosticCode) {

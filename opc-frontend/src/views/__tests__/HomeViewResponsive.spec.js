@@ -73,4 +73,9 @@ describe('HomeView responsive layout contract', () => {
       /overflow-wrap\s*:\s*(?:normal|break-word)/i.test(declarations),
     )).toBe(true)
   })
+
+  it('does not display the university or school affiliation on the home page', () => {
+    expect(homeSource).not.toContain('西北工业大学软件学院')
+    expect(homeSource).not.toMatch(/<strong>所属单位<\/strong>/)
+  })
 })
