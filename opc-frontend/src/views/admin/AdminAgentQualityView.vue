@@ -370,7 +370,7 @@ onMounted(loadQuality)
 <style scoped>
 .quality-page { gap: 22px; }
 .quality-intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding: 4px 2px; }
-.quality-intro h2, .quality-panel h2, .quality-empty h2 { margin: 7px 0 0; color: #202420; font-family: 'Noto Serif SC', STSong, SimSun, serif; font-weight: 500; letter-spacing: 0; }
+.quality-intro h2, .quality-panel h2, .quality-empty h2 { margin: 7px 0 0; color: #202420; font-family: var(--font-ui); font-weight: 500; letter-spacing: 0; }
 .quality-intro h2 { font-size: clamp(1.7rem, 2.8vw, 2.45rem); }
 .quality-intro p { max-width: 720px; margin: 10px 0 0; color: #59605a; line-height: 1.65; }
 .quality-intro__scope { max-width: 360px !important; margin: 0 !important; padding: 12px 0 12px 14px; border-left: 3px solid #7b857b; color: #555e55 !important; font-size: .78rem; }
@@ -399,7 +399,7 @@ onMounted(loadQuality)
 .quality-metrics > div:first-child { padding-left: 0; }
 .quality-metrics > div:last-child { padding-right: 0; border-right: 0; }
 .quality-metrics dt, .quality-feedback-summary dt { color: #616862; font-size: .72rem; font-weight: 700; }
-.quality-metrics dd, .quality-feedback-summary dd { margin: 0; color: #222722; font-family: 'Bookman Old Style', Georgia, serif; font-size: 1.55rem; line-height: 1.1; }
+.quality-metrics dd, .quality-feedback-summary dd { margin: 0; color: #222722; font-family: var(--font-ui); font-size: 1.55rem; line-height: 1.1; }
 .quality-metrics small { color: #697069; font-size: .72rem; line-height: 1.5; }
 .quality-breakdowns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 18px; }
 .quality-table-wrap { overflow-x: auto; }
@@ -414,7 +414,7 @@ onMounted(loadQuality)
 .quality-signal-list li { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 0; border-bottom: 1px solid #dfe2dc; color: #555d56; font-size: .78rem; }
 .quality-signal-list li:last-child { border-bottom: 0; }
 .quality-signal-list code { color: #343b35; font: 600 .74rem/1.3 'Courier New', monospace; overflow-wrap: anywhere; }
-.quality-signal-list strong { color: #252a25; font-family: 'Bookman Old Style', Georgia, serif; }
+.quality-signal-list strong { color: #252a25; font-family: var(--font-ui); }
 .quality-feedback-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 16px 0 8px; border-top: 1px solid #dfe2dc; border-left: 1px solid #dfe2dc; }
 .quality-feedback-summary > div { display: grid; gap: 5px; padding: 13px; border-right: 1px solid #dfe2dc; border-bottom: 1px solid #dfe2dc; }
 .quality-panel__empty, .quality-panel__note { margin: 14px 0 0; color: #697069; font-size: .77rem; line-height: 1.55; }

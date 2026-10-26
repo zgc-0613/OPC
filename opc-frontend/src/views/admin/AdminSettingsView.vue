@@ -880,7 +880,7 @@ const DEFAULT_VERIFICATION_HTML = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SoloFirm 邮箱验证码</title>
 </head>
-<body style="margin:0;padding:24px;background:#eef0eb;color:#181a18;font-family:Georgia,Times New Roman,serif;">
+<body style="margin:0;padding:24px;background:#eef0eb;color:#181a18;font-family:Noto Sans SC,Microsoft YaHei,sans-serif;">
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;">你的 SoloFirm 注册验证码是 {{code}}</div>
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;background:#eef0eb;border-collapse:collapse;">
     <tr><td align="center">
@@ -888,14 +888,14 @@ const DEFAULT_VERIFICATION_HTML = `<!DOCTYPE html>
         <tr><td style="padding:26px 30px;border-bottom:1px solid #d7dad5;">
           <table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>
             <td width="64" style="width:64px;vertical-align:middle;"><img src="cid:solofirm-logo" width="52" height="52" alt="SoloFirm" style="display:block;width:52px;height:52px;border:0;border-radius:14px;"></td>
-            <td style="vertical-align:middle;"><div style="color:#181a18;font-family:Bookman Old Style,Georgia,serif;font-size:23px;font-weight:700;line-height:1.1;">SoloFirm</div><div style="margin-top:5px;color:#646a65;font-size:12px;line-height:1.2;">{{site_name}} / ACCOUNT VERIFICATION</div></td>
+            <td style="vertical-align:middle;"><div style="color:#181a18;font-family:Noto Sans SC,Microsoft YaHei,sans-serif;font-size:23px;font-weight:700;line-height:1.1;">SoloFirm</div><div style="margin-top:5px;color:#646a65;font-size:12px;line-height:1.2;">{{site_name}} / ACCOUNT VERIFICATION</div></td>
           </tr></table>
         </td></tr>
         <tr><td style="padding:34px 30px 30px;">
           <div style="color:#555c56;font-size:12px;font-weight:700;line-height:1.4;">邮箱安全验证</div>
           <h1 style="margin:9px 0 14px;color:#181a18;font-size:30px;font-weight:500;line-height:1.2;">验证你的邮箱</h1>
           <p style="margin:0 0 22px;color:#4f5650;font-size:15px;line-height:1.75;">你正在登录 {{site_name}}。请使用下面的验证码完成验证：</p>
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;border-radius:6px;background:#181a18;border-collapse:separate;"><tr><td align="center" style="padding:24px 18px;"><div style="margin-bottom:9px;color:#aeb4ae;font-size:11px;line-height:1.2;">VERIFICATION CODE</div><div style="color:#fbfbf8;font-family:Bookman Old Style,Georgia,serif;font-size:36px;font-weight:700;line-height:1;letter-spacing:7px;">{{code}}</div></td></tr></table>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;border-radius:6px;background:#181a18;border-collapse:separate;"><tr><td align="center" style="padding:24px 18px;"><div style="margin-bottom:9px;color:#aeb4ae;font-size:11px;line-height:1.2;">VERIFICATION CODE</div><div style="color:#fbfbf8;font-family:Noto Sans SC,Microsoft YaHei,sans-serif;font-size:36px;font-weight:700;line-height:1;letter-spacing:7px;">{{code}}</div></td></tr></table>
           <p style="margin:22px 0 0;color:#343a35;font-size:14px;line-height:1.7;">验证码将在 <strong>{{expires_minutes}} 分钟</strong>后失效，请勿转发给他人。</p>
           <p style="margin:8px 0 0;color:#737a74;font-size:13px;line-height:1.7;">如果不是你本人操作，可以忽略这封邮件。</p>
         </td></tr>
@@ -1756,7 +1756,7 @@ function resetCaptchaNotice() {
 }
 
 .ai-model-options > button strong {
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-size: 0.92rem;
   font-weight: 600;
 }
@@ -1823,7 +1823,7 @@ function resetCaptchaNotice() {
 
 .ai-temperature-field output {
   color: #181a18;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1896,7 +1896,7 @@ function resetCaptchaNotice() {
   display: flex;
   justify-content: space-between;
   color: #747a75;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-size: 0.68rem;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -1999,7 +1999,7 @@ function resetCaptchaNotice() {
 .approval-section-head h3 {
   margin: 5px 0 0;
   color: #181a18;
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font-family: var(--font-ui);
   font-size: 1.15rem;
   line-height: 1.25;
 }
@@ -2014,7 +2014,7 @@ function resetCaptchaNotice() {
   border-radius: 6px;
   background: #f1f2ee;
   color: #343a35;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2089,7 +2089,7 @@ function resetCaptchaNotice() {
 
 .approval-reviewer small {
   color: #6b716c;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-size: 0.72rem;
 }
 

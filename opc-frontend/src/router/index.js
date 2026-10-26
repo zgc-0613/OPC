@@ -2,12 +2,11 @@ import { createRouter, createWebHistory } from 'vue-router'
 import MainLayout from '@/layouts/MainLayout.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import HomeView from '@/views/HomeView.vue'
-import AnalysisOverviewView from '@/views/AnalysisOverviewView.vue'
-import AnalyticsDashboardView from '@/views/AnalyticsDashboardView.vue'
+import AnalysisWorkspaceView from '@/views/AnalysisWorkspaceView.vue'
 import LoginView from '@/views/LoginView.vue'
 import UserAccountView from '@/views/UserAccountView.vue'
 import AdminLoginView from '@/views/AdminLoginView.vue'
-import RegionDirectoryView from '@/views/RegionDirectoryView.vue'
+import PlatformCollectionView from '@/views/PlatformCollectionView.vue'
 import PolicyListView from '@/views/PolicyListView.vue'
 import PolicyDetailView from '@/views/PolicyDetailView.vue'
 import CaseListView from '@/views/CaseListView.vue'
@@ -39,20 +38,17 @@ export const routes = [
       {
         path: 'analysis',
         name: 'analysis-overview',
-        component: AnalysisOverviewView,
+        component: AnalysisWorkspaceView,
       },
       {
         path: 'analytics',
         name: 'analytics-dashboard',
-        component: AnalyticsDashboardView,
-        meta: {
-          requiresUser: true,
-        },
+        component: AnalysisWorkspaceView,
       },
       {
         path: 'regions',
         name: 'region-directory',
-        component: RegionDirectoryView,
+        component: AnalysisWorkspaceView,
       },
       {
         path: 'policies',
@@ -89,6 +85,11 @@ export const routes = [
         path: 'sources',
         name: 'source-ledger',
         component: SourceLedgerView,
+      },
+      {
+        path: 'platforms',
+        name: 'platform-collection',
+        component: PlatformCollectionView,
       },
       {
         path: 'university-opc',
@@ -191,7 +192,7 @@ router.beforeEach((to) => {
       path: '/login',
       query: {
         redirect: to.fullPath,
-        reason: ['case-analysis', 'assistant', 'analytics-dashboard'].includes(to.name) ? 'ai-login-required' : undefined,
+        reason: ['case-analysis', 'assistant'].includes(to.name) ? 'ai-login-required' : undefined,
       },
     }
   }
@@ -291,6 +292,7 @@ function getPageTitle(route) {
     'analysis-overview': '资料分析',
     'analytics-dashboard': '研究数据看板',
     'region-directory': '地区目录',
+    'platform-collection': '平台集合',
     'policy-list': '政策索引',
     'policy-detail': `政策详情 #${route.params.id}`,
     'case-list': '案例索引',

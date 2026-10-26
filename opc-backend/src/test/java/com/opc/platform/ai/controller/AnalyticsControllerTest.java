@@ -26,9 +26,11 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -67,6 +69,25 @@ class AnalyticsControllerTest {
                 .andExpect(jsonPath("$.data.buckets[0].bucketId").value("industry:7"))
                 .andExpect(jsonPath("$.data.dataVersion").value("analytics-v1:test"));
         verify(analyticsOverviewService).industries(any(), eq("industry.case_count"), eq(List.of(7L)));
+    }
+
+    @Test
+    void anonymousVisitorReadsPublicIndustryAnalyticsWithoutUserAuthentication() throws Exception {
+        when(analyticsOverviewService.industries(
+                isNull(), eq("industry.case_count"), eq(List.of(7L))))
+                .thenReturn(response());
+
+        mockMvc.perform(get("/api/analytics/industries")
+                        .param("metricId", "industry.case_count")
+                        .param("industryTagIds", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.metric.metricId").value("industry.case_count"))
+                .andExpect(jsonPath("$.data.buckets[0].bucketId").value("industry:7"));
+
+        verifyNoInteractions(userAuthService);
+        verify(analyticsOverviewService).industries(
+                isNull(), eq("industry.case_count"), eq(List.of(7L)));
     }
 
     private AnalyticsIndustriesVO response() {

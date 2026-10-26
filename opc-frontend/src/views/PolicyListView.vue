@@ -1,187 +1,70 @@
 <template>
-  <div class="page-stack policy-index-page archive-workspace-page">
-    <section class="panel filter-panel policy-filter-panel scroll-reveal" @pointermove="handlePolicySpotlight">
-      <div class="policy-motion-field" aria-hidden="true">
-        <span class="policy-ray policy-ray-one"></span>
-        <span class="policy-ray policy-ray-two"></span>
-        <span class="policy-ray policy-ray-three"></span>
-        <span class="policy-node policy-node-one"></span>
-        <span class="policy-node policy-node-two"></span>
-        <span class="policy-node policy-node-three"></span>
-        <span class="policy-scan"></span>
-      </div>
-      <div class="section-header">
-        <div>
-          <h2>政策检索</h2>
-          <p>点击地区或涉及主题即可自动筛选政策，关键词输入后自动搜索。</p>
-        </div>
-        <button class="button button-export" type="button" @click="exportPolicies">导出 Excel</button>
+  <div class="policy-explorer">
+    <div class="policy-explorer-main">
+      <form class="policy-search" role="search" @submit.prevent="runSearch">
+        <Search :size="25" aria-hidden="true" />
+        <label class="sr-only" for="policy-keyword">搜索政策关键词</label>
+        <input id="policy-keyword" v-model.trim="query.keyword" placeholder="搜索政策关键词，例如：人工智能、绿色低碳、专精特新..." />
+        <button type="submit">搜索</button>
+      </form>
+
+      <div class="policy-explorer-filters">
+        <label><span>地区</span><select v-model="query.regionId"><option value="">全部地区</option><option v-for="region in visibleRegions" :key="region.id" :value="String(region.id)">{{ region.name }}</option></select></label>
+        <label><span>政策主题</span><select v-model="query.policyType"><option v-for="item in policyTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+        <label><span>排序方式</span><select v-model="sortMode"><option v-for="item in sortOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
       </div>
 
-      <div class="policy-summary-strip">
-        <div>
-          <span>政策总量</span>
-          <strong>{{ allPolicies.length }}</strong>
-        </div>
-        <div>
-          <span>当前结果</span>
-          <strong>{{ policies.length }}</strong>
-        </div>
-        <div>
-          <span>覆盖地区</span>
-          <strong>{{ coveredRegionCount }}</strong>
-        </div>
-        <div>
-          <span>涉及主题</span>
-          <strong>{{ usedPolicyTypeCount }}</strong>
-        </div>
-      </div>
-      <p class="policy-summary-note">统计口径：主分类用于研究统计，涉及主题按七类标签筛选，一项政策可涉及多个主题。</p>
-
-      <div class="auto-filter-grid">
-        <label>
-          <span>关键词检索</span>
-          <input v-model.trim="query.keyword" placeholder="搜索标题、摘要、标签" />
-        </label>
-        <label>
-          <span>地区</span>
-          <div class="custom-select" :class="{ open: regionMenuOpen }">
-            <button class="custom-select-trigger" type="button" @click="toggleRegionMenu">
-              <span>{{ selectedRegionLabel }}</span>
-              <b></b>
-            </button>
-            <div v-if="regionMenuOpen" class="custom-select-menu">
-              <button type="button" :class="{ active: !query.regionId }" @click="selectRegion('')">
-                全部地区
-              </button>
-              <button
-                v-for="region in visibleRegions"
-                :key="region.id"
-                type="button"
-                :class="{ active: query.regionId === String(region.id) }"
-                @click="selectRegion(region.id)"
-              >
-                {{ region.name }}
-              </button>
-            </div>
-          </div>
-        </label>
-        <label>
-          <span>涉及主题</span>
-          <div class="custom-select" :class="{ open: policyTypeMenuOpen }">
-            <button class="custom-select-trigger" type="button" @click="togglePolicyTypeMenu">
-              <span>{{ selectedPolicyTypeLabel }}</span>
-              <b></b>
-            </button>
-            <div v-if="policyTypeMenuOpen" class="custom-select-menu">
-              <button
-                v-for="item in policyTypeOptions"
-                :key="item.value"
-                type="button"
-                :class="{ active: query.policyType === item.value }"
-                @click="selectPolicyType(item.value)"
-              >
-                {{ item.label }}
-              </button>
-            </div>
-          </div>
-        </label>
-        <label>
-          <span>排序方式</span>
-          <div class="custom-select" :class="{ open: sortMenuOpen }">
-            <button class="custom-select-trigger" type="button" @click="toggleSortMenu">
-              <span>{{ selectedSortLabel }}</span>
-              <b></b>
-            </button>
-            <div v-if="sortMenuOpen" class="custom-select-menu">
-              <button
-                v-for="item in sortOptions"
-                :key="item.value"
-                type="button"
-                :class="{ active: sortMode === item.value }"
-                @click="selectSort(item.value)"
-              >
-                {{ item.label }}
-              </button>
-            </div>
-          </div>
-        </label>
-      </div>
-    </section>
-
-    <section class="panel policy-index-panel scroll-reveal" @pointermove="handlePolicySpotlight">
-      <div class="section-header compact-header">
-        <div>
-          <h2>政策索引</h2>
-          <p>{{ resultText }}</p>
-        </div>
-        <button v-if="hasActiveFilter" class="button button-ghost" type="button" @click="resetFilters">
-          清除筛选
-        </button>
+      <div class="policy-explorer-status">
+        <span>{{ loading ? '正在加载政策资料…' : '找到 ' + policies.length + ' 条政策资料' }}</span>
+        <button v-if="hasActiveFilter" type="button" @click="resetFilters">清空筛选</button>
+        <button type="button" @click="exportPolicies">导出 Excel</button>
       </div>
 
-      <div v-if="loading" class="muted">正在加载政策...</div>
-      <div v-else-if="error" class="error">{{ error }}</div>
-      <div v-else-if="!policies.length" class="empty-state">
-        <strong>暂无匹配政策</strong>
-        <span>可以换一个地区、类型或关键词试试。</span>
-      </div>
-      <div v-else class="table-wrap policy-table-wrap">
-        <table class="policy-table">
-          <thead>
-            <tr>
-              <th>标题</th>
-              <th>地区</th>
-              <th>发文单位</th>
-              <th>发布日期</th>
-              <th>标签</th>
-              <th>点击量</th>
-              <th>状态</th>
-            </tr>
-          </thead>
+      <div class="policy-explorer-table-wrap">
+        <div v-if="error" class="policy-explorer-error" role="alert">{{ error }}</div>
+        <div v-else-if="loading" class="policy-explorer-empty" role="status">正在同步政策资料…</div>
+        <div v-else-if="!policies.length" class="policy-explorer-empty">暂无匹配政策。试试调整关键词或筛选条件。</div>
+        <table v-else class="policy-explorer-table">
+          <thead><tr><th>政策标题</th><th>地区</th><th>发文单位</th><th>发布日期</th><th>来源</th></tr></thead>
           <tbody>
-            <tr v-for="policy in paginatedPolicies" :key="policy.id" class="scroll-reveal">
-              <td>
-                <RouterLink :to="`/policies/${policy.id}`">{{ policy.title }}</RouterLink>
-              </td>
-              <td>{{ policy.regionName || '-' }}</td>
-              <td>{{ policy.issuingBody || '-' }}</td>
-              <td>{{ policy.publishDate || '-' }}</td>
-              <td>
-                <div v-if="formatTags(policy.tags).length" class="chip-row">
-                  <span v-for="tag in formatTags(policy.tags)" :key="tag" class="chip">{{ tag }}</span>
-                </div>
-                <span v-else>-</span>
-              </td>
-              <td>
-                <span class="visit-count-pill">{{ getPolicyPv(policy.id) }} 次</span>
-              </td>
-              <td><span class="status-pill">{{ materialNatureText(policy) }}</span></td>
+            <tr v-for="policy in paginatedPolicies" :key="policy.id" :class="{ 'is-selected': selectedPolicy?.id === policy.id }">
+              <td><button type="button" :aria-pressed="selectedPolicy?.id === policy.id" @click="selectedPolicyId = policy.id"><FileText :size="17" /><span>{{ policy.title }}</span></button></td>
+              <td>{{ policy.regionName || '未标注' }}</td>
+              <td>{{ policy.issuingBody || '未标注' }}</td>
+              <td>{{ policy.publishDate || '未标注' }}</td>
+              <td><a v-if="policy.originalUrl" :href="policy.originalUrl" target="_blank" rel="noopener noreferrer" :aria-label="'打开' + policy.title + '原始来源'"><ExternalLink :size="16" /></a><span v-else>—</span></td>
             </tr>
           </tbody>
         </table>
       </div>
       <div v-if="policies.length" class="policy-pagination" aria-label="政策分页">
         <button type="button" :disabled="currentPage === 1" @click="goToPage(currentPage - 1)">上一页</button>
-        <button
-          v-for="page in paginationPages"
-          :key="page"
-          type="button"
-          :class="{ active: page === currentPage }"
-          @click="goToPage(page)"
-        >
-          {{ page }}
-        </button>
+        <button v-for="page in paginationPages" :key="page" type="button" :class="{ active: page === currentPage }" @click="goToPage(page)">{{ page }}</button>
         <button type="button" :disabled="currentPage === totalPages" @click="goToPage(currentPage + 1)">下一页</button>
-        <span>第 {{ currentPage }} / {{ totalPages }} 页，每页 10 条</span>
+        <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
       </div>
-    </section>
+      <p class="policy-explorer-note">政策资料依据已收录记录展示。政策性质、原文和来源以详情页及原始发布单位为准。</p>
+    </div>
+
+    <aside class="policy-preview" aria-label="政策预览">
+      <template v-if="selectedPolicy">
+        <div class="policy-preview-top"><span>{{ materialNatureText(selectedPolicy) }}</span><span>资料预览</span></div>
+        <h2>{{ selectedPolicy.title }}</h2>
+        <div class="policy-preview-meta"><span>{{ selectedPolicy.issuingBody || '发文单位未标注' }}</span><span>{{ selectedPolicy.publishDate || '日期未标注' }}</span></div>
+        <div class="policy-preview-region">{{ selectedPolicy.regionName || '地区未标注' }}</div>
+        <section class="policy-preview-section"><h3>摘要</h3><p>{{ selectedPolicy.summary || '暂无摘要，请打开完整政策详情查看其他字段。' }}</p></section>
+        <section v-if="selectedPolicy.keyPoints" class="policy-preview-section"><h3>政策要点</h3><p>{{ selectedPolicy.keyPoints }}</p></section>
+        <section v-if="selectedPolicy.originalUrl" class="policy-preview-section"><h3>原始来源</h3><a :href="selectedPolicy.originalUrl" target="_blank" rel="noopener noreferrer"><Link2 :size="17" /><span>{{ selectedPolicy.issuingBody || '打开原始发布页面' }}</span><ExternalLink :size="16" /></a></section>
+        <RouterLink class="policy-preview-detail-link" :to="'/policies/' + selectedPolicy.id"><FileText :size="18" />查看完整详情 <ArrowRight :size="18" /></RouterLink>
+      </template>
+      <div v-else class="policy-preview-placeholder"><FileText :size="32" /><strong>政策详情将在这里显示</strong><p>选择左侧政策，查看摘要与原始来源。</p></div>
+    </aside>
   </div>
 </template>
-
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { ArrowRight, ExternalLink, FileText, Link2, Search } from 'lucide-vue-next'
 import { getPolicies } from '@/api/policy'
 import { getRegions } from '@/api/region'
 import { exportPolicies } from '@/api/export'
@@ -196,6 +79,7 @@ const allPolicies = ref([])
 const regions = ref([])
 const policyVisitRankings = ref([])
 const currentPage = ref(1)
+const selectedPolicyId = ref(null)
 const regionMenuOpen = ref(false)
 const policyTypeMenuOpen = ref(false)
 const sortMenuOpen = ref(false)
@@ -302,6 +186,8 @@ const paginatedPolicies = computed(() => {
   const start = (currentPage.value - 1) * pageSize
   return sortedPolicies.value.slice(start, start + pageSize)
 })
+
+const selectedPolicy = computed(() => paginatedPolicies.value.find((item) => item.id === selectedPolicyId.value) || paginatedPolicies.value[0] || null)
 
 const paginationPages = computed(() => {
   const total = totalPages.value
@@ -558,6 +444,12 @@ watch(
   () => [query.regionId, query.policyType],
   loadPolicies,
 )
+
+function runSearch() {
+  window.clearTimeout(keywordTimer)
+  loadPolicies()
+  reportPolicySearch()
+}
 
 onMounted(async () => {
   await nextTick()

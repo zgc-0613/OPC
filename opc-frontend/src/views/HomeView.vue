@@ -1,595 +1,76 @@
-﻿<template>
-  <div class="page-stack home-archive-page">
-    <section class="archive-hero prisma-hero">
-      <div class="prisma-hero-backdrop" aria-hidden="true"></div>
-      <div class="prisma-hero-frame">
-        <video
-          class="prisma-hero-media"
-          src="/media/solofirm-hero-loop.mp4"
-          autoplay
-          loop
-          muted
-          playsinline
-        ></video>
-        <div class="noise-overlay" aria-hidden="true"></div>
-        <div class="prisma-hero-gradient" aria-hidden="true"></div>
-        <div class="prisma-hero-film-index" aria-hidden="true">
-          <span></span>
-          <span></span>
-          <span></span>
-          <span></span>
-          <span></span>
-          <i></i>
+<template>
+  <div ref="homeRoot" class="atlas-home">
+    <section class="atlas-hero" aria-labelledby="atlas-hero-title">
+      <div class="atlas-hero-image" aria-hidden="true"></div>
+      <div class="atlas-hero-shade" aria-hidden="true"></div>
+      <div class="atlas-hero-inner">
+        <h1 id="atlas-hero-title">发现一个人的<br /><em>更多可能</em></h1>
+        <p class="atlas-hero-subtitle">AI + OPC</p>
+        <p class="atlas-hero-description">在庞大信息中，找到与你相关的政策、案例、高校实践与平台资源，连接更广阔的机会。</p>
+        <div class="atlas-hero-actions">
+          <RouterLink class="atlas-button atlas-button-primary" to="/analysis">开始探索 <ArrowRight :size="21" /></RouterLink>
         </div>
-
-        <header class="home-landing-nav prisma-hero-nav">
-          <nav class="home-landing-links prisma-hanging-nav" aria-label="首页导航">
-            <RouterLink to="/">首页</RouterLink>
-            <RouterLink to="/analysis">资料分析</RouterLink>
-            <RouterLink to="/regions">地区目录</RouterLink>
-            <RouterLink to="/policies">政策库</RouterLink>
-            <RouterLink to="/cases">案例库</RouterLink>
-            <RouterLink to="/sources">来源台账</RouterLink>
-          </nav>
-
-          <RouterLink
-            class="prisma-hero-account-entry"
-            :class="{
-              'is-authenticated': Boolean(currentUser),
-              'is-pending': accountLoginNoticeVisible,
-            }"
-            :to="accountEntryTarget"
-            :aria-label="currentUser ? `前往 ${currentUser.username} 的个人主页` : '登录后进入个人主页'"
-            :title="currentUser ? '前往个人主页' : '登录后进入个人主页'"
-            @click="handleAccountEntryClick"
-          >
-            <UserRound :size="25" :stroke-width="1.7" aria-hidden="true" />
-          </RouterLink>
-
-          <Transition name="account-toast">
-            <div
-              v-if="accountLoginNoticeVisible"
-              class="prisma-account-login-notice"
-              role="status"
-              aria-live="polite"
-            >
-              <LogIn :size="18" aria-hidden="true" />
-              <span>
-                <strong>请先登录</strong>
-                <small>3 秒后前往登录页</small>
-              </span>
-            </div>
-          </Transition>
-        </header>
-
-        <div class="archive-hero-copy prisma-hero-copy">
-          <div class="prisma-hero-title-wrap">
-            <div class="prisma-hero-brand-lockup">
-              <BrandMark />
-              <h1 class="prisma-hero-title">
-                <WordsPullUp text="SoloFirm" />
-              </h1>
-            </div>
-          </div>
-          <div class="prisma-hero-aside">
-            <p>
-              汇聚 AI + OPC 相关政策、案例与可信资料。<br />
-              帮助创业者快速发现地区机遇、政策支持与可参考的案例。
-            </p>
-            <div class="archive-hero-actions">
-              <RouterLink class="button prisma-primary-cta" to="/policies">
-                <span>进入政策库</span>
-                <span class="prisma-cta-icon" aria-hidden="true"><ArrowRight :size="18" /></span>
-              </RouterLink>
-              <RouterLink class="button button-ghost prisma-ghost-cta" to="/cases">查看案例库</RouterLink>
-              <RouterLink
-                class="button button-ghost prisma-ghost-cta prisma-login-cta"
-                :class="accountButtonClass"
-                :to="accountTarget"
-                :aria-label="currentUser ? `退出用户 ${currentUser.username}` : '登录'"
-                :title="currentUser ? '退出登录' : '登录'"
-                :aria-disabled="accountSigningOut || undefined"
-                @click="handleAccountButtonClick"
-                @pointerdown="handleAccountPointerDown"
-                @pointerup="releaseAccountPreview"
-                @pointercancel="clearAccountPreview"
-                @pointerleave="handleAccountPointerLeave"
-                @contextmenu="handleAccountContextMenu"
-              >
-                <span v-if="currentUser" class="prisma-account-icon" aria-hidden="true">
-                  <UserRound class="prisma-account-icon--current" :size="17" />
-                  <LogOut class="prisma-account-icon--destination" :size="17" />
-                </span>
-                <LogIn v-else :size="17" aria-hidden="true" />
-                <span v-if="currentUser" class="prisma-account-copy" aria-hidden="true">
-                  <span class="prisma-account-state prisma-account-state--current prisma-account-label">
-                    <span>已登录用户：</span>
-                    <strong class="prisma-account-username">{{ currentUser.username }}</strong>
-                  </span>
-                  <span class="prisma-account-state prisma-account-state--destination">
-                    {{ accountSigningOut ? '正在退出...' : '退出登录' }}
-                  </span>
-                </span>
-                <span v-else>登录</span>
-              </RouterLink>
-            </div>
-          </div>
-        </div>
+        <div class="atlas-hero-scroll" aria-hidden="true"><span>向下探索</span><span class="atlas-hero-scroll-line"></span></div>
       </div>
-
-      <a class="home-scroll-cue" href="#home-data-view" aria-label="跳转到资料工作台"></a>
+      <nav class="atlas-hero-destinations" aria-label="快速前往各板块">
+        <RouterLink class="atlas-map-label atlas-map-label-university" to="/university-opc" aria-label="进入高校 OPC"><span class="atlas-map-symbol"><GraduationCap :size="25" /></span><span class="atlas-map-copy"><strong>高校</strong><small>探索高校社区<br />走近创业实践</small></span><ArrowUpRight class="atlas-map-arrow" :size="18" /></RouterLink>
+        <RouterLink class="atlas-map-label atlas-map-label-policy" to="/policies" aria-label="进入政策索引"><span class="atlas-map-symbol"><FileText :size="24" /></span><span class="atlas-map-copy"><strong>政策</strong><small>解读政策要点<br />把握发展方向</small></span><ArrowUpRight class="atlas-map-arrow" :size="18" /></RouterLink>
+        <RouterLink class="atlas-map-label atlas-map-label-case" to="/cases" aria-label="进入案例索引"><span class="atlas-map-symbol"><Search :size="24" /></span><span class="atlas-map-copy"><strong>案例</strong><small>观察真实案例<br />借鉴可行路径</small></span><ArrowUpRight class="atlas-map-arrow" :size="18" /></RouterLink>
+        <RouterLink class="atlas-map-label atlas-map-label-platform" to="/platforms" aria-label="进入平台集合"><span class="atlas-map-symbol"><Layers3 :size="24" /></span><span class="atlas-map-copy"><strong>平台</strong><small>连接 OPC 资源<br />找到合适入口</small></span><ArrowUpRight class="atlas-map-arrow" :size="18" /></RouterLink>
+      </nav>
     </section>
 
-    <section class="prisma-about" aria-labelledby="prisma-about-title">
-      <div class="prisma-about-card">
-        <h2 id="prisma-about-title" class="prisma-about-title">
-          <WordsPullUpMultiStyle :segments="aboutSegments" />
-        </h2>
-        <AnimatedLetters :text="aboutBody" />
+    <section class="atlas-home-intro" aria-labelledby="atlas-intro-title">
+      <div class="atlas-section-label" data-reveal>01 / 探索路径</div>
+      <div class="atlas-intro-heading" data-reveal>
+        <h2 id="atlas-intro-title">让信息形成线索</h2>
+        <p>用一致的索引方式连接政策、创业案例与高校实践；需要深入研究时，再进入资料分析工作区。</p>
+      </div>
+      <div class="atlas-path-grid">
+        <RouterLink class="atlas-path-card" to="/policies" data-reveal><span class="atlas-path-index">01 / POLICY</span><Landmark :size="30" :stroke-width="1.4" /><h3>政策索引</h3><p>按地区、类型和主题定位政策，查看原文及来源。</p><ArrowUpRight class="atlas-path-arrow" :size="20" /></RouterLink>
+        <RouterLink class="atlas-path-card" to="/cases" data-reveal><span class="atlas-path-index">02 / CASE</span><BriefcaseBusiness :size="30" :stroke-width="1.4" /><h3>案例索引</h3><p>追踪创业主体、模式、工具与成果的公开记录。</p><ArrowUpRight class="atlas-path-arrow" :size="20" /></RouterLink>
+        <RouterLink class="atlas-path-card" to="/analysis" data-reveal><span class="atlas-path-index">03 / RESEARCH</span><ChartNoAxesCombined :size="30" :stroke-width="1.4" /><h3>资料分析</h3><p>汇总资料概览、研究指标和地区覆盖情况。</p><ArrowUpRight class="atlas-path-arrow" :size="20" /></RouterLink>
       </div>
     </section>
 
-    <section id="home-data-view" class="prisma-features">
-      <div class="bg-noise" aria-hidden="true"></div>
-      <header class="prisma-features-heading">
-        <WordsPullUpMultiStyle :segments="featureHeadingSegments" tag="h2" />
-      </header>
-
-      <div class="prisma-feature-grid">
-        <article class="prisma-feature-card prisma-feature-card--video scroll-reveal" style="--feature-index: 0">
-          <div
-            class="prisma-feature-video-loop"
-            :style="{ '--feature-video-crossfade-duration': `${featureVideoFadeDuration}ms` }"
-            aria-hidden="true"
-          >
-            <video
-              ref="featureVideoPrimary"
-              class="prisma-feature-video-layer is-active"
-              src="/media/solofirm-feature-canvas.mp4"
-              autoplay
-              muted
-              playsinline
-              preload="auto"
-              @ended="handleFeatureVideoEnded(0)"
-            ></video>
-            <video
-              ref="featureVideoSecondary"
-              class="prisma-feature-video-layer"
-              src="/media/solofirm-feature-canvas.mp4"
-              muted
-              playsinline
-              preload="auto"
-              @ended="handleFeatureVideoEnded(1)"
-            ></video>
-          </div>
-          <div class="prisma-feature-video-gradient" aria-hidden="true"></div>
-          <strong>您的智能创业研究画布。</strong>
-        </article>
-
-        <RouterLink class="prisma-feature-card prisma-feature-card--link scroll-reveal" style="--feature-index: 1" to="/policies">
-          <img
-            class="prisma-feature-icon"
-            src="/media/solofirm-policy-index-icon.webp"
-            alt=""
-          />
-          <div class="prisma-feature-title">
-            <h3>政策索引。</h3>
-            <span>01</span>
-          </div>
-          <ul>
-            <li><Check :size="16" />按地区与政策类型筛选</li>
-            <li><Check :size="16" />标题、摘要及标签检索</li>
-            <li><Check :size="16" />政策原文与佐证链接</li>
-            <li><Check :size="16" />数据导出与热度排行</li>
-          </ul>
-          <span class="prisma-learn-link" aria-hidden="true">
-            <span>进入政策库</span><ArrowRight :size="17" />
-          </span>
-        </RouterLink>
-
-        <RouterLink class="prisma-feature-card prisma-feature-card--link scroll-reveal" style="--feature-index: 2" to="/cases">
-          <img
-            class="prisma-feature-icon"
-            src="/media/solofirm-case-insight-icon.webp"
-            alt=""
-          />
-          <div class="prisma-feature-title">
-            <h3>案例洞察。</h3>
-            <span>02</span>
-          </div>
-          <ul>
-            <li><Check :size="16" />按地区、类型与关键词定位</li>
-            <li><Check :size="16" />商业模式与 AI 智能体解析</li>
-            <li><Check :size="16" />成果归属与来源追溯</li>
-          </ul>
-          <span class="prisma-learn-link" aria-hidden="true">
-            <span>查看案例库</span><ArrowRight :size="17" />
-          </span>
-        </RouterLink>
-
-        <RouterLink class="prisma-feature-card prisma-feature-card--link scroll-reveal" style="--feature-index: 3" to="/sources">
-          <img
-            class="prisma-feature-icon"
-            src="/media/solofirm-evidence-ledger-icon.webp"
-            alt=""
-          />
-          <div class="prisma-feature-title">
-            <h3>证据台账。</h3>
-            <span>03</span>
-          </div>
-          <ul>
-            <li><Check :size="16" />来源链接与访问日期记录</li>
-            <li><Check :size="16" />地区资料覆盖实时汇总</li>
-            <li><Check :size="16" />状态、文件与发布单位一览</li>
-          </ul>
-          <span class="prisma-learn-link" aria-hidden="true">
-            <span>查看来源台账</span><ArrowRight :size="17" />
-          </span>
-        </RouterLink>
-      </div>
-
+    <section class="atlas-home-secondary" aria-label="更多探索方向">
+      <RouterLink to="/platforms" data-reveal><span>资源导航 / 04</span><h2>平台集合</h2><p>按分类浏览 OPC 生态、地方服务与政务专区的网站入口。</p><ArrowUpRight :size="22" /></RouterLink>
+      <RouterLink to="/university-opc" data-reveal><span>高校实践 / 05</span><h2>高校 OPC</h2><p>查看高校社区、支持措施、活动及创业案例。</p><ArrowUpRight :size="22" /></RouterLink>
     </section>
 
-    <footer class="home-contact-footer scroll-reveal">
-      <section class="home-contact-card" aria-labelledby="home-contact-title">
-        <div class="home-contact-folio" aria-hidden="true">
-          <span><i></i></span>
-          <span><i></i></span>
-          <span><i></i></span>
-        </div>
-        <div>
-          <span class="home-contact-kicker">CONTACT</span>
-          <h2 id="home-contact-title">联系我们，<span>共建 AI + OPC 创业索引</span></h2>
-          <p>
-            如您关注一人公司、AI 创业、政策信息索引或案例共建，欢迎通过以下方式与我们联系。
-          </p>
-
-          <div class="home-contact-methods" aria-label="联系方式">
-            <div class="home-contact-method">
-              <span
-                class="home-contact-icon"
-                aria-hidden="true"
-                @pointerenter="handleContactIconPointerMove"
-                @pointermove="handleContactIconPointerMove"
-                @pointerleave="handleContactIconPointerLeave"
-                @pointercancel="handleContactIconPointerLeave"
-              ><Mail :size="18" /></span>
-              <div>
-                <strong>联系人</strong>
-                <p class="home-contact-person">
-                  <span>王兵书</span>
-                  <a href="mailto:wangbingshu@nwpu.edu.cn">wangbingshu@nwpu.edu.cn</a>
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="home-site-footer" aria-label="网站页脚">
-        <div>
-          <div class="home-footer-brand">
-            <BrandMark />
-            <strong>SoloFirm</strong>
-          </div>
-          <p class="home-footer-summary">汇聚 AI + OPC 相关政策、案例与来源资料，助力创业者发现区域机遇与可溯源的创业方向。</p>
-          <p class="home-footer-legal">
-            Copyright © 2026
-            <a href="https://findopc.online/">SoloFirm®</a>
-            - All rights reserved
-          </p>
-        </div>
-
-        <div class="home-footer-contact">
-          <strong>联系我们</strong>
-          <a href="mailto:wangbingshu@nwpu.edu.cn">王兵书 wangbingshu@nwpu.edu.cn</a>
-        </div>
+    <footer class="atlas-home-footer">
+      <div class="atlas-home-footer-top"><span>壹企经纬 · SoloFirm</span><RouterLink to="/sources">查看来源台账 <ArrowUpRight :size="15" /></RouterLink></div>
+      <section class="atlas-home-contact" aria-labelledby="atlas-contact-title">
+        <div class="atlas-contact-intro" data-reveal><span class="atlas-section-label">02 / 合作联系</span><h2 id="atlas-contact-title">联系我们</h2><p>关于 OPC 研究、平台合作与资料交流，欢迎来信。</p></div>
+        <address class="atlas-contact-person" data-reveal><span>西北工业大学软件学院</span><strong>王兵书</strong><a href="mailto:wangbingshu@mail.nwpu.edu.cn">wangbingshu@mail.nwpu.edu.cn <ArrowUpRight :size="19" /></a></address>
       </section>
     </footer>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ArrowRight, Check, LogIn, LogOut, Mail, UserRound } from 'lucide-vue-next'
-import AnimatedLetters from '@/components/AnimatedLetters.vue'
-import BrandMark from '@/components/BrandMark.vue'
-import WordsPullUp from '@/components/WordsPullUp.vue'
-import WordsPullUpMultiStyle from '@/components/WordsPullUpMultiStyle.vue'
-import { getUserProfile, isUserAuthenticated, logoutUser } from '@/api/auth'
+import { onMounted, onUnmounted, ref } from 'vue'
+import { ArrowRight, ArrowUpRight, BriefcaseBusiness, ChartNoAxesCombined, FileText, GraduationCap, Landmark, Layers3, Search } from 'lucide-vue-next'
 
-const router = useRouter()
-const currentUser = ref(isUserAuthenticated() ? getUserProfile() : null)
-const currentUsernameLength = computed(() => Array.from(currentUser.value?.username || '').length)
-const accountTarget = computed(() => (currentUser.value ? '/' : '/login'))
-const accountEntryTarget = computed(() => (currentUser.value ? '/account' : '/login'))
-const accountPreviewActive = ref(false)
-const accountSigningOut = ref(false)
-const accountLoginNoticeVisible = ref(false)
-const featureVideoPrimary = ref(null)
-const featureVideoSecondary = ref(null)
-const accountButtonClass = computed(() => ({
-  'is-authenticated': Boolean(currentUser.value),
-  'is-compact-account': currentUsernameLength.value > 10,
-  'is-extra-long-account': currentUsernameLength.value > 18,
-  'is-account-preview': accountPreviewActive.value,
-  'is-signing-out': accountSigningOut.value,
-}))
+const homeRoot = ref(null)
 let revealObserver
-let accountPreviewTimer
-let accountLoginRedirectTimer
-let featureVideoFrame
-let featureVideoTransitionTimer
-let activeFeatureVideoIndex = 0
-let featureVideoTransitioning = false
-
-const featureVideoFadeDuration = 2200
-const featureVideoFadeLead = 2.6
-
-const aboutSegments = [
-  { text: 'SoloFirm，', className: 'prisma-about-normal' },
-  { text: '一人公司的智能创业索引。', className: 'prisma-about-serif' },
-  { text: '汇聚政策、案例、数据来源与区域信息。', className: 'prisma-about-normal prisma-about-subtitle' },
-]
-
-const aboutBody =
-  '围绕 AI + OPC 及一人公司创业场景，我们构建了全国政策、案例与来源资料的公开索引。支持快速检索、横向比较，并可一键回查原始文件。'
-
-const featureHeadingSegments = [
-  { text: '面向创业者与研究者的资料工作台。', className: 'prisma-feature-heading-primary' },
-  { text: '从地区机遇出发，结合案例与政策，发现可溯源的创业方向。', className: 'prisma-feature-heading-muted' },
-]
-
-async function handleAccountButtonClick(event) {
-  if (!currentUser.value) {
-    return
-  }
-  event.preventDefault()
-  if (accountSigningOut.value) {
-    return
-  }
-
-  clearAccountPreview()
-  accountSigningOut.value = true
-  try {
-    await logoutUser()
-  } catch {
-    // logoutUser clears the local session even when the server is unavailable.
-  } finally {
-    currentUser.value = null
-    accountSigningOut.value = false
-  }
-}
-
-function handleAccountEntryClick(event) {
-  if (currentUser.value) {
-    return
-  }
-
-  event.preventDefault()
-  if (accountLoginNoticeVisible.value) {
-    return
-  }
-
-  accountLoginNoticeVisible.value = true
-  window.clearTimeout(accountLoginRedirectTimer)
-  accountLoginRedirectTimer = window.setTimeout(() => {
-    accountLoginNoticeVisible.value = false
-    router.push('/login')
-  }, 3000)
-}
-
-function handleAccountPointerDown(event) {
-  if (!currentUser.value || event.pointerType === 'mouse') {
-    return
-  }
-  window.clearTimeout(accountPreviewTimer)
-  accountPreviewTimer = window.setTimeout(() => {
-    accountPreviewActive.value = true
-  }, 280)
-}
-
-function releaseAccountPreview() {
-  window.clearTimeout(accountPreviewTimer)
-  if (accountPreviewActive.value) {
-    accountPreviewTimer = window.setTimeout(() => {
-      accountPreviewActive.value = false
-    }, 220)
-  }
-}
-
-function clearAccountPreview() {
-  window.clearTimeout(accountPreviewTimer)
-  accountPreviewActive.value = false
-}
-
-function handleAccountPointerLeave(event) {
-  if (event.pointerType !== 'mouse') {
-    clearAccountPreview()
-  }
-}
-
-function handleAccountContextMenu(event) {
-  if (currentUser.value) {
-    event.preventDefault()
-  }
-}
-
-function handleContactIconPointerMove(event) {
-  if (event.pointerType !== 'mouse') {
-    return
-  }
-
-  const icon = event.currentTarget
-  icon.classList.add('is-glint-active')
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    return
-  }
-
-  const rect = icon.getBoundingClientRect()
-  const offsetX = event.clientX - rect.left - rect.width / 2
-  const offsetY = event.clientY - rect.top - rect.height / 2
-  icon.style.setProperty('--contact-glint-x', `${offsetX}px`)
-  icon.style.setProperty('--contact-glint-y', `${offsetY}px`)
-}
-
-function handleContactIconPointerLeave(event) {
-  const icon = event.currentTarget
-  icon.classList.remove('is-glint-active')
-  icon.style.removeProperty('--contact-glint-x')
-  icon.style.removeProperty('--contact-glint-y')
-}
-
-function setupScrollReveal() {
-  const items = document.querySelectorAll('.route-home .scroll-reveal')
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    items.forEach((item) => item.classList.add('is-visible'))
-    return
-  }
-
-  revealObserver = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('is-visible')
-          revealObserver.unobserve(entry.target)
-        }
-      })
-    },
-    {
-      rootMargin: '0px 0px -12% 0px',
-      threshold: 0.16,
-    },
-  )
-
-  items.forEach((item) => revealObserver.observe(item))
-}
-
-function getFeatureVideoPlayers() {
-  return [featureVideoPrimary.value, featureVideoSecondary.value]
-}
-
-function resetFeatureVideoLayer(video, index) {
-  video.pause()
-  video.loop = false
-  video.muted = true
-  video.preload = 'auto'
-  video.classList.remove('is-active', 'is-incoming', 'is-outgoing')
-  if (index === 0) {
-    video.classList.add('is-active')
-  }
-  try {
-    video.currentTime = 0
-  } catch {
-    // Metadata can still be loading on the first mount.
-  }
-}
-
-function finishFeatureVideoCrossfade(outgoing, incoming, incomingIndex) {
-  outgoing.classList.remove('is-active', 'is-outgoing')
-  outgoing.pause()
-  try {
-    outgoing.currentTime = 0
-  } catch {
-    // Keep the next transition available even if the browser is still seeking.
-  }
-  incoming.classList.remove('is-incoming')
-  activeFeatureVideoIndex = incomingIndex
-  featureVideoTransitioning = false
-}
-
-async function beginFeatureVideoCrossfade() {
-  if (featureVideoTransitioning) {
-    return
-  }
-
-  const players = getFeatureVideoPlayers()
-  const outgoing = players[activeFeatureVideoIndex]
-  const incomingIndex = activeFeatureVideoIndex === 0 ? 1 : 0
-  const incoming = players[incomingIndex]
-  if (!outgoing || !incoming) {
-    return
-  }
-
-  featureVideoTransitioning = true
-  window.clearTimeout(featureVideoTransitionTimer)
-  incoming.pause()
-  incoming.classList.remove('is-active', 'is-outgoing')
-  incoming.classList.add('is-incoming')
-
-  try {
-    incoming.currentTime = 0
-    await incoming.play()
-  } catch {
-    incoming.classList.remove('is-incoming')
-    outgoing.currentTime = 0
-    outgoing.play().catch(() => {})
-    featureVideoTransitioning = false
-    return
-  }
-
-  // Force the transparent starting state to paint before both layers fade in opposite directions.
-  void incoming.offsetWidth
-  outgoing.classList.add('is-outgoing')
-  outgoing.classList.remove('is-active')
-  incoming.classList.add('is-active')
-
-  featureVideoTransitionTimer = window.setTimeout(() => {
-    finishFeatureVideoCrossfade(outgoing, incoming, incomingIndex)
-  }, featureVideoFadeDuration + 100)
-}
-
-function monitorFeatureVideoLoop() {
-  const activeVideo = getFeatureVideoPlayers()[activeFeatureVideoIndex]
-  if (
-    activeVideo &&
-    Number.isFinite(activeVideo.duration) &&
-    activeVideo.duration > featureVideoFadeLead * 2 &&
-    activeVideo.duration - activeVideo.currentTime <= featureVideoFadeLead
-  ) {
-    beginFeatureVideoCrossfade()
-  }
-  featureVideoFrame = window.requestAnimationFrame(monitorFeatureVideoLoop)
-}
-
-function handleFeatureVideoEnded(videoIndex) {
-  if (videoIndex === activeFeatureVideoIndex && !featureVideoTransitioning) {
-    beginFeatureVideoCrossfade()
-  }
-}
-
-function setupFeatureVideoLoop() {
-  const players = getFeatureVideoPlayers().filter(Boolean)
-  if (players.length !== 2) {
-    return
-  }
-
-  players.forEach(resetFeatureVideoLayer)
-  activeFeatureVideoIndex = 0
-  featureVideoTransitioning = false
-
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    players[0].loop = true
-    players[0].play().catch(() => {})
-    return
-  }
-
-  players[0].play().catch(() => {})
-  featureVideoFrame = window.requestAnimationFrame(monitorFeatureVideoLoop)
-}
 
 onMounted(() => {
-  setupScrollReveal()
-  setupFeatureVideoLoop()
+  if (!('IntersectionObserver' in window) || window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return
+  const targets = homeRoot.value?.querySelectorAll('[data-reveal]') ?? []
+  revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return
+      entry.target.classList.remove('is-reveal-pending')
+      revealObserver.unobserve(entry.target)
+    })
+  }, { threshold: 0.12, rootMargin: '0px 0px -32px 0px' })
+  targets.forEach((target) => {
+    if (target.getBoundingClientRect().top < window.innerHeight * 0.85) return
+    target.classList.add('is-reveal-pending')
+    revealObserver.observe(target)
+  })
 })
 
-onUnmounted(() => {
-  revealObserver?.disconnect()
-  window.clearTimeout(accountPreviewTimer)
-  window.clearTimeout(accountLoginRedirectTimer)
-  window.clearTimeout(featureVideoTransitionTimer)
-  window.cancelAnimationFrame(featureVideoFrame)
-  getFeatureVideoPlayers().forEach((video) => video?.pause())
-})
+onUnmounted(() => revealObserver?.disconnect())
 </script>

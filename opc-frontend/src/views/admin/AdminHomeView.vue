@@ -493,14 +493,14 @@ onMounted(loadVisitAnalytics)
   justify-items: end;
   gap: 3px;
   color: #181a18;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-size: 26px;
   line-height: 1;
 }
 
 .admin-trend-meta > strong span {
   color: #626863;
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font-family: var(--font-ui);
   font-size: 11px;
   font-weight: 600;
 }
@@ -522,7 +522,7 @@ onMounted(loadVisitAnalytics)
   border-radius: 4px;
   background: transparent;
   color: #535954;
-  font: 600 12px/1 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font: 600 12px/1 var(--font-ui);
   cursor: pointer;
 }
 
@@ -611,7 +611,7 @@ onMounted(loadVisitAnalytics)
 
 .admin-trend-tooltip strong {
   color: #181a18;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
 }
 
 .admin-trend-loading {

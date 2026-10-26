@@ -7,6 +7,24 @@
       {{ error }}。分析结构与真实接口请求已保留，请确认后端服务和数据库状态。
     </div>
 
+    <section v-if="!loading && !error" class="analysis-overview-intro" aria-labelledby="analysis-overview-title">
+      <div class="analysis-overview-intro-copy">
+        <span class="analysis-overview-kicker">RESEARCH ATLAS / 资料概览</span>
+        <h2 id="analysis-overview-title">从资料出发，<br /><em>看见更多关联</em></h2>
+        <p>沿着地区、时间、主题与来源追踪 OPC 生态的公开资料，从一条记录走向更完整的研究线索。</p>
+        <div class="analysis-overview-intro-links">
+          <RouterLink to="/analytics">深入研究指标 <ArrowUpRight :size="17" /></RouterLink>
+          <RouterLink to="/regions">探索地区分布 <ArrowUpRight :size="17" /></RouterLink>
+        </div>
+      </div>
+      <dl class="analysis-overview-snapshot" aria-label="当前资料规模">
+        <div v-for="item in snapshotItems" :key="item.key">
+          <dt>{{ item.label }}</dt>
+          <dd :aria-label="`${item.label} ${item.target === null ? '暂不可用' : `${formatNumber(item.target)} ${item.unit}`}`">{{ item.value === null ? '—' : formatNumber(item.value) }}<small v-if="item.value !== null">{{ item.unit }}</small></dd>
+        </div>
+      </dl>
+    </section>
+
     <section class="analysis-grid archive-analysis-grid" @pointermove="handlePanelSpotlight">
       <article class="panel analysis-panel wide-panel public-visit-panel scroll-reveal">
         <div class="section-header">
@@ -37,13 +55,12 @@
 
           <div class="public-visit-trend">
             <span>最近七天趋势</span>
-            <div v-if="visitTrend.length" class="public-visit-bars">
-              <i
+            <div v-if="visitTrend.length" class="public-visit-bars" role="img" :aria-label="`最近七天访问趋势：${visitTrend.map((item) => `${item.date} ${item.pv} 次`).join('；')}`">
+              <span
                 v-for="item in visitTrendBars"
                 :key="item.date"
-                :style="{ height: `${item.height}%` }"
                 :title="`${item.date}: ${item.pv}`"
-              ></i>
+              ><i :style="{ height: `${item.height}%` }"></i><small>{{ String(item.date).slice(5) }}</small></span>
             </div>
             <p v-else class="muted">暂无访问趋势。</p>
           </div>
@@ -61,7 +78,7 @@
         </div>
       </article>
 
-      <article class="panel analysis-panel wide-panel scroll-reveal">
+      <article class="panel analysis-panel wide-panel region-ranking-panel scroll-reveal">
         <div class="section-header">
           <div>
             <h2>地区资料排行</h2>
@@ -71,7 +88,8 @@
 
         <div v-if="!topRegions.length" class="muted">暂无地区统计数据。</div>
         <div v-else class="rank-chart">
-          <div v-for="item in topRegions" :key="item.name" class="rank-row">
+          <div v-for="(item, index) in topRegions" :key="item.name" class="rank-row">
+            <span class="rank-index">{{ String(index + 1).padStart(2, '0') }}</span>
             <span class="rank-name">{{ item.name }}</span>
             <div class="rank-track">
               <span :style="{ width: `${item.percent}%` }"></span>
@@ -81,45 +99,7 @@
         </div>
       </article>
 
-      <article class="panel analysis-panel scroll-reveal">
-        <div class="section-header">
-          <div>
-            <h2>来源追溯概览</h2>
-            <p>统计来源链接、访问日期及出处信息的记录覆盖情况。</p>
-          </div>
-        </div>
-
-        <div class="trace-list source-trace-list">
-          <div v-for="item in sourceTraceStats" :key="item.name" class="trace-item">
-            <div>
-              <strong>{{ item.rate }}%</strong>
-              <span>{{ item.name }}</span>
-              <small>{{ item.count }}/{{ item.total }}</small>
-            </div>
-            <div class="trace-ring" :style="{ '--value': `${item.rate}%`, '--color': item.color }">
-              <span>{{ item.rate }}%</span>
-            </div>
-          </div>
-        </div>
-      </article>
-
-      <article class="panel analysis-panel scroll-reveal">
-        <div class="section-header">
-          <div>
-            <h2>高频标签</h2>
-            <p>从政策和案例标签字段提取高频主题。</p>
-          </div>
-        </div>
-
-        <div v-if="!tagStats.length" class="muted">暂无标签统计数据。</div>
-        <div v-else class="tag-cloud">
-          <span v-for="tag in tagStats" :key="tag.name" :style="{ '--weight': tag.weight }">
-            {{ tag.name }} <b>{{ tag.count }}</b>
-          </span>
-        </div>
-      </article>
-
-      <article class="panel analysis-panel wide-panel scroll-reveal">
+      <article class="panel analysis-panel wide-panel policy-trend-panel scroll-reveal">
         <div class="section-header">
           <div>
             <h2>政策发布趋势</h2>
@@ -146,17 +126,18 @@
               <title>政策发布趋势，共 {{ publishTrendTotal }} 条政策</title>
               <defs>
                 <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stop-color="#4F6F58" stop-opacity="0.2" />
-                  <stop offset="100%" stop-color="#4F6F58" stop-opacity="0" />
+                  <stop offset="0%" stop-color="#16b9ad" stop-opacity="0.28" />
+                  <stop offset="100%" stop-color="#16b9ad" stop-opacity="0" />
                 </linearGradient>
               </defs>
+              <g class="analysis-trend-grid" aria-hidden="true"><line x1="28" x2="612" y1="52" y2="52" /><line x1="28" x2="612" y1="100" y2="100" /><line x1="28" x2="612" y1="148" y2="148" /><line x1="28" x2="612" y1="195" y2="195" /></g>
               <polygon class="trend-area" :points="trendAreaPoints" fill="url(#trendFill)" />
               <polyline
                 class="trend-line"
                 :points="trendLinePoints"
                 fill="none"
-                stroke="#222522"
-                stroke-width="4"
+                stroke="#1bc7bb"
+                stroke-width="3"
                 stroke-linecap="round"
                 stroke-linejoin="round"
               />
@@ -182,7 +163,7 @@
                   :cx="point.x"
                   :cy="point.y"
                   r="5"
-                  fill="#4F6F58"
+                  fill="#62f2df"
                   aria-hidden="true"
                 />
               </g>
@@ -222,27 +203,6 @@
         </div>
       </article>
 
-      <article class="panel analysis-panel scroll-reveal">
-        <div class="section-header">
-          <div>
-            <h2>案例领域分布</h2>
-            <p>按案例类型字段统计应用方向。</p>
-          </div>
-        </div>
-
-        <div v-if="!caseCategoryStats.length" class="muted">暂无案例领域数据。</div>
-        <div v-else class="category-list">
-          <div v-for="item in caseCategoryStats" :key="item.name" class="category-row">
-            <div>
-              <span>{{ item.name }}</span>
-              <strong>{{ item.count }} 条</strong>
-            </div>
-            <p>{{ item.percent }}%</p>
-            <i :style="{ width: `${item.rate}%` }"></i>
-          </div>
-        </div>
-      </article>
-
       <article class="panel analysis-panel archive-recent-panel compact-recent-panel scroll-reveal">
         <div class="section-header">
           <div>
@@ -267,9 +227,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { ArrowUpRight } from 'lucide-vue-next'
+import request from '@/api/request'
 import { getDashboardSummary } from '@/api/dashboard'
 import { getCases } from '@/api/case'
+import { getPlatformSites } from '@/api/platformSite'
 import { getPolicies } from '@/api/policy'
 import { getSources } from '@/api/source'
 import { getVisitRankings, getVisitSummary, getVisitTrend } from '@/api/visit'
@@ -280,6 +243,18 @@ const summary = ref({})
 const policies = ref([])
 const cases = ref([])
 const sources = ref([])
+const universityRecords = ref(null)
+const platformSites = ref(null)
+const snapshotDisplay = ref({ policies: 0, cases: 0, sources: 0, university: 0, platforms: 0 })
+const snapshotItems = computed(() => [
+  { key: 'policies', label: '政策资料', unit: '条', target: policies.value.length, value: snapshotDisplay.value.policies },
+  { key: 'cases', label: '案例资料', unit: '条', target: cases.value.length, value: snapshotDisplay.value.cases },
+  { key: 'sources', label: '来源记录', unit: '条', target: sources.value.length, value: snapshotDisplay.value.sources },
+  { key: 'university', label: '高校资料', unit: '条', target: universityRecords.value?.length ?? null, value: universityRecords.value === null ? null : snapshotDisplay.value.university },
+  { key: 'platforms', label: '平台网站', unit: '个', target: platformSites.value?.length ?? null, value: platformSites.value === null ? null : snapshotDisplay.value.platforms },
+])
+let snapshotObserver
+let snapshotFrame
 const visitSummary = ref({})
 const visitTrend = ref([])
 const policyVisitRankings = ref([])
@@ -344,16 +319,6 @@ const policyTypeStats = computed(() => {
     ...item,
     label: typeLabels[item.name] || item.name,
     percent: Math.round((item.count / total) * 100),
-  }))
-})
-
-const tagStats = computed(() => {
-  const tags = [...policies.value, ...cases.value].flatMap((item) => splitTags(item.tags))
-  const rows = countValues(tags).slice(0, 12)
-  const max = rows[0]?.count || 1
-  return rows.map((item) => ({
-    ...item,
-    weight: (0.72 + item.count / max).toFixed(2),
   }))
 })
 
@@ -444,43 +409,55 @@ const trendAreaPoints = computed(() => {
   return `${first.x},${baseline} ${trendLinePoints.value} ${last.x},${baseline}`
 })
 
-const sourceTraceStats = computed(() => {
-  const totalSources = sources.value.length
-  const totalItems = policies.value.length + cases.value.length
-  return [
-    makeTraceItem('来源关联', [...policies.value, ...cases.value].filter((item) => item.sourceId).length, totalItems, '#181A18'),
-    makeTraceItem('来源链接', sources.value.filter((item) => item.url).length, totalSources, '#555B56'),
-    makeTraceItem('访问日期', sources.value.filter((item) => item.accessedAt).length, totalSources, '#4F6F58'),
-  ]
-})
-
-const caseCategoryStats = computed(() => {
-  const rows = countBy(cases.value, (item) => item.category || '未标注领域').slice(0, 6)
-  const total = rows.reduce((sum, item) => sum + item.count, 0) || 1
-  const max = rows[0]?.count || 1
-  return rows.map((item) => ({
-    ...item,
-    percent: Math.round((item.count / total) * 100),
-    rate: Math.max(8, Math.round((item.count / max) * 100)),
-  }))
-})
-
 const insights = computed(() => {
   const region = topRegions.value[0]
   const type = policyTypeStats.value[0]
-  const tag = tagStats.value[0]
   const trendLast = publishTrend.value[publishTrend.value.length - 1]
 
   return [
     region ? `当前资料收录最多的地区为「${region.name}」，政策与案例合计 ${region.count} 条。` : '当前还缺少可用于地区分析的资料数据。',
     type ? `政策类型中「${type.label}」占比最高。` : '当前还缺少可用于类型分析的政策数据。',
-    tag ? `高频标签为「${tag.name}」，相关记录数量居首。` : '当前标签还不够完整，建议录入时补齐 3-8 个标签。',
     trendLast ? `最近一期新增 ${trendLast.count} 条政策记录。` : '建议补齐政策发布日期，用于形成时间趋势分析。',
   ]
 })
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString('zh-CN')
+}
+
+function startSnapshotCountUp() {
+  const targets = Object.fromEntries(snapshotItems.value.map((item) => [item.key, item.target]))
+  const finish = () => { snapshotDisplay.value = targets }
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+    finish()
+    return
+  }
+  const startedAt = performance.now()
+  const duration = 1100
+  const tick = (now) => {
+    const progress = Math.min(1, (now - startedAt) / duration)
+    const eased = 1 - Math.pow(1 - progress, 3)
+    snapshotDisplay.value = Object.fromEntries(Object.entries(targets).map(([key, value]) => [
+      key, value === null ? null : Math.round(value * eased),
+    ]))
+    if (progress < 1) snapshotFrame = window.requestAnimationFrame(tick)
+    else finish()
+  }
+  snapshotFrame = window.requestAnimationFrame(tick)
+}
+
+function observeSnapshot() {
+  const snapshot = document.querySelector('.route-analysis-overview .analysis-overview-snapshot')
+  if (!snapshot || !('IntersectionObserver' in window)) {
+    startSnapshotCountUp()
+    return
+  }
+  snapshotObserver = new IntersectionObserver((entries) => {
+    if (!entries[0]?.isIntersecting) return
+    snapshotObserver.disconnect()
+    startSnapshotCountUp()
+  }, { threshold: 0.2 })
+  snapshotObserver.observe(snapshot)
 }
 
 function handlePanelSpotlight(event) {
@@ -505,16 +482,6 @@ function countValues(values) {
   return Array.from(map.entries())
     .map(([name, count]) => ({ name, count }))
     .sort((left, right) => right.count - left.count)
-}
-
-function splitTags(tags) {
-  if (!tags) {
-    return []
-  }
-  return String(tags)
-    .split(/[,，、;；]/)
-    .map((tag) => tag.trim())
-    .filter(Boolean)
 }
 
 function monthKey(date) {
@@ -553,16 +520,6 @@ function clearActivePublishTrendPoint(point) {
   }
 }
 
-function makeTraceItem(name, count, total, color) {
-  return {
-    name,
-    count,
-    total,
-    color,
-    rate: total > 0 ? Math.round((count / total) * 100) : 0,
-  }
-}
-
 function setupScrollReveal() {
   revealObserver?.disconnect()
   const items = document.querySelectorAll('.route-analysis-overview .scroll-reveal')
@@ -594,13 +551,13 @@ onMounted(async () => {
   loading.value = true
   error.value = ''
   try {
-    const [summaryData, policyData, caseData, sourceData] = await Promise.all([
+    const [summaryData, policyData, caseData, sourceData, universityData, platformData, visitSummaryData, policyRankData, caseRankData, visitTrendData] = await Promise.all([
       getDashboardSummary().catch(() => ({})),
       getPolicies(),
       getCases(),
       getSources().catch(() => []),
-    ])
-    const [visitSummaryData, policyRankData, caseRankData, visitTrendData] = await Promise.all([
+      request.get('/public/university-opc').catch(() => null),
+      getPlatformSites().catch(() => null),
       getVisitSummary().catch(() => ({})),
       getVisitRankings({ targetType: 'policy', limit: 5 }).catch(() => []),
       getVisitRankings({ targetType: 'case', limit: 5 }).catch(() => []),
@@ -610,6 +567,8 @@ onMounted(async () => {
     policies.value = policyData
     cases.value = caseData
     sources.value = sourceData
+    universityRecords.value = Array.isArray(universityData) ? universityData : null
+    platformSites.value = Array.isArray(platformData) ? platformData : null
     visitSummary.value = visitSummaryData || {}
     policyVisitRankings.value = policyRankData || []
     caseVisitRankings.value = caseRankData || []
@@ -619,9 +578,15 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  if (!error.value) {
+    await nextTick()
+    observeSnapshot()
+  }
 })
 
 onUnmounted(() => {
   revealObserver?.disconnect()
+  snapshotObserver?.disconnect()
+  if (snapshotFrame) window.cancelAnimationFrame(snapshotFrame)
 })
 </script>

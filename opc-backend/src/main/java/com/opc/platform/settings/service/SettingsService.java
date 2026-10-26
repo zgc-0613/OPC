@@ -62,7 +62,7 @@ public class SettingsService {
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
               <title>SoloFirm 邮箱验证码</title>
             </head>
-            <body style="margin:0;padding:24px;background:#eef0eb;color:#181a18;font-family:Georgia,Times New Roman,serif;">
+            <body style="margin:0;padding:24px;background:#eef0eb;color:#181a18;font-family:Noto Sans SC,Microsoft YaHei,sans-serif;">
               <div style="display:none;max-height:0;overflow:hidden;opacity:0;">你的 SoloFirm 注册验证码是 {{code}}</div>
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;background:#eef0eb;border-collapse:collapse;">
                 <tr>
@@ -74,7 +74,7 @@ public class SettingsService {
                             <tr>
                               <td width="64" style="width:64px;vertical-align:middle;"><img src="cid:solofirm-logo" width="52" height="52" alt="SoloFirm" style="display:block;width:52px;height:52px;border:0;border-radius:14px;"></td>
                               <td style="vertical-align:middle;">
-                                <div style="color:#181a18;font-family:Bookman Old Style,Georgia,serif;font-size:23px;font-weight:700;line-height:1.1;">SoloFirm</div>
+                                <div style="color:#181a18;font-family:Noto Sans SC,Microsoft YaHei,sans-serif;font-size:23px;font-weight:700;line-height:1.1;">SoloFirm</div>
                                 <div style="margin-top:5px;color:#646a65;font-size:12px;line-height:1.2;">{{site_name}} / ACCOUNT VERIFICATION</div>
                               </td>
                             </tr>
@@ -90,7 +90,7 @@ public class SettingsService {
                             <tr>
                               <td align="center" style="padding:24px 18px;">
                                 <div style="margin-bottom:9px;color:#aeb4ae;font-size:11px;line-height:1.2;">VERIFICATION CODE</div>
-                                <div style="color:#fbfbf8;font-family:Bookman Old Style,Georgia,serif;font-size:36px;font-weight:700;line-height:1;letter-spacing:7px;">{{code}}</div>
+                                <div style="color:#fbfbf8;font-family:Noto Sans SC,Microsoft YaHei,sans-serif;font-size:36px;font-weight:700;line-height:1;letter-spacing:7px;">{{code}}</div>
                               </td>
                             </tr>
                           </table>

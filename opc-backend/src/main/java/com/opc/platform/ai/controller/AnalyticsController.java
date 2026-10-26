@@ -23,13 +23,13 @@ public class AnalyticsController {
 
     @GetMapping("/overview")
     public Result<AnalyticsOverviewVO> overview(
-            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user) {
+            @RequestAttribute(value = AUTHENTICATED_USER_ATTRIBUTE, required = false) AuthenticatedUser user) {
         return Result.success(service.overview(user));
     }
 
     @GetMapping("/industries")
     public Result<AnalyticsIndustriesVO> industries(
-            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user,
+            @RequestAttribute(value = AUTHENTICATED_USER_ATTRIBUTE, required = false) AuthenticatedUser user,
             @RequestParam(defaultValue = "industry.case_count") String metricId,
             @RequestParam(required = false) java.util.List<Long> industryTagIds
     ) {
@@ -38,7 +38,7 @@ public class AnalyticsController {
 
     @GetMapping("/technologies")
     public Result<AnalyticsUnavailableVO> technologies(
-            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user,
+            @RequestAttribute(value = AUTHENTICATED_USER_ATTRIBUTE, required = false) AuthenticatedUser user,
             @RequestParam(defaultValue = "technology.case_count") String metricId,
             @RequestParam(required = false) java.util.List<Long> technologyTagIds
     ) {
@@ -47,7 +47,7 @@ public class AnalyticsController {
 
     @GetMapping("/revenue")
     public Result<AnalyticsUnavailableVO> revenue(
-            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user,
+            @RequestAttribute(value = AUTHENTICATED_USER_ATTRIBUTE, required = false) AuthenticatedUser user,
             @RequestParam(defaultValue = "revenue.range_distribution") String metricId,
             @RequestParam(required = false) String currency,
             @RequestParam(required = false) String revenuePeriod,
@@ -59,7 +59,7 @@ public class AnalyticsController {
 
     @GetMapping("/regions")
     public Result<AnalyticsUnavailableVO> regions(
-            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user,
+            @RequestAttribute(value = AUTHENTICATED_USER_ATTRIBUTE, required = false) AuthenticatedUser user,
             @RequestParam(defaultValue = "region.case_count") String metricId,
             @RequestParam(required = false) String regionRole
     ) {
@@ -68,7 +68,7 @@ public class AnalyticsController {
 
     @GetMapping("/trends")
     public Result<AnalyticsUnavailableVO> trends(
-            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user,
+            @RequestAttribute(value = AUTHENTICATED_USER_ATTRIBUTE, required = false) AuthenticatedUser user,
             @RequestParam(defaultValue = "trend.policy_publish_time") String metricId,
             @RequestParam(required = false) String dateFrom,
             @RequestParam(required = false) String dateTo,
@@ -85,7 +85,7 @@ public class AnalyticsController {
 
     @GetMapping("/drilldown")
     public Result<AnalyticsUnavailableVO> drilldown(
-            @RequestAttribute(AUTHENTICATED_USER_ATTRIBUTE) AuthenticatedUser user,
+            @RequestAttribute(value = AUTHENTICATED_USER_ATTRIBUTE, required = false) AuthenticatedUser user,
             @RequestParam String metricId,
             @RequestParam String dataVersion,
             @RequestParam String entityType,

@@ -17,17 +17,18 @@ describe('Analytics dashboard route', () => {
     await router.replace('/login')
   })
 
-  it('keeps the data-versioned dashboard in the authenticated product shell', () => {
+  it('keeps the data-versioned dashboard in the public product shell', () => {
     const publicShell = routes.find((route) => route.path === '/')
     const analytics = publicShell.children.find((route) => route.name === 'analytics-dashboard')
 
-    expect(analytics).toMatchObject({ path: 'analytics', meta: { requiresUser: true } })
+    expect(analytics).toMatchObject({ path: 'analytics' })
+    expect(analytics.meta?.requiresUser).not.toBe(true)
   })
 
-  it('redirects anonymous visitors before requesting user-owned analytics', async () => {
+  it('allows anonymous visitors to open read-only analytics', async () => {
     await router.push('/analytics')
 
-    expect(router.currentRoute.value.path).toBe('/login')
-    expect(router.currentRoute.value.query).toEqual({ redirect: '/analytics', reason: 'ai-login-required' })
+    expect(router.currentRoute.value.path).toBe('/analytics')
+    expect(router.currentRoute.value.name).toBe('analytics-dashboard')
   })
 })

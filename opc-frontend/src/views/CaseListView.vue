@@ -1,188 +1,57 @@
 <template>
-  <div class="page-stack case-index-page archive-workspace-page">
-    <section class="panel filter-panel case-filter-panel scroll-reveal" @pointermove="handleCaseSpotlight">
-      <div class="section-header">
-        <div>
-          <h2>案例检索</h2>
-          <p>按地区、类型和关键词快速定位 AI + OPC / 一人公司案例。</p>
-        </div>
-        <span class="analysis-badge">{{ cases.length }} records</span>
+  <div class="case-explorer">
+    <div class="case-explorer-main">
+      <form class="policy-search" role="search" @submit.prevent="runSearch">
+        <Search :size="25" aria-hidden="true" />
+        <label class="sr-only" for="case-keyword">搜索案例关键词</label>
+        <input id="case-keyword" v-model.trim="query.keyword" placeholder="搜索案例、创业主体、行业或 AI 工具..." />
+        <button type="submit">搜索</button>
+      </form>
+      <div class="policy-explorer-filters">
+        <label><span>地区</span><select v-model="query.regionId"><option value="">全部地区</option><option v-for="region in visibleRegions" :key="region.id" :value="String(region.id)">{{ region.name }}</option></select></label>
+        <label><span>案例类型</span><select v-model="query.category"><option v-for="item in categoryOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+        <label><span>排序方式</span><select v-model="sortMode"><option v-for="item in sortOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
       </div>
-
-      <div class="case-summary-strip">
-        <div>
-          <span>案例总量</span>
-          <strong>{{ allCases.length }}</strong>
-        </div>
-        <div>
-          <span>当前结果</span>
-          <strong>{{ cases.length }}</strong>
-        </div>
-        <div>
-          <span>覆盖地区</span>
-          <strong>{{ coveredRegionCount }}</strong>
-        </div>
-        <div>
-          <span>案例类型</span>
-          <strong>{{ usedCategoryCount }}</strong>
-        </div>
-      </div>
-      <p class="case-summary-note">统计口径：基于当前资料库记录，随筛选条件实时更新；类型字段按标签合并统计。</p>
-
-      <div
-        v-if="query.industryTagId"
-        class="active-scope-filter"
-        data-testid="active-industry-filter"
-        role="status"
-      >
-        <div>
-          <span>行业范围</span>
-          <strong>{{ selectedIndustryLabel }}</strong>
-        </div>
-        <button class="button button-ghost" type="button" aria-label="清除行业筛选" @click="clearIndustryFilter">
-          清除
+      <div v-if="query.industryTagId" class="case-active-filter" data-testid="active-industry-filter" role="status">行业：{{ selectedIndustryLabel }} <button type="button" @click="clearIndustryFilter">清除</button></div>
+      <div class="policy-explorer-status"><span>{{ resultText }}</span><button v-if="hasActiveFilter" type="button" @click="resetFilters">清空筛选</button></div>
+      <div v-if="error" class="policy-explorer-error" role="alert">{{ error }}</div>
+      <div v-else-if="loading" class="policy-explorer-empty" role="status">正在同步案例资料…</div>
+      <div v-else-if="!cases.length" class="policy-explorer-empty">暂无匹配案例。试试调整关键词或筛选条件。</div>
+      <div v-else class="case-explorer-list">
+        <button v-for="item in paginatedCases" :key="item.id" class="case-explorer-row" :class="{ 'is-selected': selectedCase?.id === item.id }" type="button" :aria-pressed="selectedCase?.id === item.id" @click="selectedCaseId = item.id">
+          <span class="case-explorer-row-icon"><BriefcaseBusiness :size="20" /></span>
+          <span class="case-explorer-row-content"><span class="case-explorer-row-meta">{{ item.regionName || '地区未标注' }} · {{ item.category || '类型未标注' }} · {{ formatCaseDate(item.accessedAt) }}</span><strong>{{ item.title }}</strong><span class="case-explorer-row-summary">{{ item.summary || '暂无摘要，打开详情可查看完整记录。' }}</span></span>
+          <ArrowRight :size="18" />
         </button>
-      </div>
-
-      <div class="auto-filter-grid">
-        <label>
-          <span>关键词检索</span>
-          <input v-model.trim="query.keyword" placeholder="搜索标题、摘要、主体或标签" />
-        </label>
-        <label>
-          <span>地区</span>
-          <div class="custom-select" :class="{ open: regionMenuOpen }">
-            <button class="custom-select-trigger" type="button" @click="toggleRegionMenu">
-              <span>{{ selectedRegionLabel }}</span>
-              <b></b>
-            </button>
-            <div v-if="regionMenuOpen" class="custom-select-menu">
-              <button type="button" :class="{ active: !query.regionId }" @click="selectRegion('')">
-                全部地区
-              </button>
-              <button
-                v-for="region in visibleRegions"
-                :key="region.id"
-                type="button"
-                :class="{ active: query.regionId === String(region.id) }"
-                @click="selectRegion(region.id)"
-              >
-                {{ region.name }}
-              </button>
-            </div>
-          </div>
-        </label>
-        <label>
-          <span>案例类型</span>
-          <div class="custom-select" :class="{ open: categoryMenuOpen }">
-            <button class="custom-select-trigger" type="button" @click="toggleCategoryMenu">
-              <span>{{ selectedCategoryLabel }}</span>
-              <b></b>
-            </button>
-            <div v-if="categoryMenuOpen" class="custom-select-menu">
-              <button
-                v-for="item in categoryOptions"
-                :key="item.value"
-                type="button"
-                :class="{ active: query.category === item.value }"
-                @click="selectCategory(item.value)"
-              >
-                {{ item.label }}
-              </button>
-            </div>
-          </div>
-        </label>
-        <label>
-          <span>排序方式</span>
-          <div class="custom-select" :class="{ open: sortMenuOpen }">
-            <button class="custom-select-trigger" type="button" @click="toggleSortMenu">
-              <span>{{ selectedSortLabel }}</span>
-              <b></b>
-            </button>
-            <div v-if="sortMenuOpen" class="custom-select-menu">
-              <button
-                v-for="item in sortOptions"
-                :key="item.value"
-                type="button"
-                :class="{ active: sortMode === item.value }"
-                @click="selectSort(item.value)"
-              >
-                {{ item.label }}
-              </button>
-            </div>
-          </div>
-        </label>
-      </div>
-    </section>
-
-    <section class="panel case-index-panel scroll-reveal" @pointermove="handleCaseSpotlight">
-      <div class="section-header compact-header">
-        <div>
-          <h2>案例索引</h2>
-          <p>{{ resultText }}</p>
-        </div>
-        <button v-if="hasActiveFilter" class="button button-ghost" type="button" @click="resetFilters">
-          清除筛选
-        </button>
-      </div>
-
-      <div v-if="loading" class="muted">正在加载案例...</div>
-      <div v-else-if="error" class="error">{{ error }}</div>
-      <div v-else-if="!cases.length" class="empty-state">
-        <strong>暂无匹配案例</strong>
-        <span>可以换一个地区、类型或关键词试试。</span>
-      </div>
-      <div v-else class="case-index-list">
-        <RouterLink
-          v-for="(item, index) in paginatedCases"
-          :key="item.id"
-          class="case-index-row scroll-reveal"
-          :style="{ '--i': index }"
-          :to="`/cases/${item.id}`"
-        >
-          <div class="case-index-main">
-            <div class="case-index-meta">
-              <span>{{ item.regionName || '未标注地区' }}</span>
-              <span>{{ item.actorName || '未标注主体' }}</span>
-              <span>{{ formatCaseDate(item.accessedAt) }}</span>
-            </div>
-            <div class="case-classification-row" aria-label="案例分类">
-              <span class="case-taxonomy-tag case-taxonomy-major">{{ item.category || '未标注大类' }}</span>
-              <span class="case-taxonomy-tag case-taxonomy-minor">{{ item.subcategory || '未标注小类' }}</span>
-            </div>
-            <strong>{{ item.title }}</strong>
-            <p>{{ item.summary || '暂无摘要' }}</p>
-            <div v-if="formatTags(item.tags).length" class="chip-row case-tag-row">
-              <span v-for="tag in formatTags(item.tags)" :key="tag" class="chip">{{ tag }}</span>
-            </div>
-          </div>
-          <div class="case-index-side">
-            <span class="visit-count-pill">{{ getCasePv(item.id) }} 次浏览</span>
-            <span class="status-pill">{{ item.status || '-' }}</span>
-          </div>
-        </RouterLink>
       </div>
       <div v-if="cases.length" class="case-pagination" aria-label="案例分页">
         <button type="button" :disabled="currentPage === 1" @click="goToPage(currentPage - 1)">上一页</button>
-        <button
-          v-for="page in paginationPages"
-          :key="page"
-          type="button"
-          :class="{ active: page === currentPage }"
-          @click="goToPage(page)"
-        >
-          {{ page }}
-        </button>
+        <button v-for="page in paginationPages" :key="page" type="button" :class="{ active: page === currentPage }" @click="goToPage(page)">{{ page }}</button>
         <button type="button" :disabled="currentPage === totalPages" @click="goToPage(currentPage + 1)">下一页</button>
-        <span>第 {{ currentPage }} / {{ totalPages }} 页，每页 10 条</span>
+        <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
       </div>
-    </section>
+      <p class="policy-explorer-note">案例根据已收录公开资料整理，详情请结合完整记录核对。</p>
+    </div>
+
+    <aside class="policy-preview case-preview" aria-label="案例预览">
+      <template v-if="selectedCase">
+        <div class="policy-preview-top"><span>{{ selectedCase.category || '案例资料' }}</span><span>案例预览</span></div>
+        <h2>{{ selectedCase.title }}</h2>
+        <div class="policy-preview-meta"><span>{{ selectedCase.actorName || '主体未标注' }}</span><span>{{ selectedCase.regionName || '地区未标注' }}</span></div>
+        <div class="policy-preview-region">{{ selectedCase.subcategory || '细分类型未标注' }}</div>
+        <section class="policy-preview-section"><h3>摘要</h3><p>{{ selectedCase.summary || '暂无摘要，请打开完整案例详情。' }}</p></section>
+        <section v-if="selectedCase.businessModel" class="policy-preview-section"><h3>商业模式</h3><p>{{ selectedCase.businessModel }}</p></section>
+        <section v-if="selectedCase.outcome" class="policy-preview-section"><h3>实践成果</h3><p>{{ selectedCase.outcome }}</p></section>
+        <RouterLink class="policy-preview-detail-link" :to="'/cases/' + selectedCase.id"><BriefcaseBusiness :size="18" />查看完整详情 <ArrowRight :size="18" /></RouterLink>
+      </template>
+      <div v-else class="policy-preview-placeholder"><BriefcaseBusiness :size="32" /><strong>案例详情将在这里显示</strong><p>选择左侧案例，查看摘要与实践信息。</p></div>
+    </aside>
   </div>
 </template>
-
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { ArrowRight, BriefcaseBusiness, Search } from 'lucide-vue-next'
 import { getCases } from '@/api/case'
 import { getRegions } from '@/api/region'
 import { getVisitRankings } from '@/api/visit'
@@ -198,6 +67,7 @@ const regions = ref([])
 const industryTags = ref([])
 const caseVisitRankings = ref([])
 const currentPage = ref(1)
+const selectedCaseId = ref(null)
 const regionMenuOpen = ref(false)
 const categoryMenuOpen = ref(false)
 const sortMenuOpen = ref(false)
@@ -288,6 +158,8 @@ const paginatedCases = computed(() => {
   const start = (currentPage.value - 1) * pageSize
   return sortedCases.value.slice(start, start + pageSize)
 })
+
+const selectedCase = computed(() => paginatedCases.value.find((item) => item.id === selectedCaseId.value) || paginatedCases.value[0] || null)
 
 const paginationPages = computed(() => {
   const total = totalPages.value
@@ -550,6 +422,12 @@ watch(
   () => [query.regionId, query.industryTagId, query.category],
   loadCases,
 )
+
+function runSearch() {
+  window.clearTimeout(keywordTimer)
+  loadCases()
+  reportCaseSearch()
+}
 
 onMounted(async () => {
   await nextTick()

@@ -9,12 +9,9 @@ const api = vi.hoisted(() => ({
   regions: vi.fn(),
   trends: vi.fn(),
   drilldown: vi.fn(),
-  policies: vi.fn(),
-  startAnalytics: vi.fn(),
 }))
 const router = vi.hoisted(() => ({ push: vi.fn() }))
 const route = vi.hoisted(() => ({ query: {} }))
-const auth = vi.hoisted(() => ({ profile: { userId: 42, username: 'researcher' } }))
 
 vi.mock('@/api/analytics', () => ({
   getAnalyticsOverview: api.overview,
@@ -25,9 +22,6 @@ vi.mock('@/api/analytics', () => ({
   getAnalyticsTrends: api.trends,
   getAnalyticsDrilldown: api.drilldown,
 }))
-vi.mock('@/api/ai', () => ({ startResearchFromAnalytics: api.startAnalytics }))
-vi.mock('@/api/auth', () => ({ getUserProfile: () => auth.profile }))
-vi.mock('@/api/policy', () => ({ getPolicies: api.policies }))
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => router }))
 
 import AnalyticsDashboardView from '@/views/AnalyticsDashboardView.vue'
@@ -35,12 +29,7 @@ import AnalyticsDashboardView from '@/views/AnalyticsDashboardView.vue'
 describe('AnalyticsDashboardView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    sessionStorage.clear()
     route.query = {}
-    api.policies.mockResolvedValue([
-      { id: 1, policyType: 'comprehensive', tags: '综合发展政策，投融资与金融服务' },
-      { id: 2, policyType: 'governance_market', tags: '制度治理与市场环境' },
-    ])
     api.overview.mockResolvedValue({
       dataVersion: 'analytics-v1:9d18c2',
       generatedAt: '2026-08-01T10:00:00',
@@ -165,58 +154,37 @@ describe('AnalyticsDashboardView', () => {
     expect(wrapper.get('[data-testid="policy-drilldown"]').text()).toContain('浙江省创业扶持政策')
   })
 
-  it('loads server-owned data-versioned metrics and hands off only an explicit research draft', async () => {
+  it('loads server-owned data-versioned metrics without AI research actions', async () => {
     const wrapper = mount(AnalyticsDashboardView)
     await flushPromises()
 
     expect(api.overview).toHaveBeenCalledTimes(1)
     expect(api.industries).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('analytics-v1:9d18c2')
+    expect(wrapper.find('.analytics-provenance').exists()).toBe(false)
+    expect(wrapper.get('.analytics-heading').text()).toContain('让每个数字都有依据')
+    expect(wrapper.get('.analytics-heading').text()).not.toContain('analytics-v1:9d18c2')
     expect(wrapper.text()).toContain('18')
     expect(wrapper.get('[data-testid="policy-material-distribution"]').text()).toContain('正式文件')
     expect(wrapper.get('[data-testid="policy-material-distribution"]').text()).toContain('80')
-    expect(wrapper.text()).toContain('案例尚未具备独立 canonical_case_id')
+    expect(wrapper.text()).not.toContain('案例尚未具备独立 canonical_case_id')
     expect(wrapper.text()).toContain('正式技术 taxonomy 尚未完成审核')
-    expect(wrapper.get('[data-testid="research-from-overview.verified_policies"]').attributes('aria-label')).toBe('将已核验政策带入研究')
-
-    await wrapper.get('[data-testid="research-from-overview.verified_policies"]').trigger('click')
-
-    expect(api.startAnalytics).not.toHaveBeenCalled()
-    expect(router.push).toHaveBeenCalledWith({ name: 'assistant', query: { handoff: 'analytics' } })
-    expect(JSON.parse(sessionStorage.getItem('opc_analytics_research_draft:user:42'))).toEqual({
-      version: 1,
-      metricId: 'overview.verified_policies',
-      metricLabel: '已核验政策',
-      dataVersion: 'analytics-v1:9d18c2',
-      filters: {},
-      selectedBucketIds: [],
-      userQuestion: '请基于“已核验政策”这一已核验数据指标，说明它对当前创业研究范围意味着什么；区分可确认事实、推断、风险和下一步行动。',
-    })
+    expect(wrapper.find('[data-testid^="research-from-"]').exists()).toBe(false)
   })
 
-  it('renders an accessible industry comparison and hands off the selected server bucket', async () => {
+  it('renders an accessible industry comparison without AI research actions', async () => {
     const wrapper = mount(AnalyticsDashboardView)
     await flushPromises()
 
     expect(wrapper.get('[data-testid="industry-chart"]').attributes('aria-label')).toContain('人工智能服务 4 条')
     expect(wrapper.get('[data-testid="industry-table"]').text()).toContain('企业服务')
     expect(wrapper.get('.analytics-sample').text()).toContain('样本')
+    expect(wrapper.get('.analytics-industry-scope').text()).toContain('案例索引展示全部已发布案例')
     expect(wrapper.get('.analytics-sample').text()).toContain('5')
     expect(wrapper.get('.analytics-sample').text()).toContain('缺失')
     expect(wrapper.get('.analytics-sample').text()).toContain('1')
     expect(wrapper.text()).toContain('当前按已核验案例 ID 去重。')
     expect(wrapper.get('[data-testid="industry-row-industry:9"]').text()).toContain('低样本')
-
-    await wrapper.get('[data-testid="research-from-industry:7"]').trigger('click')
-
-    expect(api.startAnalytics).not.toHaveBeenCalled()
-    expect(JSON.parse(sessionStorage.getItem('opc_analytics_research_draft:user:42'))).toMatchObject({
-      metricId: 'industry.case_count',
-      dataVersion: 'analytics-v1:9d18c2',
-      filters: { industryTagId: 7 },
-      selectedBucketIds: ['industry:7'],
-    })
-    expect(router.push).toHaveBeenCalledWith({ name: 'assistant', query: { handoff: 'analytics' } })
+    expect(wrapper.find('[data-testid^="research-from-"]').exists()).toBe(false)
   })
 
   it('opens the case workspace with the server-owned industry tag filter', async () => {
@@ -251,7 +219,7 @@ describe('AnalyticsDashboardView', () => {
     expect(wrapper.text()).toContain('当前筛选没有合格行业案例。')
   })
 
-  it('explains when no audited metric can be brought into research', async () => {
+  it('shows an empty state when no audited metrics are available', async () => {
     api.overview.mockResolvedValue({ dataVersion: 'analytics-v1:empty', generatedAt: '2026-08-01T10:00:00', status: 'complete', cards: [] })
     api.industries.mockResolvedValue({ dataVersion: 'analytics-v1:empty', status: 'unavailable', buckets: [], caveats: [] })
 
@@ -260,20 +228,5 @@ describe('AnalyticsDashboardView', () => {
 
     expect(wrapper.text()).toContain('当前没有可用于研究的已核验统计。')
     expect(wrapper.find('[data-testid^="research-from-"]').exists()).toBe(false)
-  })
-
-  it('explains when the browser cannot keep an explicit handoff draft', async () => {
-    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
-      throw new Error('storage blocked')
-    })
-    const wrapper = mount(AnalyticsDashboardView)
-    await flushPromises()
-
-    await wrapper.get('[data-testid="research-from-overview.verified_policies"]').trigger('click')
-    await flushPromises()
-
-    expect(router.push).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('浏览器未能保存研究条件，请允许本地存储后重试。')
-    write.mockRestore()
   })
 })

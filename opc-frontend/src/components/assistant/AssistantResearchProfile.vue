@@ -220,8 +220,8 @@ function regionName(id) { return props.regions.find((item) => String(item.id) ==
   background: #f6f5ef;
 }
 .research-profile > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-.research-profile h2 { margin: 4px 0 0; font-family: 'Noto Serif SC', STSong, SimSun, serif; font-size: 1rem; font-weight: 500; }
-.caption { color: #5f665f; font-family: 'Bookman Old Style', Georgia, serif; font-size: .63rem; font-weight: 700; }
+.research-profile h2 { margin: 4px 0 0; font-family: var(--font-ui); font-size: 1rem; font-weight: 500; }
+.caption { color: #5f665f; font-family: var(--font-ui); font-size: .63rem; font-weight: 700; }
 .secondary-command { display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 11px; border: 1px solid #b9bfb8; border-radius: 3px; background: #fbfbf7; color: #303630; }
 .secondary-command:focus-visible { border-color: #747b74; background: #eceee8; }
 .secondary-command:focus-visible { outline: 2px solid rgba(74,82,74,.34); outline-offset: 2px; }

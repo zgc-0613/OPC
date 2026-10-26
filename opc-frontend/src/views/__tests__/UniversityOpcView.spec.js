@@ -11,6 +11,7 @@ vi.mock('vue-router', () => ({
 import UniversityOpcView from '@/views/UniversityOpcView.vue'
 
 const readPrismaStyles = () => readFileSync('src/styles/prisma.css', 'utf8')
+const readUniversityStyles = () => readFileSync('src/styles/university-refresh.css', 'utf8')
 
 const makeRecord = (index, type = 'communities') => ({
   id: `${type}-${String(index + 1).padStart(3, '0')}`,
@@ -76,7 +77,7 @@ describe('UniversityOpcView public data workspace', () => {
     expect(wrapper.findAll('.university-opc-record').length).toBeGreaterThan(0)
   })
 
-  it('keeps the 06 navigation group keyboard and pointer closable', async () => {
+  it('keeps the 06 university entry visible in the unified navigation', async () => {
     const MainLayout = (await import('@/layouts/MainLayout.vue')).default
     const layout = mount(MainLayout, {
       global: {
@@ -87,24 +88,40 @@ describe('UniversityOpcView public data workspace', () => {
       },
     })
 
-    const trigger = layout.get('.nav-group-trigger')
-    expect(trigger.attributes('aria-expanded')).toBe('false')
-    await trigger.trigger('click')
-    expect(trigger.attributes('aria-expanded')).toBe('true')
-    expect(layout.get('#university-opc-subnav').isVisible()).toBe(true)
-    await trigger.trigger('click')
-    expect(trigger.attributes('aria-expanded')).toBe('false')
+    const universityEntry = layout.findAll('.atlas-sidebar nav a').at(5)
+    expect(universityEntry.text()).toContain('高校 OPC')
+    expect(layout.findAll('.atlas-topnav a').at(5).text()).toBe('高校 OPC')
   })
 
-  it('keeps real source links and defines a high-density archive scale without overflow', async () => {
+  it('shows the selected record summary and its real source in the right preview', async () => {
     const wrapper = mount(UniversityOpcView)
     await flushPromises()
 
-    const source = wrapper.get('.record-source')
+    expect(wrapper.get('.university-preview-summary').text()).toContain('真实记录摘要 1')
+    await wrapper.findAll('.university-opc-record-select')[1].trigger('click')
+    expect(wrapper.get('.university-preview-summary').text()).toContain('真实记录摘要 2')
+    const source = wrapper.get('.university-preview-source')
+    expect(source.attributes('href')).toBe('https://example.com/source/2')
+  })
+
+  it('keeps source links and defines a high-density archive scale without overflow', async () => {
+    const wrapper = mount(UniversityOpcView)
+    await flushPromises()
+
+    const source = wrapper.get('.university-preview-source')
     expect(source.attributes('href')).toBe('https://example.com/source/1')
     const prismaStyles = readPrismaStyles()
     expect(prismaStyles).toMatch(/@media\s*\(min-width:\s*1440px\)[\s\S]*?route-university-opc[\s\S]*?university-opc-page/is)
     expect(prismaStyles).toMatch(/route-university-opc[\s\S]*?overflow-wrap\s*:\s*anywhere/is)
+  })
+
+  it('switches the visible records when selecting a category', async () => {
+    const wrapper = mount(UniversityOpcView)
+    await flushPromises()
+
+    await wrapper.get('#university-tab-support').trigger('click')
+    expect(wrapper.findAll('.university-opc-record')).toHaveLength(1)
+    expect(wrapper.get('.university-opc-preview h4').text()).toContain('support 记录 1')
   })
 
   it('uses a responsive, touch-safe pagination control surface', async () => {
@@ -112,9 +129,24 @@ describe('UniversityOpcView public data workspace', () => {
     await flushPromises()
 
     expect(wrapper.get('.university-opc-pagination').attributes('aria-label')).toBe('高校 OPC 分页')
+    expect(wrapper.get('.university-opc-mobile-page-label').text()).toBe('第 1 / 6 页')
+    await wrapper.get('[data-testid="university-next-page"]').trigger('click')
+    expect(wrapper.get('.university-opc-mobile-page-label').text()).toBe('第 2 / 6 页')
     const prismaStyles = readPrismaStyles()
-    expect(prismaStyles).toMatch(/\.route-university-opc \.university-opc-pagination[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto minmax\(0, 1fr\)/is)
     expect(prismaStyles).toMatch(/\.route-university-opc \.university-opc-page-controls button[\s\S]*?min-height:\s*44px/is)
-    expect(prismaStyles).toMatch(/@media \(max-width:\s*640px\)[\s\S]*?\.route-university-opc \.university-opc-pagination[\s\S]*?grid-template-columns:\s*1fr/is)
+    const universityStyles = readUniversityStyles()
+    expect(universityStyles).toMatch(/\.university-opc-pagination\s*\{\s*display:\s*flex;\s*flex-wrap:\s*wrap/is)
+    expect(universityStyles).toMatch(/@container\s*\(max-width:\s*700px\)[\s\S]*?\.university-opc-numbered-page\s*\{\s*display:\s*none/is)
+  })
+
+  it('keeps the selected summary next to its row for narrow layouts', async () => {
+    const wrapper = mount(UniversityOpcView)
+    await flushPromises()
+
+    expect(wrapper.get('.university-opc-record.is-selected .university-opc-inline-preview').text()).toContain('真实记录摘要 1')
+    await wrapper.findAll('.university-opc-record-select')[1].trigger('click')
+    const inlinePreview = wrapper.get('.university-opc-record.is-selected .university-opc-inline-preview')
+    expect(inlinePreview.text()).toContain('真实记录摘要 2')
+    expect(inlinePreview.get('a').attributes('href')).toBe('https://example.com/source/2')
   })
 })

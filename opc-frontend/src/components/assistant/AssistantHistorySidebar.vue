@@ -234,7 +234,7 @@ function detectMobileViewport() {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  font-family: 'Noto Serif SC', STSong, SimSun, serif;
+  font-family: var(--font-ui);
   font-weight: 500;
   text-overflow: clip;
   white-space: nowrap;
@@ -353,7 +353,7 @@ function detectMobileViewport() {
 .history-list h3 {
   margin: 14px 8px 5px;
   color: #626862;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-size: .66rem;
   letter-spacing: 0;
 }
@@ -377,7 +377,7 @@ function detectMobileViewport() {
 .history-row-main span {
   overflow: hidden;
   color: #252a25;
-  font-family: 'Noto Serif SC', STSong, SimSun, serif;
+  font-family: var(--font-ui);
   font-size: .82rem;
   text-overflow: ellipsis;
   white-space: nowrap;

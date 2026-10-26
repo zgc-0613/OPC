@@ -18,12 +18,37 @@ public interface PolicyMapper extends BaseMapper<Policy> {
 
     @Select("""
             SELECT material_nature AS materialNature, COUNT(*) AS value
-            FROM policies
-            WHERE material_nature IS NOT NULL AND TRIM(material_nature) <> ''
-            GROUP BY material_nature
-            ORDER BY material_nature
+            FROM policies item
+            INNER JOIN sources source ON source.id=item.source_id
+            WHERE item.status IN ('published', 'consultation', 'expired')
+              AND item.ai_evidence_status='verified'
+              AND source.status='published' AND source.ai_evidence_status='verified'
+              AND source.title IS NOT NULL AND TRIM(source.title)<>''
+              AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
+              AND source.url IS NOT NULL
+              AND (LOWER(TRIM(source.url)) LIKE 'http://%' OR LOWER(TRIM(source.url)) LIKE 'https://%')
+              AND item.material_nature IS NOT NULL AND TRIM(item.material_nature) <> ''
+            GROUP BY item.material_nature
+            ORDER BY item.material_nature
             """)
     List<MaterialNatureCountRow> selectMaterialNatureCounts();
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM policies item
+            INNER JOIN sources source ON source.id=item.source_id
+            WHERE item.status=#{status} AND item.material_nature=#{nature}
+              AND item.ai_evidence_status='verified'
+              AND source.status='published' AND source.ai_evidence_status='verified'
+              AND source.title IS NOT NULL AND TRIM(source.title)<>''
+              AND source.publisher IS NOT NULL AND TRIM(source.publisher)<>''
+              AND source.url IS NOT NULL
+              AND (LOWER(TRIM(source.url)) LIKE 'http://%' OR LOWER(TRIM(source.url)) LIKE 'https://%')
+            """)
+    long countEligiblePoliciesByStatusAndNature(
+            @Param("status") String status,
+            @Param("nature") String nature
+    );
 
     @Data
     @NoArgsConstructor

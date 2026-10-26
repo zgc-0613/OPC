@@ -66,7 +66,6 @@ public class AnalyticsOverviewService {
 
     @Transactional(readOnly = true)
     public AnalyticsOverviewVO overview(AuthenticatedUser user) {
-        if (user == null || user.userId() == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "请先登录");
         long cases = count("case");
         long policies = count("policy");
         long sources = count("source");
@@ -102,7 +101,7 @@ public class AnalyticsOverviewService {
         addMaterialCount(result, counts, "standard_reference", "标准规范文件");
         addMaterialCount(result, counts, "official_platform_service", "官方平台/服务信息");
         long shown = result.stream().mapToLong(item -> item.value() == null ? 0L : item.value()).sum();
-        long total = policyMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>());
+        long total = count("policy");
         result.add(new AnalyticsOverviewVO.MaterialCount("other_material", "其他资料",
                 Math.max(0L, total - shown)));
         return List.copyOf(result);
@@ -114,8 +113,7 @@ public class AnalyticsOverviewService {
     }
 
     private long countPoliciesByStatusAndNature(String status, String nature) {
-        return policyMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.opc.platform.policy.entity.Policy>()
-                .eq("status", status).eq("material_nature", nature));
+        return policyMapper.countEligiblePoliciesByStatusAndNature(status, nature);
     }
 
     @Transactional(readOnly = true)
@@ -124,9 +122,6 @@ public class AnalyticsOverviewService {
             String metricId,
             List<Long> industryTagIds
     ) {
-        if (user == null || user.userId() == null) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED, "请先登录");
-        }
         return buildIndustries(metricId, normalizeIndustryTagIds(industryTagIds));
     }
 
@@ -136,7 +131,6 @@ public class AnalyticsOverviewService {
             String requestedMetricId,
             List<Long> technologyTagIds
     ) {
-        requireUser(user);
         String metricId = normalizedMetricId(requestedMetricId, "technology.case_count", TECHNOLOGY_METRICS);
         List<Long> normalizedTagIds = normalizeUnavailableTagIds(technologyTagIds);
         if (!normalizedTagIds.isEmpty()) {
@@ -170,7 +164,6 @@ public class AnalyticsOverviewService {
             String requestedPeriod,
             String requestedType
     ) {
-        requireUser(user);
         String metricId = normalizedMetricId(
                 requestedMetricId, "revenue.range_distribution", REVENUE_METRICS);
         if (requestedCurrency == null || requestedCurrency.isBlank()
@@ -215,7 +208,6 @@ public class AnalyticsOverviewService {
             String requestedMetricId,
             String requestedRegionRole
     ) {
-        requireUser(user);
         String metricId = normalizedMetricId(
                 requestedMetricId, "region.case_count", REGION_METRICS);
         String regionRole = requestedRegionRole == null || requestedRegionRole.isBlank()
@@ -236,14 +228,14 @@ public class AnalyticsOverviewService {
 
     private AnalyticsUnavailableVO policyRegions(String regionRole) {
         List<PolicyMapper.AnalyticsProvinceRow> groupedRows =
-                policyMapper.selectAllProvinceAnalyticsRows();
+                policyMapper.selectEligibleProvinceAnalyticsRows();
         groupedRows = groupedRows == null ? List.of() : groupedRows.stream()
                 .filter(java.util.Objects::nonNull)
                 .filter(row -> row.getRegionId() != null && row.getRegionId() > 0)
                 .filter(row -> row.getLabel() != null && !row.getLabel().isBlank())
                 .filter(row -> row.getValue() != null && row.getValue() > 0)
                 .toList();
-        long totalEligible = policyMapper.countAllPolicyRecords();
+        long totalEligible = count("policy");
         List<AnalyticsUnavailableVO.RegionRow> values = groupedRows.stream()
                 .map(row -> provinceRegionRow(
                         row.getRegionId(), row.getLabel(), row.getValue(), regionRole,
@@ -361,7 +353,6 @@ public class AnalyticsOverviewService {
             List<Long> requestedIndustryTagIds,
             List<Long> requestedTechnologyTagIds
     ) {
-        requireUser(user);
         String metricId = normalizedMetricId(
                 requestedMetricId, "trend.policy_publish_time", TREND_METRICS);
         LocalDate dateFrom = parseTrendDate(requestedDateFrom);
@@ -578,7 +569,6 @@ public class AnalyticsOverviewService {
             String requestedCursor,
             int requestedLimit
     ) {
-        requireUser(user);
         String metricId = requestedMetricId == null ? "" : requestedMetricId.trim();
         if (!isKnownAnalyticsMetric(metricId)) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "ANALYTICS_METRIC_NOT_FOUND");
@@ -653,7 +643,7 @@ public class AnalyticsOverviewService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "ANALYTICS_INVALID_FILTER");
         }
         int offset = decodeDrilldownOffset(cursor, metricId, dataVersion, bucketId);
-        List<PolicyMapper.AnalyticsPolicyRow> eligibleRows = policyMapper.selectAllPolicyAnalyticsRows();
+        List<PolicyMapper.AnalyticsPolicyRow> eligibleRows = policyMapper.selectEligibleAnalyticsRows(null);
         eligibleRows = eligibleRows == null ? List.of() : eligibleRows.stream()
                 .filter(java.util.Objects::nonNull)
                 .filter(row -> Long.valueOf(regionId).equals(row.getProvinceId()))
@@ -911,12 +901,6 @@ public class AnalyticsOverviewService {
         };
     }
 
-    private void requireUser(AuthenticatedUser user) {
-        if (user == null || user.userId() == null) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED, "请先登录");
-        }
-    }
-
     private AnalyticsIndustriesVO unavailableIndustryMetric(
             String metricId,
             AnalyticsIndustriesVO.Filters filters,
@@ -1083,7 +1067,7 @@ public class AnalyticsOverviewService {
 
     private long count(String type) {
         if ("case".equals(type)) return caseMapper.countEligibleAnalyticsRecords();
-        if ("policy".equals(type)) return policyMapper.countAllPolicyRecords();
+        if ("policy".equals(type)) return policyMapper.countEligibleAnalyticsRecords();
         return sourceMapper.countEligibleAnalyticsRecords();
     }
 

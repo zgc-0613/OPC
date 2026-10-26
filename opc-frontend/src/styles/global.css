@@ -22,14 +22,7 @@
   --duration-base: 220ms;
   --ease-out: cubic-bezier(0.19, 1, 0.22, 1);
   --ease-move: cubic-bezier(0.77, 0, 0.175, 1);
-  font-family:
-    "SF Pro Display",
-    "Helvetica Neue",
-    "Segoe UI",
-    "Microsoft YaHei",
-    "PingFang SC",
-    system-ui,
-    sans-serif;
+  font-family: var(--font-ui);
   color: var(--text);
   background: var(--canvas);
   line-height: 1.5;
@@ -210,7 +203,7 @@ button {
   border-radius: 3px;
   color: var(--paper);
   background: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0;
@@ -359,7 +352,7 @@ button {
 .nav a::before {
   grid-row: 1 / span 2;
   color: var(--faint);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 800;
 }
@@ -454,7 +447,7 @@ button {
   content: "06";
   flex: 0 0 34px;
   color: var(--faint);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 800;
 }
@@ -620,7 +613,7 @@ button {
 
 .archive-sidebar-foot span {
   color: var(--faint);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 10px;
   font-weight: 850;
   text-transform: uppercase;
@@ -642,7 +635,7 @@ button {
   display: block;
   margin-bottom: 8px;
   color: var(--accent);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
@@ -695,7 +688,7 @@ button {
   display: block;
   margin-bottom: 12px;
   color: var(--accent);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
@@ -734,7 +727,7 @@ button {
   border-radius: var(--radius);
   color: var(--muted);
   background: var(--paper);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
@@ -1173,7 +1166,7 @@ button {
 
 .signal-board-head span {
   color: var(--muted);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
@@ -1181,7 +1174,7 @@ button {
 
 .signal-board-head strong {
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 54px;
   line-height: 1;
 }
@@ -1411,7 +1404,7 @@ button {
 .archive-board-head span,
 .archive-index-card span {
   color: var(--muted);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 850;
   text-transform: uppercase;
@@ -1419,7 +1412,7 @@ button {
 
 .archive-board-head strong {
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: clamp(48px, 7vw, 74px);
   line-height: 0.9;
   animation: metric-number-pop 760ms var(--ease-out) both;
@@ -1475,7 +1468,7 @@ button {
 .archive-metrics strong {
   display: block;
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 42px;
   line-height: 1;
   animation: metric-number-pop 760ms var(--ease-out) both;
@@ -1634,7 +1627,7 @@ button {
 
 .archive-index-card strong {
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 42px;
   line-height: 1;
 }
@@ -1656,7 +1649,7 @@ button {
 
 .home-section-heading span {
   color: var(--muted);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 850;
   letter-spacing: 0.08em;
@@ -1759,7 +1752,7 @@ button {
   display: block;
   margin-top: 10px;
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 36px;
   line-height: 1;
 }
@@ -1769,7 +1762,7 @@ button {
   right: 16px;
   top: 16px;
   color: var(--faint);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
@@ -1880,7 +1873,7 @@ button {
 
 .rank-row strong {
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 14px;
   text-align: right;
 }
@@ -1925,7 +1918,7 @@ button {
 
 .donut-chart span {
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 32px;
   font-weight: 900;
   line-height: 1;
@@ -1971,7 +1964,7 @@ button {
 
 .type-share-total strong {
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 42px;
   line-height: 1;
 }
@@ -2088,7 +2081,7 @@ button {
   border-color: rgba(49, 92, 219, 0.22);
   color: #315cdb;
   background: rgba(49, 92, 219, 0.075);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
 }
 
 .trend-chart {
@@ -2140,7 +2133,7 @@ button {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(54px, 1fr));
   gap: 8px;
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-weight: 800;
 }
 
@@ -2186,7 +2179,7 @@ button {
 
 .trace-item strong {
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 26px;
   line-height: 1;
 }
@@ -2214,7 +2207,7 @@ button {
   z-index: 1;
   margin: 0;
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 10px;
   font-weight: 900;
 }
@@ -2253,7 +2246,7 @@ button {
 .category-row p {
   margin: 0;
   color: var(--muted);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 12px;
   font-weight: 850;
 }
@@ -2422,7 +2415,7 @@ button {
 .case-index-no,
 .source-ledger-no {
   color: var(--faint);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 12px;
   font-weight: 900;
 }
@@ -2507,7 +2500,7 @@ button {
 
 .region-index-no {
   color: var(--faint);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 12px;
   font-weight: 900;
 }
@@ -2527,7 +2520,7 @@ button {
 
 .region-index-card em {
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 28px;
   font-style: normal;
   font-weight: 900;
@@ -2566,7 +2559,7 @@ button {
 
 .region-index-bars b {
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   text-align: right;
 }
 
@@ -2977,7 +2970,7 @@ td a:hover,
 
 .admin-nav a span {
   color: var(--faint);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 800;
 }
@@ -3060,7 +3053,7 @@ td a:hover,
 
 .admin-card span {
   color: var(--faint);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 800;
 }
@@ -3117,7 +3110,7 @@ td a:hover,
   display: block;
   margin-top: 12px;
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 34px;
   line-height: 1;
 }
@@ -3205,7 +3198,7 @@ td a:hover,
   grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
   gap: 8px;
   color: var(--muted);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 12px;
   font-weight: 850;
 }
@@ -3222,7 +3215,7 @@ td a:hover,
 
 .admin-share-bars strong {
   color: var(--ink);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 24px;
 }
 
@@ -3267,7 +3260,7 @@ td a:hover,
 
 .admin-ranking-list span {
   color: var(--faint);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-weight: 900;
 }
 
@@ -3298,7 +3291,7 @@ td a:hover,
 
 .admin-ranking-list strong {
   color: var(--accent);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
 }
 
 .quick-source-toggle {
@@ -4819,7 +4812,7 @@ td a:hover,
   display: block;
   margin-top: 12px;
   color: #ffffff;
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 42px;
   line-height: 1;
   text-shadow: 0 12px 34px rgba(101, 217, 255, 0.16);
@@ -4866,7 +4859,7 @@ td a:hover,
   display: block;
   margin-bottom: 18px;
   color: #6777e8;
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 12px;
   font-weight: 850;
   letter-spacing: 0.14em;
@@ -4920,7 +4913,7 @@ td a:hover,
   color: #2432a3;
   background: linear-gradient(135deg, rgba(174, 188, 255, 0.34), rgba(101, 217, 255, 0.18));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 13px;
   font-weight: 950;
 }
@@ -5238,7 +5231,7 @@ td a:hover,
 
 .region-summary-strip strong {
   color: #111827;
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 42px;
   line-height: 1;
   text-shadow: 0 14px 34px rgba(49, 92, 219, 0.1);
@@ -5862,7 +5855,7 @@ td a:hover,
 
 .policy-summary-strip strong {
   color: #111827;
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 40px;
   line-height: 1;
   text-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
@@ -6609,7 +6602,7 @@ td a:hover,
 
 .case-summary-strip strong {
   color: #111827;
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 40px;
   line-height: 1;
   text-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
@@ -7111,7 +7104,7 @@ td a:hover,
 
 .source-summary-strip strong {
   color: #111827;
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 40px;
   line-height: 1;
   text-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
@@ -10118,7 +10111,7 @@ td a:hover,
   border-radius: 999px;
   color: #1d4ed8;
   background: rgba(255, 255, 255, 0.52);
-  font-family: "SF Mono", "Cascadia Mono", monospace;
+  font-family: var(--font-code);
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;

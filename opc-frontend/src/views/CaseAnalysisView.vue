@@ -262,7 +262,7 @@ function formatConfidence(value) {
 
 .case-analysis-head h2 {
   margin: 8px 0 12px;
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font-family: var(--font-ui);
   font-size: clamp(2.2rem, 5vw, 4.7rem);
   font-weight: 500;
   line-height: 1;
@@ -285,7 +285,7 @@ function formatConfidence(value) {
   border-radius: 6px;
   background: #f1f2ee;
   color: #686f69;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-size: 0.82rem;
 }
 
@@ -304,14 +304,14 @@ function formatConfidence(value) {
 .case-analysis-subject > span,
 .case-analysis-subject dt {
   color: #747b75;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-size: 0.72rem;
   text-transform: uppercase;
 }
 
 .case-analysis-subject h3 {
   margin: 0 0 8px;
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font-family: var(--font-ui);
   font-size: clamp(1.35rem, 2.2vw, 2rem);
 }
 
@@ -441,7 +441,7 @@ function formatConfidence(value) {
 .case-analysis-result-head h3 {
   max-width: 850px;
   margin: 8px 0 0;
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font-family: var(--font-ui);
   font-size: clamp(1.75rem, 3.6vw, 3.4rem);
   font-weight: 500;
   line-height: 1.18;
@@ -492,13 +492,13 @@ function formatConfidence(value) {
 
 .case-analysis-sections section > span {
   color: #7b817c;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
 }
 
 .case-analysis-sections h4,
 .case-analysis-citations h4 {
   margin: 0 0 10px;
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', STSong, SimSun, serif;
+  font-family: var(--font-ui);
   font-size: 1.16rem;
 }
 
@@ -527,7 +527,7 @@ function formatConfidence(value) {
 }
 
 .case-analysis-citations-head > strong {
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-size: 1.7rem;
 }
 
@@ -613,7 +613,7 @@ function formatConfidence(value) {
 .case-analysis-meta dd {
   margin: 0;
   color: #303530;
-  font-family: 'Bookman Old Style', Georgia, serif;
+  font-family: var(--font-ui);
   font-size: 0.84rem;
 }
 
